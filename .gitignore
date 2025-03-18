@@ -1,0 +1,13 @@
+PSX.Dev-README.md
+*.elf
+*.map
+*.cpe
+*.ps-exe
+*.dep
+*.o
+*.a
+
+.cache/
+.vscode/
+.editorconfig
+compile_commands.json
