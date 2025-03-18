@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+#include "EASTL/array.h"
+#include "gameobject.hh"
 #include "psyqo/application.hh"
 #include "psyqo/font.hh"
 #include "psyqo/gpu.hh"
@@ -25,6 +27,8 @@ class MainScene final : public psyqo::Scene {
 
     uint8_t m_anim = 0;
     bool m_direction = true;
+
+    eastl::array<psxsplash::GameObject> objects;
 };
 
 PSXSplash psxSplash;
@@ -39,6 +43,7 @@ void PSXSplash::prepare() {
         .set(psyqo::GPU::ColorMode::C15BITS)
         .set(psyqo::GPU::Interlace::PROGRESSIVE);
     gpu().initialize(config);
+    m_renderer.initialize();
 }
 
 void PSXSplash::createScene() {
@@ -47,22 +52,7 @@ void PSXSplash::createScene() {
 }
 
 void MainScene::frame() {
-    if (m_anim == 0) {
-        m_direction = true;
-    } else if (m_anim == 255) {
-        m_direction = false;
-    }
-    psyqo::Color bg{{.r = 0, .g = 64, .b = 91}};
-    bg.r = m_anim;
-    psxSplash.gpu().clear(bg);
-    if (m_direction) {
-        m_anim++;
-    } else {
-        m_anim--;
-    }
-
-    psyqo::Color c = {{.r = 255, .g = 255, .b = uint8_t(255 - m_anim)}};
-    psxSplash.m_font.print(psxSplash.gpu(), "Hello World!", {{.x = 16, .y = 32}}, c);
+    psxSplash.m_renderer.render(objects);
 }
 
 int main() { return psxSplash.run(); }
