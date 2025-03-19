@@ -10,4 +10,5 @@ PSX.Dev-README.md
 .cache/
 .vscode/
 .editorconfig
+.clang-format
 compile_commands.json

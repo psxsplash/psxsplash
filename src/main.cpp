@@ -24,17 +24,13 @@ class PSXSplash final : public psyqo::Application {
 
 class MainScene final : public psyqo::Scene {
     void frame() override;
-
-    uint8_t m_anim = 0;
-    bool m_direction = true;
-
     eastl::array<psxsplash::GameObject> objects;
 };
 
 PSXSplash psxSplash;
 MainScene mainScene;
 
-} 
+} // namespace
 
 void PSXSplash::prepare() {
     psyqo::GPU::Configuration config;
@@ -51,8 +47,6 @@ void PSXSplash::createScene() {
     pushScene(&mainScene);
 }
 
-void MainScene::frame() {
-    psxSplash.m_renderer.render(objects);
-}
+void MainScene::frame() { psxSplash.m_renderer.render(objects); }
 
 int main() { return psxSplash.run(); }
