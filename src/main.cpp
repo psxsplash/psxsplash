@@ -18,8 +18,6 @@ class PSXSplash final : public psyqo::Application {
 
   public:
     psyqo::Font<> m_font;
-    psxsplash::Renderer m_renderer;
-    PSXSplash() : m_renderer(gpu()) {}
 };
 
 class MainScene final : public psyqo::Scene {
@@ -39,7 +37,7 @@ void PSXSplash::prepare() {
         .set(psyqo::GPU::ColorMode::C15BITS)
         .set(psyqo::GPU::Interlace::PROGRESSIVE);
     gpu().initialize(config);
-    m_renderer.initialize();
+    psxsplash::Renderer::init(gpu());
 }
 
 void PSXSplash::createScene() {
@@ -47,6 +45,6 @@ void PSXSplash::createScene() {
     pushScene(&mainScene);
 }
 
-void MainScene::frame() { psxSplash.m_renderer.render(objects); }
+void MainScene::frame() { psxsplash::Renderer::getInstance().render(objects); }
 
 int main() { return psxSplash.run(); }

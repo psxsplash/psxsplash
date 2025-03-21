@@ -1,12 +1,13 @@
-#include <cstdint>
-
-#include "psyqo/primitives/triangles.hh"
-
-#include "gameobject.hh"
-#include "psyqo/soft-math.hh"
 #include "renderer.hh"
 
-void psxsplash::Renderer::initialize() {
+#include "psyqo/gte-kernels.hh"
+#include "psyqo/primitives/triangles.hh"
+
+psxsplash::Renderer* psxsplash::Renderer::instance = nullptr;
+
+void psxsplash::Renderer::init(psyqo::GPU &gpuInstance) {
+    psyqo::Kernel::assert(instance == nullptr, "A second intialization of Renderer was tried");
+
     psyqo::GTE::clear<psyqo::GTE::Register::TRX, psyqo::GTE::Unsafe>();
     psyqo::GTE::clear<psyqo::GTE::Register::TRY, psyqo::GTE::Unsafe>();
     psyqo::GTE::clear<psyqo::GTE::Register::TRZ, psyqo::GTE::Unsafe>();
@@ -22,7 +23,13 @@ void psxsplash::Renderer::initialize() {
         ORDERING_TABLE_SIZE / 3);
     psyqo::GTE::write<psyqo::GTE::Register::ZSF4, psyqo::GTE::Unsafe>(
         ORDERING_TABLE_SIZE / 4);
+
+    if(!instance) {
+        instance = new Renderer(gpuInstance);
+    }
 }
+
+
 
 void psxsplash::Renderer::render(eastl::array<GameObject> &objects) {
     uint8_t parity = m_gpu.getParity();
@@ -40,32 +47,19 @@ void psxsplash::Renderer::render(eastl::array<GameObject> &objects) {
 
     for (auto &obj : objects) {
 
-        auto &mesh = obj.m_mesh;
-        auto &texture = mesh.m_texture;
-
         psyqo::GTE::write<psyqo::GTE::Register::TRX, psyqo::GTE::Unsafe>(
-            obj.m_pos.x.raw());
+            obj.position.x.raw());
         psyqo::GTE::write<psyqo::GTE::Register::TRY, psyqo::GTE::Unsafe>(
-            obj.m_pos.y.raw());
+            obj.position.y.raw());
         psyqo::GTE::write<psyqo::GTE::Register::TRZ, psyqo::GTE::Unsafe>(
-            obj.m_pos.z.raw());
-
-        auto transform = psyqo::SoftMath::generateRotationMatrix33(
-            obj.m_rot[0], psyqo::SoftMath::Axis::X, m_trig);
-        auto rot = psyqo::SoftMath::generateRotationMatrix33(
-            obj.m_rot[1], psyqo::SoftMath::Axis::Y, m_trig);
-
-        psyqo::SoftMath::multiplyMatrix33(transform, rot, &transform);
-
-        auto rotZ = psyqo::SoftMath::generateRotationMatrix33(
-            obj.m_rot[2], psyqo::SoftMath::Axis::Z, m_trig);
-
-        psyqo::SoftMath::multiplyMatrix33(transform, rotZ, &transform);
+            obj.position.z.raw());
 
         psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::Rotation>(
-            transform);
+            obj.rotation);
 
-        for (auto &tri : mesh.m_polygons) {
+        for (int i = 0; i < obj.polyCount; i++) {
+            
+            Tri& tri = obj.polygons[i];
 
             psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::V0>(tri.v0);
             psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::V1>(tri.v1);
@@ -100,11 +94,16 @@ void psxsplash::Renderer::render(eastl::array<GameObject> &objects) {
             prim.primitive.uvA = tri.uvA;
             prim.primitive.uvB = tri.uvB;
             prim.primitive.uvC = tri.uvC;
-            prim.primitive.tpage = texture.m_tpage;
+            prim.primitive.tpage = obj.texture;
 
             ot.insert(prim, zIndex);
         }
     }
 
     m_gpu.chain(ot);
+}
+
+void psxsplash::Renderer::vramUpload(const uint16_t * imageData, int16_t posX, int16_t posY, int16_t width, int16_t height) {
+    psyqo::Rect uploadRect{.a = {.x = posX, .y = posY}, .b = {width, height}};
+    m_gpu.uploadToVRAM(imageData, uploadRect);
 }
