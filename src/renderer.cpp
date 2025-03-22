@@ -4,6 +4,7 @@
 #include "psyqo/fixed-point.hh"
 #include "psyqo/gte-kernels.hh"
 #include "psyqo/gte-registers.hh"
+#include "psyqo/primitives/common.hh"
 #include "psyqo/primitives/triangles.hh"
 #include "psyqo/soft-math.hh"
 #include "psyqo/trigonometry.hh"
@@ -54,18 +55,11 @@ void psxsplash::Renderer::render(eastl::vector<GameObject *> &objects) {
 
     for (auto &obj : objects) {
 
-        /*psyqo::GTE::write<psyqo::GTE::Register::TRX, psyqo::GTE::Unsafe>(
-            obj->position.x.raw());
-        psyqo::GTE::write<psyqo::GTE::Register::TRY, psyqo::GTE::Unsafe>(
-            obj->position.y.raw());
-
-
+        auto transform = psyqo::SoftMath::generateRotationMatrix33(
+            0, psyqo::SoftMath::Axis::X, m_trig);
         psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::Rotation>(
-            obj->rotation);*/
+            transform);
 
-        psyqo::GTE::write<psyqo::GTE::Register::TRZ, psyqo::GTE::Unsafe>(1024);
-        psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::Rotation>(
-            obj->rotation);
         for (int i = 0; i < obj->polyCount; i++) {
 
             Tri &tri = obj->polygons[i];
@@ -80,23 +74,24 @@ void psxsplash::Renderer::render(eastl::vector<GameObject *> &objects) {
             int32_t mac0 = 0;
             psyqo::GTE::read<psyqo::GTE::Register::MAC0>(
                 reinterpret_cast<uint32_t *>(&mac0));
-            // if (mac0 <= 0)
-            //    continue;
+            if (mac0 <= 0)
+                continue;
 
             psyqo::GTE::Kernels::avsz3();
             int32_t zIndex = 0;
             psyqo::GTE::read<psyqo::GTE::Register::OTZ>(
                 reinterpret_cast<uint32_t *>(&zIndex));
-            // if (zIndex < 0 || zIndex >= ORDERING_TABLE_SIZE)
-            //     continue;
+            if (zIndex < 0 || zIndex >= ORDERING_TABLE_SIZE)
+                 continue;
 
             psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&projected[0].packed);
             psyqo::GTE::read<psyqo::GTE::Register::SXY1>(&projected[1].packed);
             psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&projected[2].packed);
 
             auto &prim =
-                balloc.allocateFragment<psyqo::Prim::TexturedTriangle>();
+                balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
 
+            
             prim.primitive.pointA = projected[0];
             prim.primitive.pointB = projected[1];
             prim.primitive.pointC = projected[2];
@@ -104,8 +99,11 @@ void psxsplash::Renderer::render(eastl::vector<GameObject *> &objects) {
             prim.primitive.uvB = tri.uvB;
             prim.primitive.uvC = tri.uvC;
             prim.primitive.tpage = obj->texture;
-            prim.primitive.tpage.setPageX(5);
-            prim.primitive.tpage.setPageY(0);
+            prim.primitive.tpage.setDithering(true);
+            prim.primitive.setColorA(tri.colorA);
+            prim.primitive.setColorB(tri.colorB);
+            prim.primitive.setColorC(tri.colorC);
+            
 
             prim.primitive.setOpaque();
 

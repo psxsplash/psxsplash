@@ -7,8 +7,8 @@
 #include "psyqo/gpu.hh"
 #include "psyqo/scene.hh"
 
-#include "renderer.hh"
 #include "output.h"
+#include "renderer.hh"
 #include "splashpack.hh"
 
 namespace {
@@ -25,7 +25,7 @@ class PSXSplash final : public psyqo::Application {
 class MainScene final : public psyqo::Scene {
     void frame() override;
     void start(StartReason reason) override;
-    eastl::vector<psxsplash::GameObject*> objects;
+    eastl::vector<psxsplash::GameObject *> objects;
 };
 
 PSXSplash psxSplash;
@@ -47,7 +47,6 @@ void PSXSplash::createScene() {
     m_font.uploadSystemFont(gpu());
     pushScene(&mainScene);
 }
-
 
 void MainScene::start(StartReason reason) {
     objects = psxsplash::LoadSplashpack(bin2c_output_bin);
