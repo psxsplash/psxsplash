@@ -18,6 +18,6 @@ struct SPLASHPACKTextureAtlas {
     uint16_t x,y;
 };
 
-eastl::vector<GameObject> LoadSplashpack(const uint8_t *data);
+eastl::vector<GameObject*> LoadSplashpack(uint8_t *data);
 
 }; // namespace psxsplash

@@ -1,9 +1,7 @@
 #pragma once
 
-#include "EASTL/array.h"
 #include "psyqo/gte-registers.hh"
 #include "psyqo/primitives/common.hh"
-#include "texture.hh"
 
 namespace psxsplash {
 
@@ -16,9 +14,4 @@ class Tri final {
     psyqo::Color colorA, colorB, colorC;
 };
 
-class Mesh final {
-  public:
-    Texture m_texture;
-    eastl::array<Tri> m_polygons;
-};
 } // namespace psxsplash

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "EASTL/array.h"
+#include "EASTL/vector.h"
 #include "gameobject.hh"
 #include "psyqo/bump-allocator.hh"
 #include "psyqo/fragments.hh"
@@ -10,6 +10,7 @@
 #include "psyqo/primitives/misc.hh"
 #include "psyqo/trigonometry.hh"
 #include "psyqo/kernel.hh"
+#include "psyqo//fixed-point.hh"
 #include <cstdint>
 
 namespace psxsplash {
@@ -25,7 +26,7 @@ class Renderer final {
 
     static void init(psyqo::GPU &gpuInstance);
 
-    void render(eastl::array<GameObject> &objects);
+    void render(eastl::vector<GameObject*> &objects);
     void vramUpload(const uint16_t* imageData, int16_t posX, int16_t posY, int16_t width, int16_t height);
 
     static Renderer& getInstance() {
@@ -35,6 +36,7 @@ class Renderer final {
 
     private:
     static Renderer* instance;
+
 
     Renderer(psyqo::GPU &gpuInstance) : m_gpu(gpuInstance) {}
     ~Renderer() { } 
@@ -46,6 +48,7 @@ class Renderer final {
     psyqo::Fragments::SimpleFragment<psyqo::Prim::FastFill> m_clear[2];
     psyqo::Color m_clearcolor = {.r = 63, .g = 63, .b = 63};
     psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE> m_ballocs[2];
+
 
 };
 
