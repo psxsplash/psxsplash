@@ -90,7 +90,8 @@ void psxsplash::Renderer::render(eastl::vector<GameObject *> &objects) {
 
             auto &prim =
                 balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-
+            
+            psyqo::PrimPieces::ClutIndex clut(obj->clutX, obj->clutY);
             
             prim.primitive.pointA = projected[0];
             prim.primitive.pointB = projected[1];
@@ -99,7 +100,7 @@ void psxsplash::Renderer::render(eastl::vector<GameObject *> &objects) {
             prim.primitive.uvB = tri.uvB;
             prim.primitive.uvC = tri.uvC;
             prim.primitive.tpage = obj->texture;
-            prim.primitive.tpage.setDithering(true);
+            prim.primitive.clutIndex = clut;
             prim.primitive.setColorA(tri.colorA);
             prim.primitive.setColorB(tri.colorB);
             prim.primitive.setColorC(tri.colorC);
