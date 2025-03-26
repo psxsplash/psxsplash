@@ -1,8 +1,11 @@
 #pragma once
 
-#include "EASTL/vector.h"
-#include "gameobject.hh"
+#include <EASTL/vector.h>
+
 #include <cstdint>
+
+#include "gameobject.hh"
+
 namespace psxsplash {
 
 struct SPLASHPACKFileHeader {
@@ -15,9 +18,9 @@ struct SPLASHPACKFileHeader {
 struct SPLASHPACKTextureAtlas {
     uint32_t polygonsOffset;
     uint16_t width, height;
-    uint16_t x,y;
+    uint16_t x, y;
 };
 
-eastl::vector<GameObject*> LoadSplashpack(uint8_t *data);
+eastl::vector<GameObject *> LoadSplashpack(uint8_t *data);
 
-}; // namespace psxsplash
+};  // namespace psxsplash

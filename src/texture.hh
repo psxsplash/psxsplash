@@ -1,8 +1,7 @@
 #pragma once
 
 #include <cstdint>
-
-#include "psyqo/primitives/common.hh"
+#include <psyqo/primitives/common.hh>
 
 namespace psxsplash {
 class Texture final {
@@ -11,4 +10,4 @@ class Texture final {
     uint8_t m_width, m_height;
 };
 
-} // namespace psxsplash
+}  // namespace psxsplash
