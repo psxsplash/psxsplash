@@ -23,7 +23,7 @@ class Renderer final {
     Renderer& operator=(const Renderer&) = delete;
 
     static constexpr size_t ORDERING_TABLE_SIZE = 4096 * 16;
-    static constexpr size_t BUMP_ALLOCATOR_SIZE = 8192 * 4;
+    static constexpr size_t BUMP_ALLOCATOR_SIZE = 8192 * 8;
 
     static void init(psyqo::GPU& gpuInstance);
 

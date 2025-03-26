@@ -26,7 +26,7 @@ void psxsplash::Renderer::init(psyqo::GPU &gpuInstance) {
     psyqo::GTE::write<psyqo::GTE::Register::OFX, psyqo::GTE::Unsafe>(psyqo::FixedPoint<16>(160.0).raw());
     psyqo::GTE::write<psyqo::GTE::Register::OFY, psyqo::GTE::Unsafe>(psyqo::FixedPoint<16>(120.0).raw());
 
-    psyqo::GTE::write<psyqo::GTE::Register::H, psyqo::GTE::Unsafe>(120);
+    psyqo::GTE::write<psyqo::GTE::Register::H, psyqo::GTE::Unsafe>(190);
 
     psyqo::GTE::write<psyqo::GTE::Register::ZSF3, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 3);
     psyqo::GTE::write<psyqo::GTE::Register::ZSF4, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 4);
