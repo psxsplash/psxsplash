@@ -8,7 +8,13 @@ PSX.Dev-README.md
 *.a
 
 .cache/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
 .editorconfig
 .clang-format
 compile_commands.json
+LICENSEE.DAT
+*.iso
+system.cnf
+iso.xml

@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <psyqo/primitives/common.hh>
 
 #include "gameobject.hh"
@@ -23,25 +22,7 @@ eastl::vector<psxsplash::GameObject *> LoadSplashpack(uint8_t *data) {
 
     for (uint16_t i = 0; i < header->gameObjectCount; i++) {
         psxsplash::GameObject *go = reinterpret_cast<psxsplash::GameObject *>(curentPointer);
-
-        int16_t width = 0;
-        switch ((psyqo::Prim::TPageAttr::ColorMode)((std::bit_cast<short>(go->texture) & 0x0180) >> 7)) {
-            case psyqo::Prim::TPageAttr::ColorMode::Tex4Bits:
-                width = 16;
-                break;
-            case psyqo::Prim::TPageAttr::ColorMode::Tex8Bits:
-                width = 256;
-                break;
-            default:
-                width = -1;
-        }
-
-        if (width > 0) {
-            psxsplash::Renderer::getInstance().vramUpload(go->clut, go->clutX * 16, go->clutY, width, 1);
-        }
-
         go->polygons = reinterpret_cast<psxsplash::Tri *>(data + go->polygonsOffset);
-
         gameObjects.push_back(go);
         curentPointer += sizeof(psxsplash::GameObject);
     }
@@ -49,10 +30,16 @@ eastl::vector<psxsplash::GameObject *> LoadSplashpack(uint8_t *data) {
     for (uint16_t i = 0; i < header->textureAtlasCount; i++) {
         psxsplash::SPLASHPACKTextureAtlas *atlas = reinterpret_cast<psxsplash::SPLASHPACKTextureAtlas *>(curentPointer);
 
-        uint8_t *offsetData = data + atlas->polygonsOffset;               // Ensure correct byte offset
-        uint16_t *castedData = reinterpret_cast<uint16_t *>(offsetData);  // Safe cast
+        uint8_t *offsetData = data + atlas->polygonsOffset;               
+        uint16_t *castedData = reinterpret_cast<uint16_t *>(offsetData);
         psxsplash::Renderer::getInstance().vramUpload(castedData, atlas->x, atlas->y, atlas->width, atlas->height);
         curentPointer += sizeof(psxsplash::SPLASHPACKTextureAtlas);
+    }
+
+    for (uint16_t i = 0; i < header->clutCount; i++) {
+        psxsplash::SPLASHPACKClut *clut = reinterpret_cast<psxsplash::SPLASHPACKClut *>(curentPointer);
+        psxsplash::Renderer::getInstance().vramUpload(clut->clut, clut->clutPackingX * 16, clut->clutPackingY, clut->length, 1);
+        curentPointer += sizeof(psxsplash::SPLASHPACKClut);
     }
 
     return gameObjects;

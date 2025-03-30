@@ -6,6 +6,7 @@ src/main.cpp \
 src/renderer.cpp \
 src/splashpack.cpp \
 src/camera.cpp \
+src/gtemath.cpp \
 output.o
 
 include third_party/nugget/psyqo/psyqo.mk
