@@ -14,7 +14,7 @@ struct SPLASHPACKFileHeader {
     uint16_t gameObjectCount;
     uint16_t textureAtlasCount;
     uint16_t clutCount;
-    uint16_t pad;
+    uint16_t pad[3];
 };
 
 struct SPLASHPACKTextureAtlas {
@@ -24,8 +24,7 @@ struct SPLASHPACKTextureAtlas {
 };
 
 struct SPLASHPACKClut {
-    uint16_t clut[256];
-
+    uint32_t clutOffset;
     uint16_t clutPackingX;
     uint16_t clutPackingY;
     uint16_t length;

@@ -38,7 +38,8 @@ eastl::vector<psxsplash::GameObject *> LoadSplashpack(uint8_t *data) {
 
     for (uint16_t i = 0; i < header->clutCount; i++) {
         psxsplash::SPLASHPACKClut *clut = reinterpret_cast<psxsplash::SPLASHPACKClut *>(curentPointer);
-        psxsplash::Renderer::getInstance().vramUpload(clut->clut, clut->clutPackingX * 16, clut->clutPackingY, clut->length, 1);
+        uint8_t* clutOffset = data + clut->clutOffset;
+        psxsplash::Renderer::getInstance().vramUpload((uint16_t*) clutOffset, clut->clutPackingX * 16, clut->clutPackingY, clut->length, 1);
         curentPointer += sizeof(psxsplash::SPLASHPACKClut);
     }
 
