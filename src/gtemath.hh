@@ -1,3 +1,4 @@
+#pragma once
 #include <psyqo/matrix.hh>
 
 namespace psxsplash {

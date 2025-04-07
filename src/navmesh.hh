@@ -1,6 +1,6 @@
 #pragma once
 
-#include "psyqo/gte-registers.hh"
+#include <psyqo/vector.hh>
 
 namespace psxsplash {
 

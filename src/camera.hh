@@ -6,6 +6,7 @@
 
 namespace psxsplash {
 
+// Camera class for managing 3D position and rotation.
 class Camera {
   public:
     Camera();

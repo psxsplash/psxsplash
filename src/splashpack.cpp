@@ -6,6 +6,8 @@
 
 #include "gameobject.hh"
 #include "mesh.hh"
+#include "psyqo/fixed-point.hh"
+#include "psyqo/gte-registers.hh"
 #include "renderer.hh"
 
 namespace psxsplash {
@@ -17,7 +19,10 @@ struct SPLASHPACKFileHeader {
     uint16_t navmeshCount;
     uint16_t textureAtlasCount;
     uint16_t clutCount;
-    uint16_t pad[2];
+    psyqo::GTE::PackedVec3 playerStartPos;
+    psyqo::GTE::PackedVec3 playerStartRot;
+    psyqo::FixedPoint<12, uint16_t> playerHeight;
+    uint16_t pad[1];
 };
 
 struct SPLASHPACKTextureAtlas {
@@ -38,6 +43,10 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data) {
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
     psyqo::Kernel::assert(memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
+
+    playerStartPos = header->playerStartPos;
+    playerStartRot = header->playerStartRot;
+    playerHeight = header->playerHeight;
 
     gameObjects.reserve(header->gameObjectCount);
     navmeshes.reserve(header->navmeshCount);

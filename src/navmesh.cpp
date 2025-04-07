@@ -7,6 +7,9 @@
 
 using namespace psyqo::fixed_point_literals;
 
+// FIXME: This entire file uses hard FixedPoint scaling of 100. This is not ideal.
+// It would be better to move the fixedpoint precision to 19 instead.
+
 namespace psxsplash {
 
 psyqo::FixedPoint<12> DotProduct2D(const psyqo::Vec2& a, const psyqo::Vec2& b) { return a.x * b.x + a.y * b.y; }

@@ -16,7 +16,7 @@
 
 #include "camera.hh"
 #include "gameobject.hh"
-#include "splashpack.hh"
+#include "navmesh.hh"
 
 namespace psxsplash {
 
@@ -25,6 +25,7 @@ class Renderer final {
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
+    // FIXME: I have no idea how to precompute the required sizes of these. It would be best to allocate them based on the scene
     static constexpr size_t ORDERING_TABLE_SIZE = 2048 * 3;
     static constexpr size_t BUMP_ALLOCATOR_SIZE = 8096 * 24;
 

@@ -1,5 +1,6 @@
 #include "renderer.hh"
 
+#include <EASTL/array.h>
 #include <EASTL/vector.h>
 
 #include <cstdint>
@@ -14,9 +15,7 @@
 #include <psyqo/trigonometry.hh>
 #include <psyqo/vector.hh>
 
-#include "EASTL/array.h"
 #include "gtemath.hh"
-#include "splashpack.hh"
 
 using namespace psyqo::fixed_point_literals;
 using namespace psyqo::trig_literals;
@@ -45,7 +44,6 @@ void psxsplash::Renderer::Init(psyqo::GPU &gpuInstance) {
 }
 
 void psxsplash::Renderer::SetCamera(psxsplash::Camera &camera) { m_currentCamera = &camera; }
-
 
 void psxsplash::Renderer::Render(eastl::vector<GameObject *> &objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
@@ -189,6 +187,10 @@ void psxsplash::Renderer::RenderNavmeshPreview(psxsplash::Navmesh navmesh, bool 
         zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
         if (zIndex < 0 || zIndex >= ORDERING_TABLE_SIZE) continue;
 
+        read<Register::SXY0>(&projected[0].packed);
+        read<Register::SXY1>(&projected[1].packed);
+        read<Register::SXY2>(&projected[2].packed);
+
         auto &prim = balloc.allocateFragment<psyqo::Prim::Triangle>();
 
         prim.primitive.pointA = projected[0];
@@ -244,6 +246,11 @@ void psxsplash::Renderer::recursiveSubdivideAndRender(Tri &tri, eastl::array<psy
 
     if (maxIterations == 0 || ((width < 512 && height < 256 && !leavingScreenSpace))) {
         auto &balloc = m_ballocs[m_gpu.getParity()];
+
+        // The 20 is some headroom just in case
+        if (balloc.remaining() < sizeof(psyqo::Prim::GouraudTexturedTriangle) + 20) {
+            return;
+        }
         auto &prim = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
 
         prim.primitive.pointA = projected[0];
@@ -252,7 +259,7 @@ void psxsplash::Renderer::recursiveSubdivideAndRender(Tri &tri, eastl::array<psy
 
         prim.primitive.uvA = tri.uvA;
         prim.primitive.uvB = tri.uvB;
-        prim.primitive.uvC = tri.uvC;  // uvC remains UVCoordsPadded.
+        prim.primitive.uvC = tri.uvC;
         prim.primitive.tpage = tri.tpage;
         psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
         prim.primitive.clutIndex = clut;
@@ -265,7 +272,8 @@ void psxsplash::Renderer::recursiveSubdivideAndRender(Tri &tri, eastl::array<psy
         return;
     }
 
-    // Subdivide the triangle
+    // FIXME: This is slow. The optimal way to do this would be to export the triangles from unity such that
+    // the edge between v0 and v1 is always the longest edge. This way we can always split the triangle optimally.
     auto distanceSq = [](const psyqo::Vertex &a, const psyqo::Vertex &b) -> uint32_t {
         int dx = a.x - b.x;
         int dy = a.y - b.y;
