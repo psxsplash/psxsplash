@@ -16,6 +16,7 @@
 
 #include "camera.hh"
 #include "gameobject.hh"
+#include "splashpack.hh"
 
 namespace psxsplash {
 
@@ -25,18 +26,19 @@ class Renderer final {
     Renderer& operator=(const Renderer&) = delete;
 
     static constexpr size_t ORDERING_TABLE_SIZE = 2048 * 3;
-    static constexpr size_t BUMP_ALLOCATOR_SIZE = 8096 * 16;
+    static constexpr size_t BUMP_ALLOCATOR_SIZE = 8096 * 24;
 
-    static void init(psyqo::GPU& gpuInstance);
+    static void Init(psyqo::GPU& gpuInstance);
 
-    void setCamera(Camera& camera);
+    void SetCamera(Camera& camera);
 
-    void render(eastl::vector<GameObject*>& objects);
-    void iterativeSubdivideAndRender(const Tri& initialTri, const eastl::array<psyqo::Vertex, 3>& initialProj,
-                                     int zIndex, int maxIterations);
-    void vramUpload(const uint16_t* imageData, int16_t posX, int16_t posY, int16_t width, int16_t height);
+    
+    void Render(eastl::vector<GameObject*>& objects);
+    void RenderNavmeshPreview(psxsplash::Navmesh navmesh, bool isOnMesh);
 
-    static Renderer& getInstance() {
+    void VramUpload(const uint16_t* imageData, int16_t posX, int16_t posY, int16_t width, int16_t height);
+
+    static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr, "Access to renderer was tried without prior initialization");
         return *instance;
     }
@@ -56,7 +58,10 @@ class Renderer final {
     psyqo::Fragments::SimpleFragment<psyqo::Prim::FastFill> m_clear[2];
     psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE> m_ballocs[2];
 
-    psyqo::Color m_clearcolor = {.r = 63, .g = 63, .b = 100};
+    psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
+
+    void recursiveSubdivideAndRender(Tri &tri, eastl::array<psyqo::Vertex, 3> &projected, int zIndex,
+      int maxIterations);
 };
 
 }  // namespace psxsplash

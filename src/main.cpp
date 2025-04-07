@@ -10,8 +10,10 @@
 #include <psyqo/scene.hh>
 #include <psyqo/trigonometry.hh>
 
+#include "EASTL/algorithm.h"
 #include "camera.hh"
-#include "gameobject.hh"
+#include "navmesh.hh"
+#include "psyqo/vector.hh"
 #include "renderer.hh"
 #include "splashpack.hh"
 
@@ -30,6 +32,9 @@ class PSXSplash final : public psyqo::Application {
   public:
     psyqo::Font<> m_font;
     psyqo::AdvancedPad m_input;
+    psxsplash::SplashPackLoader m_loader;
+    static constexpr uint8_t m_stickDeadzone = 0x30;
+
 };
 
 class MainScene final : public psyqo::Scene {
@@ -39,12 +44,14 @@ class MainScene final : public psyqo::Scene {
     psxsplash::Camera m_mainCamera;
     psyqo::Angle camRotX, camRotY, camRotZ;
 
-    eastl::vector<psxsplash::GameObject*> m_objects;
     psyqo::Trig<> m_trig;
     uint32_t m_lastFrameCounter;
 
-    static constexpr psyqo::FixedPoint<12> moveSpeed = 0.01_fp;
+    static constexpr psyqo::FixedPoint<12> moveSpeed = 0.002_fp;
     static constexpr psyqo::Angle rotSpeed = 0.01_pi;
+    bool m_sprinting = 0;
+    static constexpr psyqo::FixedPoint<12> sprintSpeed = 0.003_fp;
+
 };
 
 PSXSplash psxSplash;
@@ -61,7 +68,7 @@ void PSXSplash::prepare() {
     gpu().initialize(config);
 
     // Initialize the Renderer singleton
-    psxsplash::Renderer::init(gpu());
+    psxsplash::Renderer::Init(gpu());
 }
 
 void PSXSplash::createScene() {
@@ -71,9 +78,11 @@ void PSXSplash::createScene() {
 }
 
 void MainScene::start(StartReason reason) {
-    m_objects = psxsplash::LoadSplashpack(_binary_output_bin_start);
-    psxsplash::Renderer::getInstance().setCamera(m_mainCamera);
+    psxSplash.m_loader.LoadSplashpack(_binary_output_bin_start);
+    psxsplash::Renderer::GetInstance().SetCamera(m_mainCamera);
 }
+
+psyqo::FixedPoint<12> pheight = 0.0_fp;
 
 void MainScene::frame() {
     uint32_t beginFrame = gpu().now();
@@ -86,63 +95,65 @@ void MainScene::frame() {
     }
 
     mainScene.m_lastFrameCounter = currentFrameCounter;
+    
+    uint8_t rightX = psxSplash.m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 0);
+    uint8_t rightY = psxSplash.m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 1);
 
-    auto& input = psxSplash.m_input;
+    uint8_t leftX = psxSplash.m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 2);
+    uint8_t leftY = psxSplash.m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 3);
 
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Right)) {
-        m_mainCamera.moveX((m_trig.cos(camRotY) * moveSpeed * deltaTime));
-        m_mainCamera.moveZ(-(m_trig.sin(camRotY) * moveSpeed * deltaTime));
+    int16_t rightXOffset = (int16_t)rightX - 0x80;
+    int16_t rightYOffset = (int16_t)rightY - 0x80;
+    int16_t leftXOffset = (int16_t)leftX - 0x80;
+    int16_t leftYOffset = (int16_t)leftY - 0x80;
+    
+    if(__builtin_abs(leftXOffset) < psxSplash.m_stickDeadzone && 
+       __builtin_abs(leftYOffset) < psxSplash.m_stickDeadzone) {
+        m_sprinting = false;
     }
 
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Left)) {
-        m_mainCamera.moveX(-(m_trig.cos(camRotY) * moveSpeed * deltaTime));
-        m_mainCamera.moveZ((m_trig.sin(camRotY) * moveSpeed * deltaTime));
+    if(psxSplash.m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L3)) {
+        m_sprinting = true;
     }
 
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Up)) {
-        m_mainCamera.moveX((m_trig.sin(camRotY) * m_trig.cos(camRotX)) * moveSpeed * deltaTime);
-        m_mainCamera.moveY(-(m_trig.sin(camRotX) * moveSpeed));
-        m_mainCamera.moveZ((m_trig.cos(camRotY) * m_trig.cos(camRotX)) * moveSpeed * deltaTime);
+    psyqo::FixedPoint<12> speed = m_sprinting ? sprintSpeed : moveSpeed;
+
+    if (__builtin_abs(rightXOffset) > psxSplash.m_stickDeadzone) {
+        camRotY += (rightXOffset * rotSpeed * deltaTime) >> 7;  
+    }
+    if (__builtin_abs(rightYOffset) > psxSplash.m_stickDeadzone) {
+        camRotX -= (rightYOffset * rotSpeed * deltaTime) >> 7;
+        camRotX = eastl::clamp(camRotX, -0.5_pi, 0.5_pi);
+    }
+    m_mainCamera.SetRotation(camRotX, camRotY, camRotZ);
+
+    if (__builtin_abs(leftYOffset) > psxSplash.m_stickDeadzone) {
+        psyqo::FixedPoint<12> forward = -(leftYOffset * speed * deltaTime) >> 7;
+        m_mainCamera.MoveX((m_trig.sin(camRotY) * forward));
+        m_mainCamera.MoveZ((m_trig.cos(camRotY) * forward));
+    }
+    if (__builtin_abs(leftXOffset) > psxSplash.m_stickDeadzone) {
+        psyqo::FixedPoint<12>  strafe = -(leftXOffset * speed * deltaTime) >> 7;
+        m_mainCamera.MoveX(-(m_trig.cos(camRotY) * strafe));
+        m_mainCamera.MoveZ((m_trig.sin(camRotY) * strafe));
     }
 
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Down)) {
-        m_mainCamera.moveX(-((m_trig.sin(camRotY) * m_trig.cos(camRotX)) * moveSpeed * deltaTime));
-        m_mainCamera.moveY((m_trig.sin(camRotX) * moveSpeed * deltaTime));
-        m_mainCamera.moveZ(-((m_trig.cos(camRotY) * m_trig.cos(camRotX)) * moveSpeed * deltaTime));
+    if(psxSplash.m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L1)) {
+        pheight += 0.01_fp;
+    }
+    if(psxSplash.m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R1)) {
+        pheight -= 0.01_fp;
     }
 
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::R1)) {
-        m_mainCamera.moveY(-moveSpeed * deltaTime);
-    }
+    psyqo::Vec3 adjustedPosition =
+        psxsplash::ComputeNavmeshPosition(m_mainCamera.GetPosition(), *psxSplash.m_loader.navmeshes[0], -0.05_fp);
+    m_mainCamera.SetPosition(adjustedPosition.x, adjustedPosition.y, adjustedPosition.z);
 
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::L1)) {
-        m_mainCamera.moveY(moveSpeed * deltaTime);
-    }
-
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Cross)) {
-        camRotX -= rotSpeed * deltaTime;
-        m_mainCamera.setRotation(camRotX, camRotY, camRotZ);
-    }
-
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Triangle)) {
-        camRotX += rotSpeed * deltaTime;
-        m_mainCamera.setRotation(camRotX, camRotY, camRotZ);
-    }
-
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Circle)) {
-        camRotY += rotSpeed * deltaTime;
-        m_mainCamera.setRotation(camRotX, camRotY, camRotZ);
-    }
-
-    if (input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Square)) {
-        camRotY -= rotSpeed * deltaTime;
-        m_mainCamera.setRotation(camRotX, camRotY, camRotZ);
-    }
-
-    psxsplash::Renderer::getInstance().render(m_objects);
-
+    psxsplash::Renderer::GetInstance().Render(psxSplash.m_loader.gameObjects);
+    // psxsplash::Renderer::getInstance().renderNavmeshPreview(*psxSplash.m_loader.navmeshes[0], true);
     psxSplash.m_font.chainprintf(gpu(), {{.x = 2, .y = 2}}, {{.r = 0xff, .g = 0xff, .b = 0xff}}, "FPS: %i",
                                  gpu().getRefreshRate() / deltaTime);
+
     gpu().pumpCallbacks();
     uint32_t endFrame = gpu().now();
     uint32_t spent = endFrame - beginFrame;

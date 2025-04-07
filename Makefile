@@ -7,6 +7,7 @@ src/renderer.cpp \
 src/splashpack.cpp \
 src/camera.cpp \
 src/gtemath.cpp \
+src/navmesh.cpp \
 output.o
 
 include third_party/nugget/psyqo/psyqo.mk

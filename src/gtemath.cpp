@@ -5,7 +5,7 @@
 
 using namespace psyqo::GTE;
 
-void psxsplash::matrixMultiplyGTE(const psyqo::Matrix33 &matA, const psyqo::Matrix33 &matB, psyqo::Matrix33 *result) {
+void psxsplash::MatrixMultiplyGTE(const psyqo::Matrix33 &matA, const psyqo::Matrix33 &matB, psyqo::Matrix33 *result) {
     writeSafe<PseudoRegister::Rotation>(matA);
 
     psyqo::Vec3 t;

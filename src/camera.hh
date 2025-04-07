@@ -10,15 +10,15 @@ class Camera {
   public:
     Camera();
 
-    void moveX(psyqo::FixedPoint<12> x);
-    void moveY(psyqo::FixedPoint<12> y);
-    void moveZ(psyqo::FixedPoint<12> y);
+    void MoveX(psyqo::FixedPoint<12> x);
+    void MoveY(psyqo::FixedPoint<12> y);
+    void MoveZ(psyqo::FixedPoint<12> y);
 
-    void setPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
-    psyqo::Vec3& getPosition() { return m_position; }
+    void SetPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
+    psyqo::Vec3& GetPosition() { return m_position; }
 
-    void setRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle z);
-    psyqo::Matrix33& getRotation();
+    void SetRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle z);
+    psyqo::Matrix33& GetRotation();
 
   private:
     psyqo::Matrix33 m_rotationMatrix;

@@ -10,19 +10,19 @@ psxsplash::Camera::Camera() {
     m_rotationMatrix = psyqo::SoftMath::generateRotationMatrix33(0, psyqo::SoftMath::Axis::X, m_trig);
 }
 
-void psxsplash::Camera::moveX(psyqo::FixedPoint<12> x) { m_position.x += -x; }
+void psxsplash::Camera::MoveX(psyqo::FixedPoint<12> x) { m_position.x += x; }
 
-void psxsplash::Camera::moveY(psyqo::FixedPoint<12> y) { m_position.y += -y; }
+void psxsplash::Camera::MoveY(psyqo::FixedPoint<12> y) { m_position.y += y; }
 
-void psxsplash::Camera::moveZ(psyqo::FixedPoint<12> z) { m_position.z += -z; }
+void psxsplash::Camera::MoveZ(psyqo::FixedPoint<12> z) { m_position.z += z; }
 
-void psxsplash::Camera::setPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z) {
+void psxsplash::Camera::SetPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z) {
     m_position.x = x;
     m_position.y = y;
     m_position.z = z;
 }
 
-void psxsplash::Camera::setRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle z) {
+void psxsplash::Camera::SetRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle z) {
     auto rotX = psyqo::SoftMath::generateRotationMatrix33(x, psyqo::SoftMath::Axis::X, m_trig);
     auto rotY = psyqo::SoftMath::generateRotationMatrix33(y, psyqo::SoftMath::Axis::Y, m_trig);
     auto rotZ = psyqo::SoftMath::generateRotationMatrix33(z, psyqo::SoftMath::Axis::Z, m_trig);
@@ -34,4 +34,4 @@ void psxsplash::Camera::setRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle
     m_rotationMatrix = rotY;
 }
 
-psyqo::Matrix33& psxsplash::Camera::getRotation() { return m_rotationMatrix; }
+psyqo::Matrix33& psxsplash::Camera::GetRotation() { return m_rotationMatrix; }

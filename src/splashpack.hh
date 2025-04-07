@@ -5,32 +5,15 @@
 #include <cstdint>
 
 #include "gameobject.hh"
+#include "navmesh.hh"
 
 namespace psxsplash {
 
-struct SPLASHPACKFileHeader {
-    char magic[2];
-    uint16_t version;
-    uint16_t gameObjectCount;
-    uint16_t textureAtlasCount;
-    uint16_t clutCount;
-    uint16_t pad[3];
+class SplashPackLoader {
+  public:
+    eastl::vector<GameObject *> gameObjects;
+    eastl::vector<Navmesh *> navmeshes;
+    void LoadSplashpack(uint8_t *data);
 };
-
-struct SPLASHPACKTextureAtlas {
-    uint32_t polygonsOffset;
-    uint16_t width, height;
-    uint16_t x, y;
-};
-
-struct SPLASHPACKClut {
-    uint32_t clutOffset;
-    uint16_t clutPackingX;
-    uint16_t clutPackingY;
-    uint16_t length;
-    uint16_t pad;
-};
-
-eastl::vector<GameObject *> LoadSplashpack(uint8_t *data);
 
 };  // namespace psxsplash
