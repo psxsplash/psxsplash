@@ -6,26 +6,21 @@
 #include "psyqo-lua/lua.hh"
 
 constexpr const char METATABLE_SCRIPT[] = R"(
-    print("test")
     metatableForAllGameObjects = {
         __index = function(self, key)
             if key == "position" then
                 local pos = rawget(self, key)
                 if pos == nil then
                     pos = get_position(self.__cpp_ptr)
-                    rawset(self, key, pos)
                 end
                 return pos
             end
-            return rawget(self, key)
+            return nil
         end,
 
         __newindex = function(self, key, value)
             if key == "position" then
-                -- Option 1: Directly update C++
                 set_position(self.__cpp_ptr, value)
-                -- Option 2: Also update local cache:
-                rawset(self, key, value)
                 return
             end
             rawset(self, key, value)
@@ -35,63 +30,45 @@ constexpr const char METATABLE_SCRIPT[] = R"(
 
 // Lua helpers
 
-int luaPrint(psyqo::Lua L) {
-    int n = L.getTop();  // Get the number of arguments
-
-    for (int i = 1; i <= n; i++) {
-        if (i > 1) {
-            printf("\t");  // Tab between arguments
-        }
-
-        // Check the type of the argument
-        if (L.isString(i)) {
-            printf("%s", L.toString(i));  // If it's a string, print it
-        } else if (L.isNumber(i)) {
-            printf("%g", L.toNumber(i));  // If it's a number, print it
-        } else {
-            // For other types, just print their type (you can expand this if needed)
-            printf("[%s]", L.typeName(i));
-        }
-    }
-    printf("\n");
-
-    return 0;  // No return value
-}
-
-static int gameobjectSetPosition(lua_State* L) {
-    psxsplash::GameObject* go = (psxsplash::GameObject*)lua_touserdata(L, 1);
-    lua_newtable(L);
-    lua_pushnumber(L, go->position.x.raw());
-    lua_setfield(L, -2, "x");
-    lua_pushnumber(L, go->position.y.raw());
-    lua_setfield(L, -2, "y");
-    lua_pushnumber(L, go->position.z.raw());
-    lua_setfield(L, -2, "z");
+int traceback(lua_State *L) {
+    const char *msg = lua_tostring(L, 1);
+    if (msg)
+        luaL_traceback(L, L, msg, 1);
+    else
+        lua_pushliteral(L, "(no error message)");
     return 1;
 }
 
-static int gameobjectGetPosition(lua_State* L) {
-    psxsplash::GameObject* go = (psxsplash::GameObject*)lua_touserdata(L, 1);
-
-    lua_getfield(L, 2, "x");
-    psyqo::FixedPoint<> x(lua_tonumber(L, -1), psyqo::FixedPoint<>::RAW);
+static int gameobjectSetPosition(psyqo::Lua L) {
+    auto go = L.toUserdata<psxsplash::GameObject>(1);
+    L.getField(2, "x");
+    psyqo::FixedPoint<> x(L.toNumber(3), psyqo::FixedPoint<>::RAW);
     go->position.x = x;
-    lua_pop(L, 1);
-    lua_getfield(L, 2, "y");
-    psyqo::FixedPoint<> y(lua_tonumber(L, -1), psyqo::FixedPoint<>::RAW);
-    go->position.x = x;
-    lua_pop(L, 1);
-    lua_getfield(L, 2, "z");
-    psyqo::FixedPoint<> z(lua_tonumber(L, -1), psyqo::FixedPoint<>::RAW);
-    go->position.x = x;
-    lua_pop(L, 1);
-
+    L.pop();
+    psyqo::FixedPoint<> y(L.toNumber(3), psyqo::FixedPoint<>::RAW);
+    go->position.y = y;
+    L.pop();
+    psyqo::FixedPoint<> z(L.toNumber(3), psyqo::FixedPoint<>::RAW);
+    go->position.z = z;
+    L.pop();
     return 0;
 }
 
+static int gameobjectGetPosition(psyqo::Lua L) {
+    auto go = L.toUserdata<psxsplash::GameObject>(1);
+    L.newTable();
+    L.pushNumber(go->position.x.raw());
+    L.setField(2, "x");
+    L.pushNumber(go->position.y.raw());
+    L.setField(2, "y");
+    L.pushNumber(go->position.z.raw());
+    L.setField(2, "z");
+    return 1;
+}
+
 void psxsplash::Lua::Init() {
-    L.push(luaPrint);
-    L.setGlobal("print");
+//    L.push(luaPrint);
+//    L.setGlobal("print");
 
     L.push(gameobjectGetPosition);
     L.setGlobal("get_position");
@@ -137,33 +114,38 @@ void psxsplash::Lua::LoadLuaFile(const char* code, size_t len) {
 }
 
 void psxsplash::Lua::RegisterGameObject(GameObject* go) {
+    L.push(go);     // (1) = GameObject*
     // Create a new Lua table for the GameObject
-    L.newTable();
+    L.newTable();   // (1) = GameObject*, (2) = {}
 
     // Set the __cpp_ptr field to store the C++ pointer
-    L.push(go);                   
-    L.setField(-2, "__cpp_ptr");  
+    L.push(go);     // (1) = GameObject*, (2) = {}, (3) = GameObject*
+    L.setField(-2, "__cpp_ptr");
+                    // (1) = GameObject*, (2) = { __cpp_ptr = GameObject* }
 
     // Set the metatable for the table
     L.getGlobal("metatableForAllGameObjects");
+                    // (1) = GameObject*, (2) = { __cpp_ptr = GameObject* }, (3) = metatableForAllGameObjects
     if (L.isTable(-1)) {
         L.setMetatable(-2);  // Set the metatable for the table
     } else {
         printf("Warning: metatableForAllGameObjects not found\n");
         L.pop();  // Pop the invalid metatable
     }
+                    // (1) = GameObject*, (2) = { __cpp_ptr = GameObject* + metatable }
 
-    L.push(go);                   
-    L.push(-2);
-    L.rawSet(LUA_REGISTRYINDEX); 
+    L.rawSet(LUA_REGISTRYINDEX);
+
+                    // stack empty
 
     // Debugging: Confirm the GameObject was registered
     printf("GameObject registered in Lua registry: %p\n", go);
-
-    L.pop();
 }
 
 void psxsplash::Lua::CallOnCollide(GameObject* self, GameObject* other) {
+    L.push(traceback);
+    int errfunc = L.getTop();  // Save the error function index
+
     L.getGlobal("onCollision");
     if (!L.isFunction(-1)) {
         printf("Lua function 'onCollide' not found\n");
@@ -174,7 +156,7 @@ void psxsplash::Lua::CallOnCollide(GameObject* self, GameObject* other) {
     PushGameObject(self);
     PushGameObject(other);
 
-    if (L.pcall(2, 0)) {
+    if (L.pcall(2, 0, errfunc) != LUA_OK) {
         printf("Lua error: %s\n", L.toString(-1));
         L.pop();
     }

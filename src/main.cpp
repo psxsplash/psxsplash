@@ -89,7 +89,6 @@ void PSXSplash::createScene() {
 
 void MainScene::start(StartReason reason) {
     app.m_loader.LoadSplashpack(_binary_output_bin_start, app.m_lua);
-    app.m_lua.CallOnCollide(app.m_loader.gameObjects[0], app.m_loader.gameObjects[1]);
     psxsplash::Renderer::GetInstance().SetCamera(m_mainCamera);
 
     m_mainCamera.SetPosition(static_cast<psyqo::FixedPoint<12>>(app.m_loader.playerStartPos.x),
@@ -117,6 +116,10 @@ void MainScene::start(StartReason reason) {
 }
 
 void MainScene::frame() {
+
+    app.m_lua.CallOnCollide(app.m_loader.gameObjects[0], app.m_loader.gameObjects[1]);
+
+
     uint32_t beginFrame = gpu().now();
     auto currentFrameCounter = gpu().getFrameCount();
     auto deltaTime = currentFrameCounter - mainScene.m_lastFrameCounter;
