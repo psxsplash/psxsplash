@@ -12,6 +12,7 @@
 
 #include "EASTL/algorithm.h"
 #include "camera.hh"
+#include "lua.h"
 #include "navmesh.hh"
 #include "psyqo/vector.hh"
 #include "renderer.hh"
@@ -30,6 +31,7 @@ class PSXSplash final : public psyqo::Application {
     void createScene() override;
 
   public:
+    psxsplash::Lua m_lua;
     psxsplash::SplashPackLoader m_loader;
 
     psyqo::Font<> m_font;
@@ -75,6 +77,8 @@ void PSXSplash::prepare() {
 
     // Initialize the Renderer singleton
     psxsplash::Renderer::Init(gpu());
+
+    m_lua.Init();
 }
 
 void PSXSplash::createScene() {
@@ -84,7 +88,8 @@ void PSXSplash::createScene() {
 }
 
 void MainScene::start(StartReason reason) {
-    app.m_loader.LoadSplashpack(_binary_output_bin_start);
+    app.m_loader.LoadSplashpack(_binary_output_bin_start, app.m_lua);
+    app.m_lua.CallOnCollide(app.m_loader.gameObjects[0], app.m_loader.gameObjects[1]);
     psxsplash::Renderer::GetInstance().SetCamera(m_mainCamera);
 
     m_mainCamera.SetPosition(static_cast<psyqo::FixedPoint<12>>(app.m_loader.playerStartPos.x),
@@ -184,6 +189,7 @@ void MainScene::frame() {
         psxsplash::Renderer::GetInstance().RenderNavmeshPreview(*app.m_loader.navmeshes[0], true);
     }
     
+
     app.m_font.chainprintf(gpu(), {{.x = 2, .y = 2}}, {{.r = 0xff, .g = 0xff, .b = 0xff}}, "FPS: %i",
                                  gpu().getRefreshRate() / deltaTime);
 
