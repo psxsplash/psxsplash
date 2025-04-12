@@ -45,9 +45,11 @@ static int gameobjectSetPosition(psyqo::Lua L) {
     psyqo::FixedPoint<> x(L.toNumber(3), psyqo::FixedPoint<>::RAW);
     go->position.x = x;
     L.pop();
+    L.getField(2, "y");
     psyqo::FixedPoint<> y(L.toNumber(3), psyqo::FixedPoint<>::RAW);
     go->position.y = y;
     L.pop();
+    L.getField(2, "z");
     psyqo::FixedPoint<> z(L.toNumber(3), psyqo::FixedPoint<>::RAW);
     go->position.z = z;
     L.pop();
@@ -156,7 +158,7 @@ void psxsplash::Lua::CallOnCollide(GameObject* self, GameObject* other) {
     PushGameObject(self);
     PushGameObject(other);
 
-    if (L.pcall(2, 0, errfunc) != LUA_OK) {
+    if (L.pcall(2, 0) != LUA_OK) {
         printf("Lua error: %s\n", L.toString(-1));
         L.pop();
     }
