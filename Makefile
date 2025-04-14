@@ -9,6 +9,8 @@ src/camera.cpp \
 src/gtemath.cpp \
 src/navmesh.cpp \
 src/lua.cpp \
+src/scenemanager.cpp \
+src/controls.cpp \
 output.o
 
 include third_party/nugget/psyqo-lua/psyqo-lua.mk

@@ -3,7 +3,6 @@
 #include <EASTL/array.h>
 #include <EASTL/vector.h>
 
-#include <cstdint>
 #include <psyqo/bump-allocator.hh>
 #include <psyqo/fragments.hh>
 #include <psyqo/gpu.hh>
@@ -25,7 +24,8 @@ class Renderer final {
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // FIXME: I have no idea how to precompute the required sizes of these. It would be best to allocate them based on the scene
+    // FIXME: I have no idea how to precompute the required sizes of these. It would be best to allocate them based on
+    // the scene
     static constexpr size_t ORDERING_TABLE_SIZE = 2048 * 3;
     static constexpr size_t BUMP_ALLOCATOR_SIZE = 8096 * 24;
 
@@ -33,7 +33,6 @@ class Renderer final {
 
     void SetCamera(Camera& camera);
 
-    
     void Render(eastl::vector<GameObject*>& objects);
     void RenderNavmeshPreview(psxsplash::Navmesh navmesh, bool isOnMesh);
 
@@ -61,8 +60,8 @@ class Renderer final {
 
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
-    void recursiveSubdivideAndRender(Tri &tri, eastl::array<psyqo::Vertex, 3> &projected, int zIndex,
-      int maxIterations);
+    void recursiveSubdivideAndRender(Tri& tri, eastl::array<psyqo::Vertex, 3>& projected, int zIndex,
+                                     int maxIterations);
 };
 
 }  // namespace psxsplash

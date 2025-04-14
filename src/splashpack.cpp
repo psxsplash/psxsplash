@@ -1,14 +1,15 @@
 #include "splashpack.hh"
 
-#include <cstdint>
-#include <cstring>
+#include <EASTL/vector.h>
+
+#include <psyqo/fixed-point.hh>
+#include <psyqo/gte-registers.hh>
 #include <psyqo/primitives/common.hh>
 
 #include "gameobject.hh"
 #include "lua.h"
 #include "mesh.hh"
-#include "psyqo/fixed-point.hh"
-#include "psyqo/gte-registers.hh"
+#include "navmesh.hh"
 #include "renderer.hh"
 
 namespace psxsplash {
@@ -27,14 +28,6 @@ struct SPLASHPACKFileHeader {
     uint16_t pad[2];
 };
 
-struct SPLASHPACKLuaFile {
-    union {
-        uint32_t luaCodeOffset;
-        const char* luaCode;
-    };
-    uint32_t length;
-};
-
 struct SPLASHPACKTextureAtlas {
     uint32_t polygonsOffset;
     uint16_t width, height;
@@ -49,39 +42,39 @@ struct SPLASHPACKClut {
     uint16_t pad;
 };
 
-void SplashPackLoader::LoadSplashpack(uint8_t *data, psxsplash::Lua &lua) {
+void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup) {
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
-    psyqo::Kernel::assert(memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
+    psyqo::Kernel::assert(__builtin_memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
 
-    playerStartPos = header->playerStartPos;
-    playerStartRot = header->playerStartRot;
-    playerHeight = header->playerHeight;
+    setup.playerStartPosition = header->playerStartPos;
+    setup.playerStartRotation = header->playerStartRot;
+    setup.playerHeight = header->playerHeight;
 
-    gameObjects.reserve(header->gameObjectCount);
-    navmeshes.reserve(header->navmeshCount);
+    setup.luaFiles.reserve(header->luaFileCount);
+    setup.objects.reserve(header->gameObjectCount);
+    setup.navmeshes.reserve(header->navmeshCount);
 
     uint8_t *curentPointer = data + sizeof(psxsplash::SPLASHPACKFileHeader);
 
     for (uint16_t i = 0; i < header->luaFileCount; i++) {
-        psxsplash::SPLASHPACKLuaFile *luaHeader = reinterpret_cast<psxsplash::SPLASHPACKLuaFile *>(curentPointer);
-        luaHeader->luaCode = reinterpret_cast<const char*>(data + luaHeader->luaCodeOffset);
-        lua.LoadLuaFile(luaHeader->luaCode, luaHeader->length);
-        curentPointer += sizeof(psxsplash::SPLASHPACKLuaFile);
+        psxsplash::LuaFile *luaHeader = reinterpret_cast<psxsplash::LuaFile *>(curentPointer);
+        luaHeader->luaCode = reinterpret_cast<const char *>(data + luaHeader->luaCodeOffset);
+        setup.luaFiles.push_back(luaHeader);
+        curentPointer += sizeof(psxsplash::LuaFile);
     }
 
     for (uint16_t i = 0; i < header->gameObjectCount; i++) {
         psxsplash::GameObject *go = reinterpret_cast<psxsplash::GameObject *>(curentPointer);
         go->polygons = reinterpret_cast<psxsplash::Tri *>(data + go->polygonsOffset);
-        lua.RegisterGameObject(go);
-        gameObjects.push_back(go);
+        setup.objects.push_back(go);
         curentPointer += sizeof(psxsplash::GameObject);
     }
 
     for (uint16_t i = 0; i < header->navmeshCount; i++) {
         psxsplash::Navmesh *navmesh = reinterpret_cast<psxsplash::Navmesh *>(curentPointer);
         navmesh->polygons = reinterpret_cast<psxsplash::NavMeshTri *>(data + navmesh->polygonsOffset);
-        navmeshes.push_back(navmesh);
+        setup.navmeshes.push_back(navmesh);
         curentPointer += sizeof(psxsplash::Navmesh);
     }
 

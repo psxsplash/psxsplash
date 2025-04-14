@@ -2,8 +2,8 @@
 
 #include <array>
 
-#include "psyqo/fixed-point.hh"
-#include "psyqo/vector.hh"
+#include <psyqo/fixed-point.hh>
+#include <psyqo/vector.hh>
 
 using namespace psyqo::fixed_point_literals;
 
@@ -80,10 +80,10 @@ psyqo::FixedPoint<12> CalculateY(const psyqo::Vec3& p, const NavMeshTri& tri) {
     }
 }
 
-psyqo::Vec3 ComputeNavmeshPosition(psyqo::Vec3& position, Navmesh& navmesh, psyqo::FixedPoint<12> pheight) {
+psyqo::Vec3 ComputeNavmeshPosition(psyqo::Vec3& position, Navmesh& navmesh, psyqo::FixedPoint<12> playerHeight) {
     for (int i = 0; i < navmesh.triangleCount; i++) {
         if (PointInTriangle(position, navmesh.polygons[i])) {
-            position.y = CalculateY(position, navmesh.polygons[i]) + pheight;
+            position.y = CalculateY(position, navmesh.polygons[i]) - playerHeight;
             return position;
         }
     }
@@ -108,7 +108,7 @@ psyqo::Vec3 ComputeNavmeshPosition(psyqo::Vec3& position, Navmesh& navmesh, psyq
             if (distSq < minDist) {
                 minDist = distSq;
                 closestPoint = proj;
-                position.y = CalculateY(position, navmesh.polygons[i]) + pheight;
+                position.y = CalculateY(position, navmesh.polygons[i]) - playerHeight;
             }
         }
     }

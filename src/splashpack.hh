@@ -2,25 +2,26 @@
 
 #include <EASTL/vector.h>
 
-#include <cstdint>
+#include <psyqo/fixed-point.hh>
 
 #include "gameobject.hh"
 #include "lua.h"
 #include "navmesh.hh"
-#include "psyqo/fixed-point.hh"
 
 namespace psxsplash {
 
-  
+struct SplashpackSceneSetup {
+    eastl::vector<LuaFile *> luaFiles;
+    eastl::vector<GameObject *> objects;
+    eastl::vector<Navmesh *> navmeshes;
+    psyqo::GTE::PackedVec3 playerStartPosition;
+    psyqo::GTE::PackedVec3 playerStartRotation;
+    psyqo::FixedPoint<12, uint16_t> playerHeight;
+};
+
 class SplashPackLoader {
   public:
-    eastl::vector<GameObject *> gameObjects;
-    eastl::vector<Navmesh *> navmeshes;
-    
-    psyqo::GTE::PackedVec3 playerStartPos, playerStartRot;
-    psyqo::FixedPoint<12, uint16_t> playerHeight;
-
-    void LoadSplashpack(uint8_t *data, Lua &lua);
+    void LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup);
 };
 
 };  // namespace psxsplash

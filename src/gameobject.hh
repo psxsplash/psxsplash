@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <psyqo/matrix.hh>
 #include <psyqo/vector.hh>
 
@@ -17,7 +16,7 @@ class GameObject final {
     psyqo::Vec3 position;
     psyqo::Matrix33 rotation;
     uint16_t polyCount;
-    uint16_t reserved;
+    int16_t luaFileIndex;
 };
 static_assert(sizeof(GameObject) == 56, "GameObject is not 56 bytes");
 }  // namespace psxsplash

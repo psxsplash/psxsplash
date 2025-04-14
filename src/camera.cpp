@@ -30,7 +30,7 @@ void psxsplash::Camera::SetRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle
     // XYZ multiplication order (matches C#)
     psyqo::SoftMath::multiplyMatrix33(rotY, rotX, &rotY);
     psyqo::SoftMath::multiplyMatrix33(rotY, rotZ, &rotY);
-    
+
     m_rotationMatrix = rotY;
 }
 

@@ -1,43 +1,37 @@
 #include "lua.h"
 
+#include <psyqo-lua/lua.hh>
+
 #include <psyqo/xprintf.h>
 
 #include "gameobject.hh"
-#include "psyqo-lua/lua.hh"
 
 constexpr const char METATABLE_SCRIPT[] = R"(
-    metatableForAllGameObjects = {
-        __index = function(self, key)
-            if key == "position" then
-                local pos = rawget(self, key)
-                if pos == nil then
-                    pos = get_position(self.__cpp_ptr)
-                end
-                return pos
-            end
-            return nil
-        end,
+return function(metatable)
+    local get_position = metatable.get_position
+    local set_position = metatable.set_position
 
-        __newindex = function(self, key, value)
-            if key == "position" then
-                set_position(self.__cpp_ptr, value)
-                return
-            end
-            rawset(self, key, value)
+    metatable.get_position = nil
+    metatable.set_position = nil
+
+    function metatable.__index(self, key)
+        if key == "position" then
+            return get_position(self.__cpp_ptr)
         end
-    }
+        return nil
+    end
+
+    function metatable.__newindex(self, key, value)
+        if key == "position" then
+            set_position(self.__cpp_ptr, value)
+            return
+        end
+        rawset(self, key, value)
+    end
+end
 )";
 
 // Lua helpers
-
-int traceback(lua_State *L) {
-    const char *msg = lua_tostring(L, 1);
-    if (msg)
-        luaL_traceback(L, L, msg, 1);
-    else
-        lua_pushliteral(L, "(no error message)");
-    return 1;
-}
 
 static int gameobjectSetPosition(psyqo::Lua L) {
     auto go = L.toUserdata<psxsplash::GameObject>(1);
@@ -69,46 +63,67 @@ static int gameobjectGetPosition(psyqo::Lua L) {
 }
 
 void psxsplash::Lua::Init() {
-//    L.push(luaPrint);
-//    L.setGlobal("print");
-
-    L.push(gameobjectGetPosition);
-    L.setGlobal("get_position");
-
-    L.push(gameobjectSetPosition);
-    L.setGlobal("set_position");
-
     // Load and run the metatable script
-    if (L.loadBuffer(METATABLE_SCRIPT, "metatableForAllGameObjects") == 0) {
-        if (L.pcall(0, 0) == 0) {
-            // Script executed successfully
-            printf("Lua script 'metatableForAllGameObjects' loaded successfully\n");
+    if (L.loadBuffer(METATABLE_SCRIPT, "buffer:metatableForAllGameObjects") == 0) {
+        if (L.pcall(0, 1) == 0) {
+            // This will be our metatable
+            L.newTable();
+
+            L.push(gameobjectGetPosition);
+            L.setField(-2, "get_position");
+
+            L.push(gameobjectSetPosition);
+            L.setField(-2, "set_position");
+
+            L.copy(-1);
+            m_metatableReference = L.ref();
+
+            if (L.pcall(1, 0) == 0) {
+                printf("Lua script 'metatableForAllGameObjects' executed successfully");
+            } else {
+                printf("Error registering Lua script: %s\n", L.optString(-1, "Unknown error"));
+                L.clearStack();
+                return;
+            }
         } else {
             // Print Lua error if script execution fails
-            printf("Error executing Lua script: %s\n", L.isString(-1) ? L.toString(-1) : "Unknown error");
-            L.pop();
+            printf("Error executing Lua script: %s\n", L.optString(-1, "Unknown error"));
+            L.clearStack();
+            return;
         }
     } else {
         // Print Lua error if script loading fails
-        printf("Error loading Lua script: %s\n", L.isString(-1) ? L.toString(-1) : "Unknown error");
-        L.pop();
+        printf("Error loading Lua script: %s\n", L.optString(-1, "Unknown error"));
+        L.clearStack();
+        return;
     }
 
-    // Check if the metatable was set as a global
-    L.getGlobal("metatableForAllGameObjects");
-    if (L.isTable(-1)) {
-        printf("metatableForAllGameObjects successfully set as a global\n");
-    } else {
-        printf("Warning: metatableForAllGameObjects not found after init\n");
-    }
-    L.pop(); // Pop the global check
+    L.newTable();
+    m_luascriptsReference = L.ref();
 }
 
-void psxsplash::Lua::LoadLuaFile(const char* code, size_t len) {
-    if (L.loadBuffer(code, len) != LUA_OK) {
+void psxsplash::Lua::LoadLuaFile(const char* code, size_t len, int index) {
+    char filename[32];
+    snprintf(filename, sizeof(filename), "lua_asset:%d", index);
+    if (L.loadBuffer(code, len, filename) != LUA_OK) {
         printf("Lua error: %s\n", L.toString(-1));
         L.pop();
     }
+    // (1) script func
+    L.rawGetI(LUA_REGISTRYINDEX, m_luascriptsReference);
+    // (1) script func (2) scripts table
+    L.newTable();
+    // (1) script func (2) scripts table (3) {}
+    L.pushNumber(index);
+    // (1) script func (2) scripts table (3) {} (4) index
+    L.copy(-2);
+    // (1) script func (2) scripts table (3) {} (4) index (5) {}
+    L.setTable(-4);
+    // (1) script func (2) scripts table (3) {}
+    lua_setupvalue(L.getState(), -3, 1);
+    // (1) script func (2) scripts table
+    L.pop();
+    // (1) script func
     if (L.pcall(0, 0)) {
         printf("Lua error: %s\n", L.toString(-1));
         L.pop();
@@ -116,42 +131,41 @@ void psxsplash::Lua::LoadLuaFile(const char* code, size_t len) {
 }
 
 void psxsplash::Lua::RegisterGameObject(GameObject* go) {
-    L.push(go);     // (1) = GameObject*
-    // Create a new Lua table for the GameObject
-    L.newTable();   // (1) = GameObject*, (2) = {}
-
-    // Set the __cpp_ptr field to store the C++ pointer
-    L.push(go);     // (1) = GameObject*, (2) = {}, (3) = GameObject*
+    L.push(go);
+    // (1) go
+    L.newTable();
+    // (1) go (2) {}
+    L.push(go);
+    // (1) go (2) {} (3) go
     L.setField(-2, "__cpp_ptr");
-                    // (1) = GameObject*, (2) = { __cpp_ptr = GameObject* }
-
-    // Set the metatable for the table
-    L.getGlobal("metatableForAllGameObjects");
-                    // (1) = GameObject*, (2) = { __cpp_ptr = GameObject* }, (3) = metatableForAllGameObjects
+    // (1) go (2) { __cpp_ptr = go }
+    L.rawGetI(LUA_REGISTRYINDEX, m_metatableReference);
+    // (1) go (2) { __cpp_ptr = go } (3) metatable
     if (L.isTable(-1)) {
-        L.setMetatable(-2);  // Set the metatable for the table
+        L.setMetatable(-2);
     } else {
         printf("Warning: metatableForAllGameObjects not found\n");
-        L.pop();  // Pop the invalid metatable
+        L.pop();
     }
-                    // (1) = GameObject*, (2) = { __cpp_ptr = GameObject* + metatable }
-
+    // (1) go (2) { __cpp_ptr = go + metatable }
     L.rawSet(LUA_REGISTRYINDEX);
-
-                    // stack empty
-
-    // Debugging: Confirm the GameObject was registered
+    // empty stack
     printf("GameObject registered in Lua registry: %p\n", go);
 }
 
 void psxsplash::Lua::CallOnCollide(GameObject* self, GameObject* other) {
-    L.push(traceback);
-    int errfunc = L.getTop();  // Save the error function index
-
-    L.getGlobal("onCollision");
+    if (self->luaFileIndex == -1) {
+        return;
+    }
+    L.rawGetI(LUA_REGISTRYINDEX, m_luascriptsReference);
+    // (1) scripts table
+    L.rawGetI(-1, self->luaFileIndex);
+    // (1) script table (2) script environment
+    L.getField(-1, "onCollision");
+    // (1) script table (2) script environment (3) onCollision
     if (!L.isFunction(-1)) {
-        printf("Lua function 'onCollide' not found\n");
-        L.pop();
+        printf("Lua function 'onCollision' not found\n");
+        L.clearStack();
         return;
     }
 
@@ -160,16 +174,16 @@ void psxsplash::Lua::CallOnCollide(GameObject* self, GameObject* other) {
 
     if (L.pcall(2, 0) != LUA_OK) {
         printf("Lua error: %s\n", L.toString(-1));
-        L.pop();
     }
+    L.clearStack();
 }
 
 void psxsplash::Lua::PushGameObject(GameObject* go) {
-    L.push(go);         
-    L.rawGet(LUA_REGISTRYINDEX);  
+    L.push(go);
+    L.rawGet(LUA_REGISTRYINDEX);
 
-    if (!L.isTable(-1)) {         
+    if (!L.isTable(-1)) {
         printf("Warning: GameObject not found in Lua registry\n");
-        L.pop();                 
+        L.pop();
     }
 }
