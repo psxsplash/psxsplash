@@ -1,6 +1,5 @@
 #include <stdint.h>
 
-#include <cmath>
 #include <cstdint>
 #include <psyqo/advancedpad.hh>
 #include <psyqo/application.hh>
