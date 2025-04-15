@@ -1,6 +1,5 @@
 #include <stdint.h>
 
-#include <cstdint>
 #include <psyqo/advancedpad.hh>
 #include <psyqo/application.hh>
 #include <psyqo/fixed-point.hh>

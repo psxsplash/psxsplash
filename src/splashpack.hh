@@ -2,8 +2,6 @@
 
 #include <EASTL/vector.h>
 
-#include <cstdint>
-
 #include "gameobject.hh"
 #include "navmesh.hh"
 #include "psyqo/fixed-point.hh"

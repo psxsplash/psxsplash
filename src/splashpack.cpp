@@ -1,6 +1,5 @@
 #include "splashpack.hh"
 
-#include <cstdint>
 #include <cstring>
 #include <psyqo/primitives/common.hh>
 

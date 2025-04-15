@@ -3,7 +3,6 @@
 #include <EASTL/array.h>
 #include <EASTL/vector.h>
 
-#include <cstdint>
 #include <psyqo/bump-allocator.hh>
 #include <psyqo/fragments.hh>
 #include <psyqo/gpu.hh>
