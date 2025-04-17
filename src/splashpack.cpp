@@ -25,7 +25,8 @@ struct SPLASHPACKFileHeader {
     psyqo::GTE::PackedVec3 playerStartPos;
     psyqo::GTE::PackedVec3 playerStartRot;
     psyqo::FixedPoint<12, uint16_t> playerHeight;
-    uint16_t pad[2];
+    uint16_t sceneLuaFileIndex;
+    uint16_t pad;
 };
 
 struct SPLASHPACKTextureAtlas {
@@ -63,6 +64,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.luaFiles.push_back(luaHeader);
         curentPointer += sizeof(psxsplash::LuaFile);
     }
+
+    setup.sceneLuaFile = setup.luaFiles[header->sceneLuaFileIndex];
 
     for (uint16_t i = 0; i < header->gameObjectCount; i++) {
         psxsplash::GameObject *go = reinterpret_cast<psxsplash::GameObject *>(curentPointer);

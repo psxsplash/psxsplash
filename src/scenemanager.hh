@@ -21,6 +21,7 @@ class SceneManager {
     psxsplash::Lua L;
     psxsplash::SplashPackLoader m_loader;
 
+
     eastl::vector<LuaFile*> m_luaFiles;
     eastl::vector<GameObject*> m_gameObjects;
     eastl::vector<Navmesh*> m_navmeshes;
