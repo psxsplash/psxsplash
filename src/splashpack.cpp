@@ -1,6 +1,5 @@
 #include "splashpack.hh"
 
-#include <cstring>
 #include <psyqo/primitives/common.hh>
 
 #include "gameobject.hh"
@@ -41,7 +40,7 @@ struct SPLASHPACKClut {
 void SplashPackLoader::LoadSplashpack(uint8_t *data) {
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
-    psyqo::Kernel::assert(memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
+    psyqo::Kernel::assert(__builtin_memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
 
     playerStartPos = header->playerStartPos;
     playerStartRot = header->playerStartRot;
