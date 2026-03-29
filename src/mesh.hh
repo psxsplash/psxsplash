@@ -5,6 +5,9 @@
 
 namespace psxsplash {
 
+  // Sentinel value for untextured (vertex-color-only) triangles
+  static constexpr uint16_t UNTEXTURED_TPAGE = 0xFFFF;
+
   class Tri final {
     public:
       psyqo::GTE::PackedVec3 v0, v1, v2;  
@@ -18,7 +21,12 @@ namespace psxsplash {
       psyqo::PrimPieces::TPageAttr tpage; 
       uint16_t clutX;
       uint16_t clutY;
-      uint16_t padding; 
+      uint16_t padding;
+
+      /// Returns true if this triangle has no texture (vertex-color only).
+      bool isUntextured() const {
+          return *reinterpret_cast<const uint16_t*>(&tpage) == UNTEXTURED_TPAGE;
+      }
   };
   static_assert(sizeof(Tri) == 52, "Tri is not 52 bytes");
   
