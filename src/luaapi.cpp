@@ -1178,9 +1178,9 @@ int LuaAPI::Camera_SetRotation(lua_State* L) {
     // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
     // This matches psyqo::Angle convention used by the engine.
     psyqo::Angle rx, ry, rz;
-    rx.value = static_cast<int32_t>(lua.optNumber(1, 0) * kAngleScale);
-    ry.value = static_cast<int32_t>(lua.optNumber(2, 0) * kAngleScale);
-    rz.value = static_cast<int32_t>(lua.optNumber(3, 0) * kAngleScale);
+    rx.value = static_cast<int32_t>(lua.optNumber(1, 0));
+    ry.value = static_cast<int32_t>(lua.optNumber(2, 0));
+    rz.value = static_cast<int32_t>(lua.optNumber(3, 0));
     s_sceneManager->getCamera().SetRotation(rx, ry, rz);
     return 0;
 }
