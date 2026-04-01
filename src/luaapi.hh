@@ -177,6 +177,12 @@ private:
     // Camera.SetRotation(x, y, z)
     static int Camera_SetRotation(lua_State* L);
     
+    // Camera.GetForward() 
+    static int Camera_GetForward(lua_State* L);
+
+    // Camera.MoveForward(step) 
+    static int Camera_MoveForward(lua_State* L);
+
     // Camera.LookAt(target) or Camera.LookAt(x, y, z)
     static int Camera_LookAt(lua_State* L);
     
