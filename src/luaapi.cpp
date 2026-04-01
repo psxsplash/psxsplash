@@ -1163,10 +1163,11 @@ int LuaAPI::Camera_SetPosition(lua_State* L) {
 int LuaAPI::Camera_GetRotation(lua_State* L) {
     psyqo::Lua lua(L);
     
-    // Camera only stores the rotation matrix internally.
-    // Decomposing back to Euler angles is not supported.
-    // Return {0,0,0} — use Camera.SetRotation to control orientation.
-    PushVec3(lua, psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0));
+    psyqo::FixedPoint<12> rotX = psyqo::FixedPoint<12>(static_cast<int32_t>(s_sceneManager->getCamera().GetAngleX() * 4), psyqo::FixedPoint<12>::RAW);
+    psyqo::FixedPoint<12> rotY = psyqo::FixedPoint<12>(static_cast<int32_t>(s_sceneManager->getCamera().GetAngleY() * 4), psyqo::FixedPoint<12>::RAW);
+    psyqo::FixedPoint<12> rotZ = psyqo::FixedPoint<12>(static_cast<int32_t>(s_sceneManager->getCamera().GetAngleZ() * 4), psyqo::FixedPoint<12>::RAW);
+
+    PushVec3(lua, rotX, rotY, rotZ);
     return 1;
 }
 
