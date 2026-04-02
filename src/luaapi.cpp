@@ -1214,6 +1214,11 @@ int LuaAPI::Camera_SetRotation(lua_State* L) {
 int LuaAPI::Camera_GetForward(lua_State* L) {
     psyqo::Lua lua(L);
 
+    if (!s_sceneManager) {
+        psyqo::FixedPoint<12> zero(0);
+        PushVec3(lua, zero, zero, zero);
+        return 1;
+    }
     psyqo::Matrix33 camRotationMatrix = s_sceneManager->getCamera().GetRotation();
 
     psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x;
