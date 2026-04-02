@@ -178,6 +178,21 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Camera_SetRotation);
     L.setField(-2, "SetRotation");
+
+    L.push(Camera_GetForward);
+    L.setField(-2, "GetForward");
+
+    L.push(Camera_MoveForward);
+    L.setField(-2, "MoveForward");
+
+    L.push(Camera_MoveBackward);
+    L.setField(-2, "MoveBackward");
+
+    L.push(Camera_MoveLeft);
+    L.setField(-2, "MoveLeft");
+
+    L.push(Camera_MoveRight);
+    L.setField(-2, "MoveRight");
     
     L.push(Camera_LookAt);
     L.setField(-2, "LookAt");
@@ -1163,25 +1178,160 @@ int LuaAPI::Camera_SetPosition(lua_State* L) {
 int LuaAPI::Camera_GetRotation(lua_State* L) {
     psyqo::Lua lua(L);
     
-    // Camera only stores the rotation matrix internally.
-    // Decomposing back to Euler angles is not supported.
-    // Return {0,0,0} — use Camera.SetRotation to control orientation.
-    PushVec3(lua, psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0));
+    if (s_sceneManager) {
+        psyqo::FixedPoint<12> rotX = psyqo::FixedPoint<12>(static_cast<int32_t>(s_sceneManager->getCamera().GetAngleX() * 4), psyqo::FixedPoint<12>::RAW);
+        psyqo::FixedPoint<12> rotY = psyqo::FixedPoint<12>(static_cast<int32_t>(s_sceneManager->getCamera().GetAngleY() * 4), psyqo::FixedPoint<12>::RAW);
+        psyqo::FixedPoint<12> rotZ = psyqo::FixedPoint<12>(static_cast<int32_t>(s_sceneManager->getCamera().GetAngleZ() * 4), psyqo::FixedPoint<12>::RAW);
+
+        PushVec3(lua, rotX, rotY, rotZ);
+    } else {
+        // Mirror Camera_GetPosition behavior when no scene manager is available.
+        PushVec3(lua, psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0));
+    }
     return 1;
 }
 
 int LuaAPI::Camera_SetRotation(lua_State* L) {
     psyqo::Lua lua(L);
     
-    if (!s_sceneManager) return 0;
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
     
     // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
     // This matches psyqo::Angle convention used by the engine.
+    psyqo::FixedPoint<12> x, y, z;
+    ReadVec3(lua, 1, x, y, z);
+
+    // Convert to Angle (FixedPoint<10>) 
     psyqo::Angle rx, ry, rz;
-    rx.value = static_cast<int32_t>(lua.optNumber(1, 0) * kAngleScale);
-    ry.value = static_cast<int32_t>(lua.optNumber(2, 0) * kAngleScale);
-    rz.value = static_cast<int32_t>(lua.optNumber(3, 0) * kAngleScale);
+    rx.value = x.value >> 2;
+    ry.value = y.value >> 2;
+    rz.value = z.value >> 2;
+
     s_sceneManager->getCamera().SetRotation(rx, ry, rz);
+    return 0;
+}
+
+int LuaAPI::Camera_GetForward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager) {
+        psyqo::FixedPoint<12> zero(0);
+        PushVec3(lua, zero, zero, zero);
+        return 1;
+    }
+    psyqo::Matrix33 camRotationMatrix = s_sceneManager->getCamera().GetRotation();
+
+    psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x;
+    psyqo::FixedPoint<12> fwdY = camRotationMatrix.vs[2].y;
+    psyqo::FixedPoint<12> fwdZ = camRotationMatrix.vs[2].z;
+
+    PushVec3(lua, fwdX, fwdY, fwdZ);
+    return 1;
+}
+
+int LuaAPI::Camera_MoveForward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+
+    psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x * stepAmount;
+    psyqo::FixedPoint<12> fwdY = camRotationMatrix.vs[2].y * stepAmount;
+    psyqo::FixedPoint<12> fwdZ = camRotationMatrix.vs[2].z * stepAmount;
+    
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x + fwdX;
+    pos.y = pos.y + fwdY;
+    pos.z = pos.z + fwdZ;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
+    return 0;
+}
+
+int LuaAPI::Camera_MoveBackward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+
+    psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x * stepAmount;
+    psyqo::FixedPoint<12> fwdY = camRotationMatrix.vs[2].y * stepAmount;
+    psyqo::FixedPoint<12> fwdZ = camRotationMatrix.vs[2].z * stepAmount;
+    
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x - fwdX;
+    pos.y = pos.y - fwdY;
+    pos.z = pos.z - fwdZ;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
+    return 0;
+}
+
+int LuaAPI::Camera_MoveLeft(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+
+    // Use the camera's right vector for strafing; negate it to move left.
+    psyqo::FixedPoint<12> rightX = camRotationMatrix.vs[0].x * stepAmount;
+    psyqo::FixedPoint<12> rightY = camRotationMatrix.vs[0].y * stepAmount;
+    psyqo::FixedPoint<12> rightZ = camRotationMatrix.vs[0].z * stepAmount;
+
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x - rightX;
+    pos.y = pos.y - rightY;
+    pos.z = pos.z - rightZ;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
+    return 0;
+}
+
+int LuaAPI::Camera_MoveRight(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+
+    // Use the camera's right vector for strafing; negate it to move left.
+    psyqo::FixedPoint<12> rightX = camRotationMatrix.vs[0].x * stepAmount;
+    psyqo::FixedPoint<12> rightY = camRotationMatrix.vs[0].y * stepAmount;
+    psyqo::FixedPoint<12> rightZ = camRotationMatrix.vs[0].z * stepAmount;
+
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x + rightX;
+    pos.y = pos.y + rightY;
+    pos.z = pos.z + rightZ;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
     return 0;
 }
 
