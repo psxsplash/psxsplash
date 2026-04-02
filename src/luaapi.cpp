@@ -184,6 +184,15 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
 
     L.push(Camera_MoveForward);
     L.setField(-2, "MoveForward");
+
+    L.push(Camera_MoveBackward);
+    L.setField(-2, "MoveBackward");
+
+    L.push(Camera_MoveLeft);
+    L.setField(-2, "MoveLeft");
+
+    L.push(Camera_MoveRight);
+    L.setField(-2, "MoveRight");
     
     L.push(Camera_LookAt);
     L.setField(-2, "LookAt");
@@ -1230,6 +1239,100 @@ int LuaAPI::Camera_MoveForward(lua_State* L) {
     pos.x = pos.x + fwdX;
     pos.y = pos.y + fwdY;
     pos.z = pos.z + fwdZ;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
+    return 0;
+}
+
+int LuaAPI::Camera_MoveBackward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+
+    psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x * stepAmount;
+    psyqo::FixedPoint<12> fwdY = camRotationMatrix.vs[2].y * stepAmount;
+    psyqo::FixedPoint<12> fwdZ = camRotationMatrix.vs[2].z * stepAmount;
+    
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x + fwdX * -1;
+    pos.y = pos.y + fwdY * -1;
+    pos.z = pos.z + fwdZ * -1;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
+    return 0;
+}
+
+int LuaAPI::Camera_MoveLeft(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+    
+    // Get camera forward 
+    psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x;
+    psyqo::FixedPoint<12> fwdY = camRotationMatrix.vs[2].y;
+    psyqo::FixedPoint<12> fwdZ = camRotationMatrix.vs[2].z;
+    
+    psyqo::Vec3 worldUpVector = psyqo::Vec3{0, 1, 0};
+
+    // Vector Cross
+    psyqo::FixedPoint<12> rx = fwdY * worldUpVector.z - fwdZ * worldUpVector.y;
+    psyqo::FixedPoint<12> ry = fwdZ * worldUpVector.x - fwdX * worldUpVector.z;
+    psyqo::FixedPoint<12> rz = fwdX * worldUpVector.y - fwdY * worldUpVector.x;
+    
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x + rx * stepAmount;
+    pos.y = pos.y + ry * stepAmount;
+    pos.z = pos.z + rz * stepAmount;
+
+    cam.SetPosition(pos.x,pos.y,pos.z);
+
+    return 0;
+}
+
+int LuaAPI::Camera_MoveRight(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 1);
+
+    auto& cam = s_sceneManager->getCamera();
+
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+    
+    // Get camera forward and multiply it
+    psyqo::FixedPoint<12> fwdX = camRotationMatrix.vs[2].x;
+    psyqo::FixedPoint<12> fwdY = camRotationMatrix.vs[2].y;
+    psyqo::FixedPoint<12> fwdZ = camRotationMatrix.vs[2].z;
+    
+    psyqo::Vec3 worldUpVector = psyqo::Vec3{0, 1, 0};
+
+    // Vector Cross
+    psyqo::FixedPoint<12> rx = fwdY * worldUpVector.z - fwdZ * worldUpVector.y;
+    psyqo::FixedPoint<12> ry = fwdZ * worldUpVector.x - fwdX * worldUpVector.z;
+    psyqo::FixedPoint<12> rz = fwdX * worldUpVector.y - fwdY * worldUpVector.x;
+
+    psyqo::Vec3 pos = cam.GetPosition();
+
+    pos.x = pos.x - rx * stepAmount;
+    pos.y = pos.y - ry * stepAmount;
+    pos.z = pos.z - rz * stepAmount;
 
     cam.SetPosition(pos.x,pos.y,pos.z);
 
