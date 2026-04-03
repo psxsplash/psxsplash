@@ -6,6 +6,9 @@
 
 namespace psxsplash {
 
+// Forward declaration for Frustum::testAABB overload
+struct RoomCell;
+
 /// Triangle reference - points to a specific triangle in a specific object
 struct TriangleRef {
     uint16_t objectIndex;
@@ -61,6 +64,9 @@ struct Frustum {
         }
         return true;
     }
+
+    // RoomCell overload defined after RoomCell struct (see below)
+    inline bool testAABB(const RoomCell& cell) const;
 };
 
 /// BVH Manager - handles traversal and culling
@@ -132,9 +138,51 @@ struct RoomData {
     int32_t aabbMaxX, aabbMaxY, aabbMaxZ;  // 12 bytes
     uint16_t firstTriRef;                   // 2 bytes - index into room tri-ref array
     uint16_t triRefCount;                   // 2 bytes
-    uint32_t pad;                           // 4 bytes (alignment)
+    uint16_t firstCell;                     // 2 bytes - index into cell array
+    uint8_t  cellCount;                     // 1 byte  - typically 8 (2×2×2)
+    uint8_t  portalRefCount;                // 1 byte  - number of portal refs for this room
+    uint16_t firstPortalRef;                // 2 bytes - index into room-portal-ref array
+    uint16_t pad;                           // 2 bytes - alignment
 };
-static_assert(sizeof(RoomData) == 32, "RoomData must be 32 bytes");
+static_assert(sizeof(RoomData) == 36, "RoomData must be 36 bytes");
+
+/// Per-room portal reference — maps a room to its adjacent portals.
+/// Stored in a flat array indexed by RoomData::firstPortalRef + i.
+struct RoomPortalRef {
+    uint16_t portalIndex;   // index into the portal array
+    uint16_t otherRoom;     // room on the other side
+};
+static_assert(sizeof(RoomPortalRef) == 4, "RoomPortalRef must be 4 bytes");
+
+/// Per-room spatial cell for sub-room frustum culling.
+/// Each cell covers a fraction of a room's volume (typically 2×2×2 = 8 cells per room).
+/// At runtime, frustum-test each cell's AABB to skip triangles in invisible sub-volumes.
+struct RoomCell {
+    int32_t minX, minY, minZ;   // 12 bytes - tight AABB around cell's actual triangles
+    int32_t maxX, maxY, maxZ;   // 12 bytes
+    uint16_t firstTriRef;        // 2 bytes  - index into room tri-ref array
+    uint16_t triRefCount;        // 2 bytes
+
+    /// P-vertex frustum plane test (same algorithm as BVHNode::testPlane)
+    bool testPlane(int32_t nx, int32_t ny, int32_t nz, int32_t d) const {
+        int32_t px = (nx >= 0) ? maxX : minX;
+        int32_t py = (ny >= 0) ? maxY : minY;
+        int32_t pz = (nz >= 0) ? maxZ : minZ;
+        int64_t dot = ((int64_t)px * nx + (int64_t)py * ny + (int64_t)pz * nz) >> 12;
+        return (dot + d) >= 0;
+    }
+};
+static_assert(sizeof(RoomCell) == 28, "RoomCell must be 28 bytes");
+
+// Deferred implementation of Frustum::testAABB(RoomCell) — needs full RoomCell definition.
+inline bool Frustum::testAABB(const RoomCell& cell) const {
+    for (int i = 0; i < 6; i++) {
+        if (!cell.testPlane(planes[i].nx, planes[i].ny, planes[i].nz, planes[i].d)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 /// Per-portal data connecting two rooms.
 /// Center position is in fixed-point world/GTE space (20.12).

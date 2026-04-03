@@ -18,7 +18,7 @@ class Controls {
 
     void Init();
     void HandleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
-                        psyqo::Angle &playerRotationZ, bool freecam, int deltaFrames);
+                        psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
 
     /// Update button state tracking - call before HandleControls
     void UpdateButtonStates();

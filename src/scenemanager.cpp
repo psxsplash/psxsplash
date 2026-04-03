@@ -77,6 +77,10 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_portalCount = sceneSetup.portalCount;
     m_roomTriRefs = sceneSetup.roomTriRefs;
     m_roomTriRefCount = sceneSetup.roomTriRefCount;
+    m_roomCells = sceneSetup.roomCells;
+    m_roomCellCount = sceneSetup.roomCellCount;
+    m_roomPortalRefs = sceneSetup.roomPortalRefs;
+    m_roomPortalRefCount = sceneSetup.roomPortalRefCount;
 
     // Configure fog and back color from splashpack data (v11+)
     {
@@ -229,7 +233,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_velocityY = 0;
     m_isGrounded = true;
     m_lastFrameTime = 0;
-    m_deltaFrames = 1;
+    m_dt12 = 4096;  // Default: 1.0 frame
 
     m_collisionSystem.init();
     
@@ -318,15 +322,19 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         uint32_t now = gpu.now();
         if (m_lastFrameTime != 0) {
             uint32_t elapsed = now - m_lastFrameTime;
-            m_deltaFrames = (elapsed > 50000) ? 2 : 1;
-            if (elapsed > 83000) m_deltaFrames = 3; 
+
+            if (elapsed > 200000) elapsed = 200000;  // cap at ~6 frames
+            m_dt12 = (int32_t)((elapsed * 4096u) / 33333u);
+            if (m_dt12 < 1) m_dt12 = 1;              // minimum: tiny fraction
+            if (m_dt12 > 4096 * 4) m_dt12 = 4096 * 4; // cap at 4 frames
         }
         m_lastFrameTime = now;
     }
     
     uint32_t renderingStart = gpu.now();
     auto& renderer = psxsplash::Renderer::GetInstance();
-    if (m_sceneType == 1 && m_roomCount > 0 && m_rooms != nullptr) {
+
+    if (m_roomCount > 0 && m_rooms != nullptr) {
 
         int camRoom = -1;
         if (m_navRegions.isLoaded()) {
@@ -343,7 +351,8 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             }
         }
         renderer.RenderWithRooms(m_gameObjects, m_rooms, m_roomCount,
-                                  m_portals, m_portalCount, m_roomTriRefs, camRoom);
+                                  m_portals, m_portalCount, m_roomTriRefs,
+                                  m_roomCells, m_roomPortalRefs, camRoom);
     } else {
         renderer.RenderWithBVH(m_gameObjects, m_bvh);
     }
@@ -406,7 +415,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     // Lua update tick - call onUpdate for all registered objects with onUpdate handler
     for (auto* go : m_gameObjects) {
         if (go && go->isActive()) {
-            L.OnUpdate(go, m_deltaFrames);
+            L.OnUpdate(go, m_dt12);
         }
     }
     gpu.pumpCallbacks();
@@ -460,7 +469,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     psyqo::Vec3 oldPlayerPosition = m_playerPosition;
 
     if (m_controlsEnabled) {
-        m_controls.HandleControls(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_deltaFrames);
+        m_controls.HandleControls(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
 
         // Jump input: Cross button triggers jump when grounded
         if (m_isGrounded && m_controls.wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
@@ -478,13 +487,12 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 
     uint32_t navmeshStart = gpu.now();
     if (!freecam && m_navRegions.isLoaded()) {
-        // Apply gravity
-        for (int f = 0; f < m_deltaFrames; f++) {
-            m_velocityY += m_gravityPerFrame;
-        }
+        // Apply gravity scaled by dt12 (4096 = 1 frame)
+        int32_t gravityDelta = (int32_t)(((int64_t)m_gravityPerFrame * m_dt12) >> 12);
+        m_velocityY += gravityDelta;
 
-        // Apply vertical velocity to position
-        int32_t posYDelta = (m_velocityY * m_deltaFrames) / 30;
+        // Apply vertical velocity to position, scaled by dt12
+        int32_t posYDelta = (int32_t)(((int64_t)m_velocityY * m_dt12) >> 12);
         m_playerPosition.y.value += posYDelta;
 
         // Resolve position via nav regions
@@ -827,6 +835,10 @@ void psxsplash::SceneManager::clearScene() {
     m_portalCount = 0;
     m_roomTriRefs = nullptr;
     m_roomTriRefCount = 0;
+    m_roomCells = nullptr;
+    m_roomCellCount = 0;
+    m_roomPortalRefs = nullptr;
+    m_roomPortalRefCount = 0;
     m_sceneType = 0;
 }
 
@@ -865,6 +877,8 @@ void psxsplash::SceneManager::shrinkBuffer() {
     m_rooms = reloc(m_rooms);
     m_portals = reloc(m_portals);
     m_roomTriRefs = reloc(m_roomTriRefs);
+    m_roomCells = reloc(m_roomCells);
+    m_roomPortalRefs = reloc(m_roomPortalRefs);
 
     for (int ci = 0; ci < m_cutsceneCount; ci++) {
         auto& cs = m_cutscenes[ci];

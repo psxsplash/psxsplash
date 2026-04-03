@@ -77,7 +77,7 @@ class Lua {
     void OnTriggerExit(GameObject* trigger, GameObject* other);
     void OnTriggerEnterScript(int luaFileIndex, int triggerIndex);
     void OnTriggerExitScript(int luaFileIndex, int triggerIndex);
-    void OnUpdate(GameObject* go, int deltaFrames);  // Per-object update
+    void OnUpdate(GameObject* go, int32_t dt12);  // Per-object update (4.12 fp, 4096 = 1 frame)
     void OnDestroy(GameObject* go);
     void OnEnable(GameObject* go);
     void OnDisable(GameObject* go);

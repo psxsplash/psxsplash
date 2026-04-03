@@ -85,6 +85,10 @@ struct SplashpackSceneSetup {
     uint16_t portalCount = 0;
     const TriangleRef* roomTriRefs = nullptr;
     uint16_t roomTriRefCount = 0;
+    const RoomCell* roomCells = nullptr;
+    uint16_t roomCellCount = 0;
+    const RoomPortalRef* roomPortalRefs = nullptr;
+    uint16_t roomPortalRefCount = 0;
 
     psyqo::FixedPoint<12, uint16_t> moveSpeed;       // Per-frame speed constant (fp12)
     psyqo::FixedPoint<12, uint16_t> sprintSpeed;     // Per-frame sprint constant (fp12)

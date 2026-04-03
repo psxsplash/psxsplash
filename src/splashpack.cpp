@@ -57,7 +57,7 @@ struct SPLASHPACKFileHeader {
     uint16_t portalCount;
     uint16_t roomTriRefCount;
     uint16_t cutsceneCount;
-    uint16_t pad4;
+    uint16_t roomCellCount;
     uint32_t cutsceneTableOffset;
     uint16_t uiCanvasCount;
     uint8_t  uiFontCount;
@@ -65,7 +65,7 @@ struct SPLASHPACKFileHeader {
     uint32_t uiTableOffset;
     uint32_t pixelDataOffset;
     uint16_t animationCount;
-    uint16_t animPad;
+    uint16_t roomPortalRefCount;
     uint32_t animationTableOffset;
 };
 static_assert(sizeof(SPLASHPACKFileHeader) == 112, "SPLASHPACKFileHeader must be 112 bytes");
@@ -190,6 +190,22 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.roomTriRefs = reinterpret_cast<const TriangleRef*>(cursor);
         setup.roomTriRefCount = header->roomTriRefCount;
         cursor += header->roomTriRefCount * sizeof(TriangleRef);
+
+        // Room cells (v17+): per-room spatial subdivision for frustum culling.
+        // Cell data follows tri-refs. If roomCellCount is 0, cells == nullptr.
+        if (header->roomCellCount > 0) {
+            setup.roomCells = reinterpret_cast<const RoomCell*>(cursor);
+            setup.roomCellCount = header->roomCellCount;
+            cursor += header->roomCellCount * sizeof(RoomCell);
+        }
+
+        // Per-room portal reference lists (Phase 5).
+        // Each RoomPortalRef is 4 bytes: portalIndex (u16) + otherRoom (u16).
+        if (header->roomPortalRefCount > 0) {
+            setup.roomPortalRefs = reinterpret_cast<const RoomPortalRef*>(cursor);
+            setup.roomPortalRefCount = header->roomPortalRefCount;
+            cursor += header->roomPortalRefCount * sizeof(RoomPortalRef);
+        }
     }
 
     for (uint16_t i = 0; i < header->textureAtlasCount; i++) {

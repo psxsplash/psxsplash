@@ -566,9 +566,9 @@ void psxsplash::Lua::OnButtonRelease(GameObject* go, int button) {
     onButtonReleaseMethodWrapper.callMethod(*this, go, button);
 }
 
-void psxsplash::Lua::OnUpdate(GameObject* go, int deltaFrames) {
+void psxsplash::Lua::OnUpdate(GameObject* go, int32_t dt12) {
     if (!hasEvent(go, EVENT_ON_UPDATE)) return;
-    onUpdateMethodWrapper.callMethod(*this, go, deltaFrames);
+    onUpdateMethodWrapper.callMethod(*this, go, dt12);
 }
 
 void psxsplash::Lua::RelocateGameObjects(GameObject** objects, size_t count, intptr_t delta) {

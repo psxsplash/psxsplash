@@ -41,17 +41,18 @@ void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
     if (!instance) { instance = new Renderer(gpuInstance); }
 }
 
-void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) { m_currentCamera = &camera; }
+void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {
+    m_currentCamera = &camera;
+    // Update GTE H register to match camera's projection distance
+    write<Register::H, Unsafe>(camera.GetProjectionH());
+}
 
 void psxsplash::Renderer::SetFog(const FogConfig& fog) {
     m_fog = fog;
     // Always use fog color as the GPU clear/back color
     m_clearcolor = fog.color;
     if (fog.enabled) {
-        write<Register::RFC, Unsafe>(static_cast<uint32_t>(fog.color.r) << 4);
-        write<Register::GFC, Unsafe>(static_cast<uint32_t>(fog.color.g) << 4);
-        write<Register::BFC, Safe>(static_cast<uint32_t>(fog.color.b) << 4);
-        m_fog.fogFarSZ = 8000 / fog.density;
+        m_fog.fogFarSZ = 20000 / fog.density;
     } else {
         m_fog.fogFarSZ = 0;
     }
@@ -85,7 +86,7 @@ void psxsplash::Renderer::setupObjectTransform(
     writeSafe<PseudoRegister::Rotation>(finalMatrix);
 }
 
-// Per-vertex fog blend: result = vertexColor * (4096 - ir0) / 4096 + fogColor * ir0 / 4096
+// Per-vertex fog blend for untextured triangles: interpolate vertex color toward fog color.
 static inline psyqo::Color fogBlend(psyqo::Color vc, int32_t ir0, psyqo::Color fogC) {
     if (ir0 <= 0) return vc;
     if (ir0 >= 4096) return fogC;
@@ -97,15 +98,34 @@ static inline psyqo::Color fogBlend(psyqo::Color vc, int32_t ir0, psyqo::Color f
     };
 }
 
-// ============================================================================
-// Core triangle pipeline (Bandwidth's proven approach + fog)
-// rtpt -> nclip -> backface cull -> SZ depth -> SXY -> screen clip -> emit
-// ============================================================================
+
+static inline psyqo::Color fogBaseColor(int32_t ir, psyqo::Color fogC) {
+    if (ir <= 0) return {.r = 0, .g = 0, .b = 0};
+    if (ir >= 4096) return fogC;
+    return {
+        .r = (uint8_t)((fogC.r * ir) >> 12),
+        .g = (uint8_t)((fogC.g * ir) >> 12),
+        .b = (uint8_t)((fogC.b * ir) >> 12),
+    };
+}
+
+static inline psyqo::Color fogTexColor(psyqo::Color vc, int32_t ir) {
+    if (ir <= 0) return vc;
+    if (ir >= 4096) return {.r = 0, .g = 0, .b = 0};
+    int32_t keep = 4096 - ir;
+    return {
+        .r = (uint8_t)((vc.r * keep) >> 12),
+        .g = (uint8_t)((vc.g * keep) >> 12),
+        .b = (uint8_t)((vc.b * keep) >> 12),
+    };
+}
+
 
 void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
     psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
-    psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc) {
+    psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+    int depth) {
 
     writeSafe<PseudoRegister::V0>(tri.v0);
     writeSafe<PseudoRegister::V1>(tri.v1);
@@ -119,22 +139,106 @@ void psxsplash::Renderer::processTriangle(
     read<Register::SZ3>(&u2);
     int32_t sz0 = (int32_t)u0, sz1 = (int32_t)u1, sz2 = (int32_t)u2;
 
-    if (sz0 < 1 && sz1 < 1 && sz2 < 1) return;
+    // Entirely behind camera → invisible.
+    if (sz0 <= 0 && sz1 <= 0 && sz2 <= 0) return;
+    // Entirely beyond fog wall → invisible.
     if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) return;
 
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
-    if (zIndex < 0 || zIndex >= (int32_t)ORDERING_TABLE_SIZE) return;
+    if (zIndex >= (int32_t)ORDERING_TABLE_SIZE) return;
+    if (zIndex < 1) zIndex = 1;
 
-    // Per-vertex fog: compute fog factor for each vertex individually based on
-    // its SZ depth. The GPU then interpolates the fogged colors smoothly across
-    // the triangle surface, eliminating the per-triangle tiling artifacts that
-    // occur when a single IR0 is used for the whole triangle.
-    //
-    // fogIR[i] = 0 means no fog (original color), 4096 = full fog (fog color).
-    // Quadratic ease-in curve: fog dominates over baked lighting quickly.
+    psyqo::Vertex projected[3];
+    read<Register::SXY0>(&projected[0].packed);
+    read<Register::SXY1>(&projected[1].packed);
+    read<Register::SXY2>(&projected[2].packed);
+
+    // SZ below this threshold → GTE SXY output is garbage (near-zero Z division).
+    static constexpr int32_t NEAR_SZ_THRESHOLD = 4;
+    bool hasNearPlane = (sz0 < NEAR_SZ_THRESHOLD || sz1 < NEAR_SZ_THRESHOLD ||
+                         sz2 < NEAR_SZ_THRESHOLD);
+
+    // Near-plane subdivision: split on edge with largest SZ delta, re-project halves.
+    static constexpr int MAX_SUBDIV_DEPTH = 5;
+    if (hasNearPlane && depth < MAX_SUBDIV_DEPTH) {
+        auto iabs = [](int32_t v) -> int32_t { return v < 0 ? -v : v; };
+        int32_t score01 = iabs(sz0 - sz1);
+        int32_t score12 = iabs(sz1 - sz2);
+        int32_t score20 = iabs(sz2 - sz0);
+
+        Tri childA = tri, childB = tri;
+
+        if (score01 >= score12 && score01 >= score20) {
+            // Split edge v0–v1 → midpoint M.  childA = {v0, M, v2}, childB = {M, v1, v2}.
+            psyqo::GTE::PackedVec3 m;
+            m.x.value = (int16_t)(((int32_t)tri.v0.x.value + (int32_t)tri.v1.x.value) >> 1);
+            m.y.value = (int16_t)(((int32_t)tri.v0.y.value + (int32_t)tri.v1.y.value) >> 1);
+            m.z.value = (int16_t)(((int32_t)tri.v0.z.value + (int32_t)tri.v1.z.value) >> 1);
+            uint8_t mu = (uint8_t)(((int)tri.uvA.u + (int)tri.uvB.u) >> 1);
+            uint8_t mv = (uint8_t)(((int)tri.uvA.v + (int)tri.uvB.v) >> 1);
+            psyqo::Color mc = {
+                .r = (uint8_t)(((int)tri.colorA.r + (int)tri.colorB.r) >> 1),
+                .g = (uint8_t)(((int)tri.colorA.g + (int)tri.colorB.g) >> 1),
+                .b = (uint8_t)(((int)tri.colorA.b + (int)tri.colorB.b) >> 1),
+            };
+            childA.v1 = m; childA.uvB.u = mu; childA.uvB.v = mv; childA.colorB = mc;
+            childB.v0 = m; childB.uvA.u = mu; childB.uvA.v = mv; childB.colorA = mc;
+        } else if (score12 >= score20) {
+            // Split edge v1–v2 → midpoint M.  childA = {v0, v1, M}, childB = {v0, M, v2}.
+            psyqo::GTE::PackedVec3 m;
+            m.x.value = (int16_t)(((int32_t)tri.v1.x.value + (int32_t)tri.v2.x.value) >> 1);
+            m.y.value = (int16_t)(((int32_t)tri.v1.y.value + (int32_t)tri.v2.y.value) >> 1);
+            m.z.value = (int16_t)(((int32_t)tri.v1.z.value + (int32_t)tri.v2.z.value) >> 1);
+            uint8_t mu = (uint8_t)(((int)tri.uvB.u + (int)tri.uvC.u) >> 1);
+            uint8_t mv = (uint8_t)(((int)tri.uvB.v + (int)tri.uvC.v) >> 1);
+            psyqo::Color mc = {
+                .r = (uint8_t)(((int)tri.colorB.r + (int)tri.colorC.r) >> 1),
+                .g = (uint8_t)(((int)tri.colorB.g + (int)tri.colorC.g) >> 1),
+                .b = (uint8_t)(((int)tri.colorB.b + (int)tri.colorC.b) >> 1),
+            };
+            childA.v2 = m; childA.uvC.u = mu; childA.uvC.v = mv; childA.colorC = mc;
+            childB.v1 = m; childB.uvB.u = mu; childB.uvB.v = mv; childB.colorB = mc;
+        } else {
+            // Split edge v2–v0 → midpoint M.  childA = {M, v1, v2}, childB = {v0, v1, M}.
+            psyqo::GTE::PackedVec3 m;
+            m.x.value = (int16_t)(((int32_t)tri.v2.x.value + (int32_t)tri.v0.x.value) >> 1);
+            m.y.value = (int16_t)(((int32_t)tri.v2.y.value + (int32_t)tri.v0.y.value) >> 1);
+            m.z.value = (int16_t)(((int32_t)tri.v2.z.value + (int32_t)tri.v0.z.value) >> 1);
+            uint8_t mu = (uint8_t)(((int)tri.uvC.u + (int)tri.uvA.u) >> 1);
+            uint8_t mv = (uint8_t)(((int)tri.uvC.v + (int)tri.uvA.v) >> 1);
+            psyqo::Color mc = {
+                .r = (uint8_t)(((int)tri.colorC.r + (int)tri.colorA.r) >> 1),
+                .g = (uint8_t)(((int)tri.colorC.g + (int)tri.colorA.g) >> 1),
+                .b = (uint8_t)(((int)tri.colorC.b + (int)tri.colorA.b) >> 1),
+            };
+            childA.v0 = m; childA.uvA.u = mu; childA.uvA.v = mv; childA.colorA = mc;
+            childB.v2 = m; childB.uvC.u = mu; childB.uvC.v = mv; childB.colorC = mc;
+        }
+
+        processTriangle(childA, fogFarSZ, ot, balloc, depth + 1);
+        processTriangle(childB, fogFarSZ, ot, balloc, depth + 1);
+        return;
+    }
+
+    // Leaf path: off-screen reject + backface cull (skipped for near-plane leaves).
+    if (!hasNearPlane) {
+        if (isCompletelyOutside(projected[0], projected[1], projected[2])) return;
+
+        Kernels::nclip();
+        int32_t mac0 = 0;
+        read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
+        if (mac0 <= 0) return;
+    }
+
+    // Clamp to safe rasterizer range (1023×511 max delta).
+    clampForRasterizer(projected[0]);
+    clampForRasterizer(projected[1]);
+    clampForRasterizer(projected[2]);
+
+    // Per-vertex fog (deferred to leaf to avoid wasted divisions during subdivision).
     int32_t fogIR[3] = {0, 0, 0};
     if (fogFarSZ > 0) {
-        int32_t fogNear = fogFarSZ / 4;
+        int32_t fogNear = fogFarSZ >> 3;
         int32_t range = fogFarSZ - fogNear;
         if (range < 1) range = 1;
         int32_t szArr[3] = {sz0, sz1, sz2};
@@ -145,102 +249,61 @@ void psxsplash::Renderer::processTriangle(
             } else if (szArr[vi] >= fogFarSZ) {
                 ir = 4096;
             } else {
-                // Linear 0..4096 over [fogNear, fogFarSZ]
-                int32_t t = ((szArr[vi] - fogNear) * 4096) / range;
-                // Quadratic ease-in: t^2 / 4096
-                ir = (t * t) >> 12;
+                ir = ((szArr[vi] - fogNear) * 4096) / range;
             }
             fogIR[vi] = ir;
         }
     }
 
-    psyqo::Vertex projected[3];
-    read<Register::SXY0>(&projected[0].packed);
-    read<Register::SXY1>(&projected[1].packed);
-    read<Register::SXY2>(&projected[2].packed);
-
-    if (isCompletelyOutside(projected[0], projected[1], projected[2])) return;
-
-    // Triangles that need clipping skip nclip entirely.
-    // nclip with GTE-clamped screen coords gives wrong results for edge triangles.
-    // The clipper handles them directly - no backface cull needed since the
-    // clipper preserves winding and degenerate triangles produce zero-area output.
-    if (needsClipping(projected[0], projected[1], projected[2])) {
-        ClipVertex cv0 = {(int16_t)projected[0].x, (int16_t)projected[0].y, (int16_t)sz0,
-                          tri.uvA.u, tri.uvA.v, tri.colorA.r, tri.colorA.g, tri.colorA.b};
-        ClipVertex cv1 = {(int16_t)projected[1].x, (int16_t)projected[1].y, (int16_t)sz1,
-                          tri.uvB.u, tri.uvB.v, tri.colorB.r, tri.colorB.g, tri.colorB.b};
-        ClipVertex cv2 = {(int16_t)projected[2].x, (int16_t)projected[2].y, (int16_t)sz2,
-                          tri.uvC.u, tri.uvC.v, tri.colorC.r, tri.colorC.g, tri.colorC.b};
-        ClipResult clipResult;
-        int clippedCount = clipTriangle(cv0, cv1, cv2, clipResult);
-        for (int ct = 0; ct < clippedCount; ct++) {
-            const ClipVertex& a = clipResult.verts[ct*3];
-            const ClipVertex& b = clipResult.verts[ct*3+1];
-            const ClipVertex& c = clipResult.verts[ct*3+2];
-            // For clipped vertices, use per-triangle fog (max SZ) since
-            // clipped vertex Z values may not map cleanly to the original SZs.
-            psyqo::Color ca = {a.r, a.g, a.b}, cb = {b.r, b.g, b.b}, cc = {c.r, c.g, c.b};
-            if (m_fog.enabled) {
-                int32_t maxIR = eastl::max(eastl::max(fogIR[0], fogIR[1]), fogIR[2]);
-                ca = fogBlend(ca, maxIR, m_fog.color);
-                cb = fogBlend(cb, maxIR, m_fog.color);
-                cc = fogBlend(cc, maxIR, m_fog.color);
-            }
-            if (tri.isUntextured()) {
-                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
-                p.primitive.pointA.x = a.x; p.primitive.pointA.y = a.y;
-                p.primitive.pointB.x = b.x; p.primitive.pointB.y = b.y;
-                p.primitive.pointC.x = c.x; p.primitive.pointC.y = c.y;
-                p.primitive.setColorA(ca); p.primitive.setColorB(cb); p.primitive.setColorC(cc);
-                p.primitive.setOpaque();
-                ot.insert(p, zIndex);
-            } else {
-                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-                p.primitive.pointA.x = a.x; p.primitive.pointA.y = a.y;
-                p.primitive.pointB.x = b.x; p.primitive.pointB.y = b.y;
-                p.primitive.pointC.x = c.x; p.primitive.pointC.y = c.y;
-                p.primitive.uvA.u = a.u; p.primitive.uvA.v = a.v;
-                p.primitive.uvB.u = b.u; p.primitive.uvB.v = b.v;
-                p.primitive.uvC.u = c.u; p.primitive.uvC.v = c.v;
-                p.primitive.tpage = tri.tpage;
-                psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
-                p.primitive.clutIndex = clut;
-                p.primitive.setColorA(ca); p.primitive.setColorB(cb); p.primitive.setColorC(cc);
-                p.primitive.setOpaque();
-                ot.insert(p, zIndex);
-            }
-        }
-        return;
-    }
-
-    // Normal path: triangle is fully inside clip region with safe deltas.
-    // nclip is reliable here since screen coords aren't clamped.
-    Kernels::nclip();
-    int32_t mac0 = 0;
-    read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
-    if (mac0 <= 0) return;
-
-    // Per-vertex fog: blend each vertex color toward fog color based on its depth.
-    // GPU interpolates these smoothly across the triangle - no tiling artifacts.
     psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
-    if (m_fog.enabled) {
-        cA = fogBlend(cA, fogIR[0], m_fog.color);
-        cB = fogBlend(cB, fogIR[1], m_fog.color);
-        cC = fogBlend(cC, fogIR[2], m_fog.color);
-    }
+    bool hasFog = m_fog.enabled && (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
 
     if (tri.isUntextured()) {
+        if (hasFog) {
+            cA = fogBlend(cA, fogIR[0], m_fog.color);
+            cB = fogBlend(cB, fogIR[1], m_fog.color);
+            cC = fogBlend(cC, fogIR[2], m_fog.color);
+        }
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
         p.primitive.pointA = projected[0]; p.primitive.pointB = projected[1]; p.primitive.pointC = projected[2];
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
         p.primitive.setOpaque();
         ot.insert(p, zIndex);
+    } else if (hasFog) {
+        psyqo::Color fogA = fogBaseColor(fogIR[0], m_fog.color);
+        psyqo::Color fogB = fogBaseColor(fogIR[1], m_fog.color);
+        psyqo::Color fogC = fogBaseColor(fogIR[2], m_fog.color);
+        psyqo::Color texA = fogTexColor(cA, fogIR[0]);
+        psyqo::Color texB = fogTexColor(cB, fogIR[1]);
+        psyqo::Color texC = fogTexColor(cC, fogIR[2]);
+
+        auto& fogP = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
+        fogP.primitive.pointA = projected[0]; fogP.primitive.pointB = projected[1]; fogP.primitive.pointC = projected[2];
+        fogP.primitive.setColorA(fogA); fogP.primitive.setColorB(fogB); fogP.primitive.setColorC(fogC);
+        fogP.primitive.setSemiTrans();
+        ot.insert(fogP, zIndex);
+
+        auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
+        texP.primitive.pointA = projected[0]; texP.primitive.pointB = projected[1]; texP.primitive.pointC = projected[2];
+        texP.primitive.uvA = tri.uvA;
+        texP.primitive.uvB = tri.uvB;
+        texP.primitive.uvC.u = tri.uvC.u; texP.primitive.uvC.v = tri.uvC.v;
+        texP.primitive.tpage = tri.tpage;
+        texP.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
+        psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
+        texP.primitive.clutIndex = clut;
+        texP.primitive.setColorA(texA); texP.primitive.setColorB(texB); texP.primitive.setColorC(texC);
+        texP.primitive.setOpaque();
+        ot.insert(texP, zIndex);
     } else {
+
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
         p.primitive.pointA = projected[0]; p.primitive.pointB = projected[1]; p.primitive.pointC = projected[2];
-        p.primitive.uvA = tri.uvA; p.primitive.uvB = tri.uvB; p.primitive.uvC = tri.uvC;
+        p.primitive.uvA = tri.uvA;
+        p.primitive.uvB = tri.uvB;
+        p.primitive.uvC.u = tri.uvC.u; p.primitive.uvC.v = tri.uvC.v;
         p.primitive.tpage = tri.tpage;
+        p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
         psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
         p.primitive.clutIndex = clut;
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
@@ -258,9 +321,9 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     uint8_t parity = m_gpu.getParity();
     auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
     balloc.reset();
-    // Set dithering draw mode at the back of the OT so it fires before any geometry.
     auto& ditherCmd = balloc.allocateFragment<psyqo::Prim::TPage>();
     ditherCmd.primitive.attr.setDithering(true);
+    ditherCmd.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd, ORDERING_TABLE_SIZE - 1);
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
@@ -292,6 +355,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     balloc.reset();
     auto& ditherCmd2 = balloc.allocateFragment<psyqo::Prim::TPage>();
     ditherCmd2.primitive.attr.setDithering(true);
+    ditherCmd2.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd2, ORDERING_TABLE_SIZE - 1);
 
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
@@ -299,6 +363,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     int16_t lastObjectIndex = -1;
+    bool lastObjCulled = false;
     for (int i = 0; i < visibleCount; i++) {
         const TriangleRef& ref = m_visibleRefs[i];
         if (ref.objectIndex >= objects.size()) continue;
@@ -307,8 +372,18 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         if (ref.triangleIndex >= obj->polyCount) continue;
         if (ref.objectIndex != lastObjectIndex) {
             lastObjectIndex = ref.objectIndex;
+
+            BVHNode objBox;
+            objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+            objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+            if (!frustum.testAABB(objBox)) {
+                lastObjCulled = true;
+                continue;
+            }
+            lastObjCulled = false;
             setupObjectTransform(obj, cameraPosition);
         }
+        if (lastObjCulled) continue;
         processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc);
     }
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
@@ -354,15 +429,17 @@ static inline void worldToCamera(int32_t wx, int32_t wy, int32_t wz,
                        (int64_t)camRot.vs[2].z.value * rz) >> 12);
 }
 
-// Project a camera-space point to screen coordinates.
-// Returns false if behind near plane.
+// Project a camera-space point to screen coordinates. Returns false if behind near plane.
 static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
-    int16_t& sx, int16_t& sy) {
+    int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
-    constexpr int32_t H = 120;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    sx = (int16_t)((vx >> 4) * H / vzs + 160);
-    sy = (int16_t)((vy >> 4) * H / vzs + 120);
+    int32_t rawX = (vx >> 4) * projH / vzs + 160;
+    int32_t rawY = (vy >> 4) * projH / vzs + 120;
+    if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
+    if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
+    sx = (int16_t)rawX;
+    sy = (int16_t)rawY;
     return true;
 }
 
@@ -370,7 +447,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
 // Computes the 4 corners, transforms to camera space, clips against the near plane,
 // projects visible points to screen, and returns the bounding rect.
 static bool projectPortalRect(const psxsplash::PortalData& portal,
-    int32_t camX, int32_t camY, int32_t camZ, const psyqo::Matrix33& camRot, ScreenRect& outRect) {
+    int32_t camX, int32_t camY, int32_t camZ, const psyqo::Matrix33& camRot,
+    int32_t projH, ScreenRect& outRect) {
 
     // Compute portal corner offsets in world space.
     int32_t rwx = ((int32_t)portal.rightX * portal.halfW) >> 12;
@@ -399,12 +477,13 @@ static bool projectPortalRect(const psxsplash::PortalData& portal,
         if (cv[i].z <= 0) behindCount++;
     }
 
-    if (behindCount == 4) {
-        // All corners behind camera. Only allow if camera is very close to portal.
+    // Any corner behind camera → conservative fullscreen rect (unless portal center is far behind).
+    if (behindCount > 0) {
         int32_t vx, vy, vz;
         worldToCamera(cx, cy, cz, camX, camY, camZ, camRot, vx, vy, vz);
         int32_t portalExtent = portal.halfW > portal.halfH ? portal.halfW : portal.halfH;
-        if (-vz > portalExtent * 2) return false;
+        int32_t distLimit = (behindCount == 4) ? portalExtent * 2 : portalExtent * 4;
+        if (vz < 0 && -vz > distLimit) return false;
         outRect = {-512, -512, 832, 752};
         return true;
     }
@@ -423,7 +502,7 @@ static bool projectPortalRect(const psxsplash::PortalData& portal,
         // Project vertex i if in front
         if (cv[i].z > 0) {
             int16_t sx, sy;
-            if (projectToScreen(cv[i].x, cv[i].y, cv[i].z, sx, sy)) {
+            if (projectToScreen(cv[i].x, cv[i].y, cv[i].z, projH, sx, sy)) {
                 if (sx < sxMin) sxMin = sx;
                 if (sx > sxMax) sxMax = sx;
                 if (sy < syMin) syMin = sy;
@@ -448,7 +527,7 @@ static bool projectPortalRect(const psxsplash::PortalData& portal,
             int32_t clipX = cv[i].x + ((((cv[j].x - cv[i].x) >> 4) * t12) >> 8);
             int32_t clipY = cv[i].y + ((((cv[j].y - cv[i].y) >> 4) * t12) >> 8);
             int16_t sx, sy;
-            if (projectToScreen(clipX, clipY, NEAR_Z, sx, sy)) {
+            if (projectToScreen(clipX, clipY, NEAR_Z, projH, sx, sy)) {
                 if (sx < sxMin) sxMin = sx;
                 if (sx > sxMax) sxMax = sx;
                 if (sy < syMin) syMin = sy;
@@ -490,9 +569,55 @@ static bool isRoomPotentiallyVisible(const psxsplash::RoomData& room,
     return true;
 }
 
+// Project an axis-aligned bounding box to a screen-space bounding rectangle.
+// Used to test whether a cell's geometry could contribute to the visible portal area.
+// Returns false if the AABB is entirely behind the camera.
+static bool projectAABBToScreen(
+    int32_t bMinX, int32_t bMinY, int32_t bMinZ,
+    int32_t bMaxX, int32_t bMaxY, int32_t bMaxZ,
+    int32_t camX, int32_t camY, int32_t camZ,
+    const psyqo::Matrix33& camRot, int32_t projH,
+    ScreenRect& outRect) {
+
+    int16_t sxMin = 32767, sxMax = -32768;
+    int16_t syMin = 32767, syMax = -32768;
+    int behindCount = 0;
+
+    for (int i = 0; i < 8; i++) {
+        int32_t wx = (i & 1) ? bMaxX : bMinX;
+        int32_t wy = (i & 2) ? bMaxY : bMinY;
+        int32_t wz = (i & 4) ? bMaxZ : bMinZ;
+        int32_t vx, vy, vz;
+        worldToCamera(wx, wy, wz, camX, camY, camZ, camRot, vx, vy, vz);
+        if (vz <= 0) { behindCount++; continue; }
+        int16_t sx, sy;
+        if (projectToScreen(vx, vy, vz, projH, sx, sy)) {
+            if (sx < sxMin) sxMin = sx;
+            if (sx > sxMax) sxMax = sx;
+            if (sy < syMin) syMin = sy;
+            if (sy > syMax) syMax = sy;
+        }
+    }
+
+    if (behindCount == 8) return false;  // Entirely behind camera
+    if (behindCount > 0 || sxMin > sxMax) {
+        // Partially behind or no projected points: report conservative fullscreen
+        outRect = {-512, -512, 832, 752};
+        return true;
+    }
+    outRect = {sxMin, syMin, sxMax, syMax};
+    return true;
+}
+
+// Minimum visible portal dimension (pixels) before a room is rendered.
+// Portals smaller than this on screen are skipped to avoid rendering
+// entire rooms through tiny distant slivers or nearly-closed doors.
+static constexpr int16_t MIN_PORTAL_SCREEN_DIM = 8;
+
 void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     const RoomData* rooms, int roomCount, const PortalData* portals, int portalCount,
-    const TriangleRef* roomTriRefs, int cameraRoom) {
+    const TriangleRef* roomTriRefs, const RoomCell* cells,
+    const RoomPortalRef* roomPortalRefs, int cameraRoom) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
 
@@ -501,6 +626,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     balloc.reset();
     auto& ditherCmd3 = balloc.allocateFragment<psyqo::Prim::TPage>();
     ditherCmd3.primitive.attr.setDithering(true);
+    ditherCmd3.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd3, ORDERING_TABLE_SIZE - 1);
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
@@ -508,6 +634,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
     int32_t camZ = m_currentCamera->GetPosition().z.raw();
+    int32_t projH = m_currentCamera->GetProjectionH();
+    Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
     int catchAllIdx = roomCount - 1;
 
     // If no camera room provided (or invalid), fall back to AABB containment.
@@ -535,43 +663,95 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     struct Entry { int room; int depth; ScreenRect clip; };
     Entry stack[64]; int top = 0;
 
-    auto renderRoom = [&](int ri) {
-        const RoomData& rm = rooms[ri];
-        int16_t lastObj = -1;
-        for (int ti = 0; ti < rm.triRefCount; ti++) {
-            const TriangleRef& ref = roomTriRefs[rm.firstTriRef + ti];
+    // Helper: render a span of tri-refs with per-object frustum culling.
+    // lastObj/lastObjCulled are managed across the span to avoid redundant
+    // object transforms when consecutive refs share an object.
+    auto renderTriRefs = [&](const TriangleRef* refs, int count,
+                             int16_t& lastObj, bool& lastObjCulled) {
+        for (int ti = 0; ti < count; ti++) {
+            const TriangleRef& ref = refs[ti];
             if (ref.objectIndex >= objects.size()) continue;
             GameObject* obj = objects[ref.objectIndex];
             if (!obj->isActive()) continue;
             if (ref.triangleIndex >= obj->polyCount) continue;
-            if (ref.objectIndex != lastObj) { lastObj = ref.objectIndex; setupObjectTransform(obj, cameraPosition); }
+            if (ref.objectIndex != lastObj) {
+                lastObj = ref.objectIndex;
+                BVHNode objBox;
+                objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+                objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+                if (!frustum.testAABB(objBox)) {
+                    lastObjCulled = true;
+                    continue;
+                }
+                lastObjCulled = false;
+                setupObjectTransform(obj, cameraPosition);
+            }
+            if (lastObjCulled) continue;
             processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc);
         }
     };
 
+    ScreenRect full = {-512, -512, 832, 752};
+
+    // Render a room's geometry, optionally clipped to a portal screen rect.
+    // clipRect is the accumulated portal clip rectangle for portal-reached rooms,
+    // or the fullscreen rect for the camera room and catch-all.
+    auto renderRoom = [&](int ri, const ScreenRect& clipRect) {
+        const RoomData& rm = rooms[ri];
+        int16_t lastObj = -1;
+        bool lastObjCulled = false;
+
+        if (rm.cellCount > 0 && cells != nullptr) {
+            // Only pay for cell-vs-screen projection when the clip rect is narrower
+            // than fullscreen (i.e. room was reached through a portal chain).
+            bool narrowClip = (clipRect.minX > -512 || clipRect.minY > -512 ||
+                               clipRect.maxX < 832 || clipRect.maxY < 752);
+
+            // Cell-based frustum culling: test each cell's AABB before processing its tris.
+            for (int ci = 0; ci < rm.cellCount; ci++) {
+                const RoomCell& cell = cells[rm.firstCell + ci];
+                if (!frustum.testAABB(cell)) continue;
+
+                // For portal-reached rooms, project cell AABB to screen and skip
+                // cells that don't overlap the visible portal area.
+                if (narrowClip) {
+                    ScreenRect cellRect;
+                    if (!projectAABBToScreen(cell.minX, cell.minY, cell.minZ,
+                                            cell.maxX, cell.maxY, cell.maxZ,
+                                            camX, camY, camZ, camRot, projH, cellRect)) continue;
+                    ScreenRect clipped;
+                    if (!intersectRect(clipRect, cellRect, clipped)) continue;
+                }
+
+                renderTriRefs(&roomTriRefs[cell.firstTriRef], cell.triRefCount,
+                              lastObj, lastObjCulled);
+            }
+        } else {
+            // Fallback: render all tris in room (no cell data available)
+            renderTriRefs(&roomTriRefs[rm.firstTriRef], rm.triRefCount,
+                          lastObj, lastObjCulled);
+        }
+    };
+
     // Always render catch-all room (geometry not assigned to any specific room)
-    renderRoom(catchAllIdx);
+    renderRoom(catchAllIdx, full);
 
     if (cameraRoom >= 0) {
-        ScreenRect full = {-512, -512, 832, 752};
         if (cameraRoom < 32) visited |= (1u << cameraRoom);
         stack[top++] = {cameraRoom, 0, full};
         while (top > 0) {
             Entry e = stack[--top];
-            renderRoom(e.room);
+            renderRoom(e.room, e.clip);
             if (e.depth >= 8) continue;  // Depth limit prevents infinite loops
-            for (int p = 0; p < portalCount; p++) {
-                int other = -1;
-                if (portals[p].roomA == e.room) other = portals[p].roomB;
-                else if (portals[p].roomB == e.room) other = portals[p].roomA;
-                else continue;
-                if (other < 0 || other >= roomCount) continue;
-                if (other < 32 && (visited & (1u << other))) continue;
+
+            // Iterate portals connected to this room.
+            // If per-room portal refs are available, use the indexed list (O(k) where k = neighbors).
+            // Otherwise fall back to scanning all portals (O(N)).
+            auto processPortal = [&](int p, int other) {
+                if (other < 0 || other >= roomCount) return;
+                if (other < 32 && (visited & (1u << other))) return;
 
                 // Backface cull: skip portals that face away from the camera.
-                // The portal normal points from roomA toward roomB (4.12 fp).
-                // dot(normal, cam - portalCenter) > 0 means the portal faces us when
-                // traversing A->B; the sign flips when traversing B->A.
                 {
                     int32_t dx = camX - portals[p].centerX;
                     int32_t dy = camY - portals[p].centerY;
@@ -579,43 +759,88 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                     int64_t dot = (int64_t)dx * portals[p].normalX +
                                   (int64_t)dy * portals[p].normalY +
                                   (int64_t)dz * portals[p].normalZ;
-                    // Allow a small negative threshold so nearly-edge-on portals still pass.
-                    const int64_t BACKFACE_THRESHOLD = -4096;
+                    const int64_t BACKFACE_THRESHOLD = (int64_t)1024 * 4096;
                     if (portals[p].roomA == e.room) {
-                        if (dot < BACKFACE_THRESHOLD) continue;
+                        if (dot > BACKFACE_THRESHOLD) return;
                     } else {
-                        if (dot > -BACKFACE_THRESHOLD) continue;
+                        if (dot < -BACKFACE_THRESHOLD) return;
                     }
                 }
 
-                // Phase 4: Frustum-cull the destination room's AABB.
-                // If the room is entirely behind the camera, skip.
+                // Frustum-cull the destination room's AABB.
                 if (!isRoomPotentiallyVisible(rooms[other], camX, camY, camZ, camRot)) {
-                    continue;
+                    return;
                 }
 
-                // Phase 2: Project actual portal quad corners to screen.
+                // Project actual portal quad corners to screen.
                 ScreenRect pr;
-                if (!projectPortalRect(portals[p], camX, camY, camZ, camRot, pr)) {
-                    continue;
+                if (!projectPortalRect(portals[p], camX, camY, camZ, camRot, projH, pr)) {
+                    return;
                 }
                 ScreenRect isect;
                 if (!intersectRect(e.clip, pr, isect)) {
-                    continue;
+                    return;
                 }
+                // Skip portals whose visible screen area is too small to matter.
+                // Prevents rendering entire rooms through tiny distant slivers.
+                if ((isect.maxX - isect.minX) < MIN_PORTAL_SCREEN_DIM ||
+                    (isect.maxY - isect.minY) < MIN_PORTAL_SCREEN_DIM) return;
+
+                // Project the destination room's AABB to screen and intersect with
+                // the portal clip rect. This catches rooms whose geometry footprint
+                // doesn't actually overlap the portal opening (e.g. a room off to
+                // the side viewed through an oblique portal whose screen AABB is
+                // misleadingly wide). Also tightens the clip rect for child portal
+                // tests and cell culling.
+                {
+                    ScreenRect roomRect;
+                    if (projectAABBToScreen(rooms[other].aabbMinX, rooms[other].aabbMinY,
+                                            rooms[other].aabbMinZ, rooms[other].aabbMaxX,
+                                            rooms[other].aabbMaxY, rooms[other].aabbMaxZ,
+                                            camX, camY, camZ, camRot, projH, roomRect)) {
+                        ScreenRect tighter;
+                        if (!intersectRect(isect, roomRect, tighter)) return;
+                        isect = tighter;
+                        // Re-check minimum size after tightening
+                        if ((isect.maxX - isect.minX) < MIN_PORTAL_SCREEN_DIM ||
+                            (isect.maxY - isect.minY) < MIN_PORTAL_SCREEN_DIM) return;
+                    }
+                }
+
                 if (other < 32) visited |= (1u << other);
                 if (top < 64) stack[top++] = {other, e.depth + 1, isect};
+            };
+
+            if (roomPortalRefs && rooms[e.room].portalRefCount > 0) {
+                // Per-room indexed portal list: only iterate portals touching this room.
+                for (int pr = 0; pr < rooms[e.room].portalRefCount; pr++) {
+                    const auto& ref = roomPortalRefs[rooms[e.room].firstPortalRef + pr];
+                    processPortal(ref.portalIndex, ref.otherRoom);
+                }
+            } else {
+                // Fallback: scan all portals to find ones connected to this room.
+                for (int p = 0; p < portalCount; p++) {
+                    int other = -1;
+                    if (portals[p].roomA == e.room) other = portals[p].roomB;
+                    else if (portals[p].roomB == e.room) other = portals[p].roomA;
+                    else continue;
+                    processPortal(p, other);
+                }
             }
         }
     } else {
         // Camera room unknown - render ALL rooms as safety fallback.
         // This guarantees no geometry disappears, at the cost of no culling.
-        for (int r = 0; r < roomCount; r++) if (r != catchAllIdx) renderRoom(r);
+        for (int r = 0; r < roomCount; r++) if (r != catchAllIdx) renderRoom(r, full);
     }
 
 #ifdef PSXSPLASH_ROOM_DEBUG
     // ================================================================
-    // Debug overlay: room status bars + portal outlines
+    // Debug overlay: render ALL room triangles as flat-color wireframe
+    // on top of the scene. Each room gets a unique color. Brightness
+    // modulates with distance so you can see depth. Triangles from
+    // rooms that were NOT visited by the portal DFS are drawn dimmer.
+    // Portal outlines and room AABB boxes are drawn as well.
     // ================================================================
     {
         static const psyqo::Color roomColors[] = {
@@ -628,6 +853,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             {.r = 255, .g = 128, .b = 50},   // R6: orange
             {.r = 128, .g = 128, .b = 255},  // R7: lavender
         };
+        constexpr int NUM_COLORS = sizeof(roomColors) / sizeof(roomColors[0]);
 
         // Room status bars at top of screen
         for (int r = 0; r < roomCount && r < 8; r++) {
@@ -636,7 +862,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             auto& tile = balloc.allocateFragment<psyqo::Prim::FastFill>();
             int16_t x = r * 18 + 2;
             tile.primitive.setColor(rendered ?
-                roomColors[r] : psyqo::Color{.r = 40, .g = 40, .b = 40});
+                roomColors[r % NUM_COLORS] : psyqo::Color{.r = 40, .g = 40, .b = 40});
             tile.primitive.rect = psyqo::Rect{
                 .a = {.x = x, .y = (int16_t)2},
                 .b = {.w = 14, .h = (int16_t)(isCamRoom ? 12 : 6)}
@@ -644,12 +870,80 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             ot.insert(tile, 0);
         }
 
+        // Render ALL room triangles as flat-colored tris on top.
+        // Render triangles from visited rooms only, in per-room color.
+        for (int ri = 0; ri < roomCount; ri++) {
+            const RoomData& rm = rooms[ri];
+            bool wasVisited = (ri < 32) ? ((visited & (1u << ri)) != 0) : false;
+            bool isCatchAll = (ri == catchAllIdx);
+            // Only draw rooms that were actually rendered (visited by portal DFS or catch-all)
+            if (!wasVisited && !isCatchAll) continue;
+            psyqo::Color baseColor = isCatchAll
+                ? psyqo::Color{.r = 128, .g = 128, .b = 128}  // catch-all: gray
+                : roomColors[ri % NUM_COLORS];
+
+            for (int ti = 0; ti < rm.triRefCount; ti++) {
+                const TriangleRef& ref = roomTriRefs[rm.firstTriRef + ti];
+                if (ref.objectIndex >= objects.size()) continue;
+                GameObject* obj = objects[ref.objectIndex];
+                if (ref.triangleIndex >= obj->polyCount) continue;
+
+                Tri& tri = obj->polygons[ref.triangleIndex];
+                setupObjectTransform(obj, cameraPosition);
+
+                // GTE transform
+                writeSafe<PseudoRegister::V0>(tri.v0);
+                writeSafe<PseudoRegister::V1>(tri.v1);
+                writeSafe<PseudoRegister::V2>(tri.v2);
+                Kernels::rtpt();
+
+                uint32_t u0, u1, u2;
+                read<Register::SZ1>(&u0);
+                read<Register::SZ2>(&u1);
+                read<Register::SZ3>(&u2);
+                int32_t sz0 = (int32_t)u0, sz1 = (int32_t)u1, sz2 = (int32_t)u2;
+                if (sz0 < 1 && sz1 < 1 && sz2 < 1) continue;
+                int32_t zMax = eastl::max(eastl::max(sz0, sz1), sz2);
+                if (zMax < 0 || zMax >= (int32_t)ORDERING_TABLE_SIZE) continue;
+
+                psyqo::Vertex projected[3];
+                read<Register::SXY0>(&projected[0].packed);
+                read<Register::SXY1>(&projected[1].packed);
+                read<Register::SXY2>(&projected[2].packed);
+                if (isCompletelyOutside(projected[0], projected[1], projected[2])) continue;
+                clampForRasterizer(projected[0]);
+                clampForRasterizer(projected[1]);
+                clampForRasterizer(projected[2]);
+
+                // Depth-modulate brightness: near = full color, far = dimmer.
+                // Also dim triangles from rooms that were NOT visited (culled).
+                int32_t avgSZ = (sz0 + sz1 + sz2) / 3;
+                int32_t bright = 4096 - (avgSZ * 4096 / (int32_t)ORDERING_TABLE_SIZE);
+                if (bright < 512) bright = 512;
+                if (bright > 4096) bright = 4096;
+
+                psyqo::Color c = {
+                    .r = (uint8_t)((baseColor.r * bright) >> 12),
+                    .g = (uint8_t)((baseColor.g * bright) >> 12),
+                    .b = (uint8_t)((baseColor.b * bright) >> 12),
+                };
+
+                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
+                p.primitive.pointA = projected[0];
+                p.primitive.pointB = projected[1];
+                p.primitive.pointC = projected[2];
+                p.primitive.setColorA(c);
+                p.primitive.setColorB(c);
+                p.primitive.setColorC(c);
+                p.primitive.setSemiTrans();
+                ot.insert(p, 0);
+            }
+        }
+
         // Portal outlines: project portal quad and draw edges as thin lines.
-        // Lines are drawn at OT front (depth 0) so they show through walls.
         for (int p = 0; p < portalCount; p++) {
             const PortalData& portal = portals[p];
 
-            // Compute portal corners in world space
             int32_t rwx = ((int32_t)portal.rightX * portal.halfW) >> 12;
             int32_t rwy = ((int32_t)portal.rightY * portal.halfW) >> 12;
             int32_t rwz = ((int32_t)portal.rightZ * portal.halfW) >> 12;
@@ -665,7 +959,6 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 {cx + rwx - uhx, cy + rwy - uhy, cz + rwz - uhz},
             };
 
-            // Project corners to screen
             int16_t sx[4], sy[4];
             bool vis[4];
             int visCount = 0;
@@ -673,29 +966,25 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int32_t vx, vy, vz;
                 worldToCamera(corners[i].wx, corners[i].wy, corners[i].wz,
                               camX, camY, camZ, camRot, vx, vy, vz);
-                vis[i] = projectToScreen(vx, vy, vz, sx[i], sy[i]);
+                vis[i] = projectToScreen(vx, vy, vz, projH, sx[i], sy[i]);
                 if (vis[i]) visCount++;
             }
-            if (visCount < 2) continue;  // Can't draw edges with <2 visible corners
+            if (visCount < 2) continue;
 
-            // Draw each edge as a degenerate triangle (line).
-            // Color: orange for portal between visible rooms, dim for invisible.
             bool portalActive = (visited & (1u << portal.roomA)) || (visited & (1u << portal.roomB));
             psyqo::Color lineColor = portalActive ?
-                psyqo::Color{.r = 255, .g = 160, .b = 0} :
-                psyqo::Color{.r = 80, .g = 60, .b = 0};
+                psyqo::Color{.r = 255, .g = 255, .b = 255} :
+                psyqo::Color{.r = 100, .g = 80, .b = 0};
 
             for (int i = 0; i < 4; i++) {
                 int j = (i + 1) % 4;
                 if (!vis[i] || !vis[j]) continue;
-                // Clamp to screen to avoid GPU issues
                 int16_t x0 = sx[i], y0 = sy[i], x1 = sx[j], y1 = sy[j];
                 if (x0 < 0) x0 = 0; if (x0 > 319) x0 = 319;
                 if (y0 < 0) y0 = 0; if (y0 > 239) y0 = 239;
                 if (x1 < 0) x1 = 0; if (x1 > 319) x1 = 319;
                 if (y1 < 0) y1 = 0; if (y1 > 239) y1 = 239;
 
-                // Draw line as degenerate triangle (A=B=start, C=end gives a 1px line)
                 auto& tri = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
                 tri.primitive.pointA.x = x0; tri.primitive.pointA.y = y0;
                 tri.primitive.pointB.x = x1; tri.primitive.pointB.y = y1;
@@ -708,17 +997,16 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             }
         }
 
-        // Room AABB outlines: project the 8 corners of each room's AABB and draw edges.
+        // Room AABB outlines
         for (int r = 0; r < roomCount - 1 && r < 8; r++) {
             bool rendered = (visited & (1u << r)) != 0;
             psyqo::Color boxColor = rendered ?
-                roomColors[r] : psyqo::Color{.r = 60, .g = 60, .b = 60};
+                roomColors[r % NUM_COLORS] : psyqo::Color{.r = 60, .g = 60, .b = 60};
 
             const RoomData& rm = rooms[r];
             int32_t bmin[3] = {rm.aabbMinX, rm.aabbMinY, rm.aabbMinZ};
             int32_t bmax[3] = {rm.aabbMaxX, rm.aabbMaxY, rm.aabbMaxZ};
 
-            // 8 corners of the AABB
             int16_t csx[8], csy[8];
             bool cvis[8];
             int cvisCount = 0;
@@ -728,16 +1016,15 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int32_t wz = (i & 4) ? bmax[2] : bmin[2];
                 int32_t vx, vy, vz;
                 worldToCamera(wx, wy, wz, camX, camY, camZ, camRot, vx, vy, vz);
-                cvis[i] = projectToScreen(vx, vy, vz, csx[i], csy[i]);
+                cvis[i] = projectToScreen(vx, vy, vz, projH, csx[i], csy[i]);
                 if (cvis[i]) cvisCount++;
             }
             if (cvisCount < 2) continue;
 
-            // Draw 12 AABB edges
             static const int edges[12][2] = {
-                {0,1},{2,3},{4,5},{6,7},  // X-axis edges
-                {0,2},{1,3},{4,6},{5,7},  // Y-axis edges
-                {0,4},{1,5},{2,6},{3,7},  // Z-axis edges
+                {0,1},{2,3},{4,5},{6,7},
+                {0,2},{1,3},{4,6},{5,7},
+                {0,4},{1,5},{2,6},{3,7},
             };
             for (int e = 0; e < 12; e++) {
                 int a = edges[e][0], b = edges[e][1];

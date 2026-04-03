@@ -9,7 +9,6 @@ src/camera.cpp \
 src/gtemath.cpp \
 src/worldcollision.cpp \
 src/navregion.cpp \
-src/triclip.cpp \
 src/lua.cpp \
 src/luaapi.cpp \
 src/scenemanager.cpp \
@@ -43,6 +42,11 @@ endif
 # FPSOVERLAY=1  → Enable runtime FPS overlay
 ifeq ($(FPSOVERLAY), 1)
 CPPFLAGS += -DPSXSPLASH_FPSOVERLAY
+endif
+
+# ROOMDEBUG=1  → Enable room topology debug overlay
+ifeq ($(ROOMDEBUG),1)
+CPPFLAGS += -DPSXSPLASH_ROOM_DEBUG
 endif
 
 ifdef OT_SIZE

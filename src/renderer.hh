@@ -61,6 +61,8 @@ class Renderer final {
                          const RoomData* rooms, int roomCount,
                          const PortalData* portals, int portalCount,
                          const TriangleRef* roomTriRefs,
+                         const RoomCell* cells = nullptr,
+                         const RoomPortalRef* roomPortalRefs = nullptr,
                          int cameraRoom = -1);
 
     void VramUpload(const uint16_t* imageData, int16_t posX, int16_t posY,
@@ -108,7 +110,8 @@ class Renderer final {
 
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
-                         psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc);
+                         psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+                         int depth = 0);
 };
 
 }  // namespace psxsplash
