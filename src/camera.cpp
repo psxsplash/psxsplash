@@ -42,7 +42,7 @@ void psxsplash::Camera::ExtractFrustum(Frustum& frustum) const {
 
     constexpr int32_t SCREEN_HALF_WIDTH = 160;  
     constexpr int32_t SCREEN_HALF_HEIGHT = 120;  
-    constexpr int32_t H = 120;                  
+    const int32_t H = m_projH;                  
     
     int32_t rightX = m_rotationMatrix.vs[0].x.raw();
     int32_t rightY = m_rotationMatrix.vs[0].y.raw();

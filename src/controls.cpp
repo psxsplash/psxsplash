@@ -140,7 +140,7 @@ void psxsplash::Controls::UpdateButtonStates() {
 
 void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX,
                                          psyqo::Angle &playerRotationY, psyqo::Angle &playerRotationZ, bool freecam,
-                                         int deltaFrames) {
+                                         int32_t dt12) {
     bool digital = isDigitalPad();
     
     int16_t rightXOffset, rightYOffset, leftXOffset, leftYOffset;
@@ -201,33 +201,44 @@ void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
 
     psyqo::FixedPoint<12> speed = m_sprinting ? m_sprintSpeed : m_moveSpeed;
 
+    // dt12 is 4.12 fixed-point: 4096 = one 30fps frame.
+    // All motion scaling uses (expr * dt12) >> 12 to replace the old integer multiply.
+
     // Rotation (right stick or L1/R1)
     if (__builtin_abs(rightXOffset) > m_stickDeadzone) {
-        playerRotationY += (rightXOffset * rotSpeed * deltaFrames) >> 7;
+        psyqo::Angle rotDelta = (rightXOffset * rotSpeed) >> 7;
+        rotDelta.value = (int32_t)(((int64_t)rotDelta.value * dt12) >> 12);
+        playerRotationY += rotDelta;
     }
     if (__builtin_abs(rightYOffset) > m_stickDeadzone) {
-        playerRotationX -= (rightYOffset * rotSpeed * deltaFrames) >> 7;
+        psyqo::Angle rotDelta = (rightYOffset * rotSpeed) >> 7;
+        rotDelta.value = (int32_t)(((int64_t)rotDelta.value * dt12) >> 12);
+        playerRotationX -= rotDelta;
         playerRotationX = eastl::clamp(playerRotationX, -0.5_pi, 0.5_pi);
     }
 
     // Movement (left stick or D-pad)
     if (__builtin_abs(leftYOffset) > m_stickDeadzone) {
-        psyqo::FixedPoint<12> forward = -(leftYOffset * speed * deltaFrames) >> 7;
+        psyqo::FixedPoint<12> forward = -(leftYOffset * speed) >> 7;
+        forward.value = (int32_t)(((int64_t)forward.value * dt12) >> 12);
         playerPosition.x += m_trig.sin(playerRotationY) * forward;
         playerPosition.z += m_trig.cos(playerRotationY) * forward;
     }
     if (__builtin_abs(leftXOffset) > m_stickDeadzone) {
-        psyqo::FixedPoint<12> strafe = -(leftXOffset * speed * deltaFrames) >> 7;
+        psyqo::FixedPoint<12> strafe = -(leftXOffset * speed) >> 7;
+        strafe.value = (int32_t)(((int64_t)strafe.value * dt12) >> 12);
         playerPosition.x -= m_trig.cos(playerRotationY) * strafe;
         playerPosition.z += m_trig.sin(playerRotationY) * strafe;
     }
 
     if (freecam) {
+        psyqo::FixedPoint<12> dtSpeed;
+        dtSpeed.value = (int32_t)(((int64_t)speed.value * dt12) >> 12);
         if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L1)) {
-            playerPosition.y += speed * deltaFrames;
+            playerPosition.y += dtSpeed;
         }
         if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R1)) {
-            playerPosition.y -= speed * deltaFrames;
+            playerPosition.y -= dtSpeed;
         }
     }
 }

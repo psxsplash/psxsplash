@@ -21,7 +21,10 @@ class Camera {
 
     void SetRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle z);
     psyqo::Matrix33& GetRotation();
-    
+
+    void SetProjectionH(int32_t h) { m_projH = h; }
+    int32_t GetProjectionH() const { return m_projH; }
+
     void ExtractFrustum(Frustum& frustum) const;
 
     int16_t GetAngleX() const { return m_angleX; }
@@ -33,5 +36,6 @@ class Camera {
     psyqo::Trig<> m_trig;
     psyqo::Vec3 m_position;
     int16_t m_angleX = 0, m_angleY = 0, m_angleZ = 0;
+    int32_t m_projH = 120;
 };
 }  // namespace psxsplash

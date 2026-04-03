@@ -133,6 +133,10 @@ class SceneManager {
     uint16_t m_portalCount = 0;
     const TriangleRef* m_roomTriRefs = nullptr;
     uint16_t m_roomTriRefCount = 0;
+    const RoomCell* m_roomCells = nullptr;
+    uint16_t m_roomCellCount = 0;
+    const RoomPortalRef* m_roomPortalRefs = nullptr;
+    uint16_t m_roomPortalRefCount = 0;
 
     eastl::vector<LuaFile*> m_luaFiles;
     eastl::vector<GameObject*> m_gameObjects;
@@ -180,7 +184,7 @@ class SceneManager {
     
     // Frame timing
     uint32_t m_lastFrameTime;         // gpu.now() timestamp of previous frame
-    int m_deltaFrames;                // Elapsed frame count (1 normally, 2+ if dropped)
+    int32_t m_dt12;                   // Frame delta in 4.12 fixed-point (4096 = one 30fps frame)
 
     bool freecam = false;
     bool m_controlsEnabled = true;    // Lua can disable all player input

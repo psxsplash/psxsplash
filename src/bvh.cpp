@@ -23,36 +23,41 @@ int BVHManager::cullFrustum(const Frustum &frustum, TriangleRef *outRefs,
 int BVHManager::traverseFrustum(int nodeIndex, const Frustum &frustum,
                                 TriangleRef *outRefs, int currentCount,
                                 int maxRefs) const {
+
+  uint16_t stack[32];
+  int top = 0;
+
   if (nodeIndex < 0 || nodeIndex >= m_nodeCount)
     return currentCount;
-  if (currentCount >= maxRefs)
-    return currentCount;
 
-  const BVHNode &node = m_nodes[nodeIndex];
+  stack[top++] = (uint16_t)nodeIndex;
 
-  if (!frustum.testAABB(node)) {
-    return currentCount;
-  }
+  while (top > 0 && currentCount < maxRefs) {
+    uint16_t idx = stack[--top];
+    const BVHNode &node = m_nodes[idx];
 
-  if (node.isLeaf()) {
-    int count = node.triangleCount;
-    int available = maxRefs - currentCount;
-    if (count > available)
-      count = available;
+    if (!frustum.testAABB(node))
+      continue;
 
-    for (int i = 0; i < count; i++) {
-      outRefs[currentCount + i] = m_triangleRefs[node.firstTriangle + i];
+    if (node.isLeaf()) {
+      int count = node.triangleCount;
+      int available = maxRefs - currentCount;
+      if (count > available)
+        count = available;
+      for (int i = 0; i < count; i++) {
+        outRefs[currentCount + i] = m_triangleRefs[node.firstTriangle + i];
+      }
+      currentCount += count;
+      continue;
     }
-    return currentCount + count;
-  }
 
-  if (node.leftChild != 0xFFFF) {
-    currentCount = traverseFrustum(node.leftChild, frustum, outRefs,
-                                   currentCount, maxRefs);
-  }
-  if (node.rightChild != 0xFFFF) {
-    currentCount = traverseFrustum(node.rightChild, frustum, outRefs,
-                                   currentCount, maxRefs);
+    // Push right first so left is processed first (stack is LIFO)
+    if (node.rightChild != 0xFFFF && top < 32) {
+      stack[top++] = node.rightChild;
+    }
+    if (node.leftChild != 0xFFFF && top < 32) {
+      stack[top++] = node.leftChild;
+    }
   }
 
   return currentCount;
@@ -72,38 +77,40 @@ int BVHManager::traverseRegion(int nodeIndex, int32_t qMinX, int32_t qMinY,
                                int32_t qMinZ, int32_t qMaxX, int32_t qMaxY,
                                int32_t qMaxZ, TriangleRef *outRefs,
                                int currentCount, int maxRefs) const {
+  // Iterative traversal using explicit stack.
+  uint16_t stack[32];
+  int top = 0;
+
   if (nodeIndex < 0 || nodeIndex >= m_nodeCount)
     return currentCount;
-  if (currentCount >= maxRefs)
-    return currentCount;
 
-  const BVHNode &node = m_nodes[nodeIndex];
+  stack[top++] = (uint16_t)nodeIndex;
 
-  if (!aabbOverlap(node, qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ)) {
-    return currentCount;
-  }
+  while (top > 0 && currentCount < maxRefs) {
+    uint16_t idx = stack[--top];
+    const BVHNode &node = m_nodes[idx];
 
-  if (node.isLeaf()) {
-    int count = node.triangleCount;
-    int available = maxRefs - currentCount;
-    if (count > available)
-      count = available;
+    if (!aabbOverlap(node, qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ))
+      continue;
 
-    for (int i = 0; i < count; i++) {
-      outRefs[currentCount + i] = m_triangleRefs[node.firstTriangle + i];
+    if (node.isLeaf()) {
+      int count = node.triangleCount;
+      int available = maxRefs - currentCount;
+      if (count > available)
+        count = available;
+      for (int i = 0; i < count; i++) {
+        outRefs[currentCount + i] = m_triangleRefs[node.firstTriangle + i];
+      }
+      currentCount += count;
+      continue;
     }
-    return currentCount + count;
-  }
 
-  if (node.leftChild != 0xFFFF) {
-    currentCount =
-        traverseRegion(node.leftChild, qMinX, qMinY, qMinZ, qMaxX, qMaxY,
-                       qMaxZ, outRefs, currentCount, maxRefs);
-  }
-  if (node.rightChild != 0xFFFF) {
-    currentCount =
-        traverseRegion(node.rightChild, qMinX, qMinY, qMinZ, qMaxX, qMaxY,
-                       qMaxZ, outRefs, currentCount, maxRefs);
+    if (node.rightChild != 0xFFFF && top < 32) {
+      stack[top++] = node.rightChild;
+    }
+    if (node.leftChild != 0xFFFF && top < 32) {
+      stack[top++] = node.leftChild;
+    }
   }
 
   return currentCount;
