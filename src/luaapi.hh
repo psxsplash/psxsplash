@@ -346,6 +346,8 @@ private:
     
     static int Player_SetPosition(lua_State* L);
     static int Player_GetPosition(lua_State* L);
+    static int Player_SetRotation(lua_State* L);
+    static int Player_GetRotation(lua_State* L);
     
     // ========================================================================
     // HELPERS
