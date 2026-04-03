@@ -341,6 +341,13 @@ private:
     static int UI_GetElementByIndex(lua_State* L);
     
     // ========================================================================
+    // PLAYER API - Controlling the PsxPlayer
+    // ========================================================================
+    
+    static int Player_SetPosition(lua_State* L);
+    static int Player_GetPosition(lua_State* L);
+    
+    // ========================================================================
     // HELPERS
     // ========================================================================
     

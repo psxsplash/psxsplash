@@ -694,6 +694,22 @@ void psxsplash::SceneManager::processEnableDisableEvents() {
 }
 
 // ============================================================================
+// PLAYER
+// ============================================================================
+
+psyqo::Vec3& psxsplash::SceneManager::getPlayerPosition()
+{
+    return m_playerPosition;
+}
+
+void psxsplash::SceneManager::setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z)
+{
+    m_playerPosition.x = x;
+    m_playerPosition.y = y;
+    m_playerPosition.z = z;
+}
+
+// ============================================================================
 // SCENE LOADING
 // ============================================================================
 

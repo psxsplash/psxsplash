@@ -92,6 +92,10 @@ class SceneManager {
         if (index < m_interactables.size()) return m_interactables[index];
         return nullptr;
     }
+
+    // Player
+    psyqo::Vec3& getPlayerPosition();
+    void setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
     
     // Scene loading (for multi-scene support)
     void requestSceneLoad(int sceneIndex);
