@@ -196,6 +196,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Camera_LookAt);
     L.setField(-2, "LookAt");
+
+    L.push(Camera_GetH);
+    L.setField(-2, "GetH");
+
+    L.push(Camera_SetH);
+    L.setField(-2, "SetH");
     
     L.setGlobal("Camera");
     
@@ -592,9 +598,22 @@ int LuaAPI::Entity_SetPosition(lua_State* L) {
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 2, x, y, z);
     
+    // Compute position delta to shift the world-space AABB
+    int32_t dx = x.value - go->position.x.value;
+    int32_t dy = y.value - go->position.y.value;
+    int32_t dz = z.value - go->position.z.value;
+    
     go->position.x = x;
     go->position.y = y;
     go->position.z = z;
+    
+    // Shift AABB by the position delta so frustum culling uses correct bounds
+    go->aabbMinX += dx; go->aabbMaxX += dx;
+    go->aabbMinY += dy; go->aabbMaxY += dy;
+    go->aabbMinZ += dz; go->aabbMaxZ += dz;
+    
+    // Mark as dynamically moved so the renderer knows to bypass BVH for this object
+    go->setDynamicMoved(true);
     
     return 0;
 }
@@ -1387,6 +1406,23 @@ int LuaAPI::Camera_LookAt(lua_State* L) {
     pitch.value = 0;
     
     // For a real implementation, Camera would need a LookAt method.
+    return 0;
+}
+
+int LuaAPI::Camera_GetH(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.pushNumber(120); return 1; }
+    lua.pushNumber(static_cast<lua_Number>(s_sceneManager->getCamera().GetProjectionH()));
+    return 1;
+}
+
+int LuaAPI::Camera_SetH(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) return 0;
+    int32_t h = static_cast<int32_t>(lua.toNumber(1));
+    if (h < 1) h = 1;
+    if (h > 1024) h = 1024;
+    s_sceneManager->getCamera().SetProjectionH(h);
     return 0;
 }
 

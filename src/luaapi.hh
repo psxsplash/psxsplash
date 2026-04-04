@@ -194,6 +194,12 @@ private:
 
     // Camera.LookAt(target) or Camera.LookAt(x, y, z)
     static int Camera_LookAt(lua_State* L);
+
+    // Camera.GetH() -> number (current projection H register value)
+    static int Camera_GetH(lua_State* L);
+
+    // Camera.SetH(h) -> nil (set projection H register, clamped 1-1024)
+    static int Camera_SetH(lua_State* L);
     
     // ========================================================================
     // AUDIO API - Sound playback (placeholder for SPU)

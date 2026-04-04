@@ -19,12 +19,14 @@ constexpr uint16_t NO_COMPONENT = 0xFFFF;
  * Bit 0: isActive - whether object is active in scene
  * Bit 1: pendingEnable - flag for deferred enable (to batch Lua calls)
  * Bit 2: pendingDisable - flag for deferred disable
+ * Bit 3: dynamicMoved - object position was changed at runtime (BVH stale)
  */
 class GameObject final {
     typedef Utilities::BitSpan<bool> IsActive;
     typedef Utilities::BitSpan<bool, 1> PendingEnable;
     typedef Utilities::BitSpan<bool, 2> PendingDisable;
-    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable> GameObjectFlags;
+    typedef Utilities::BitSpan<bool, 3> DynamicMoved;
+    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable, DynamicMoved> GameObjectFlags;
     
   public:
     union {
@@ -66,6 +68,10 @@ class GameObject final {
     bool isPendingDisable() const { return flags.get<PendingDisable>(); }
     void setPendingEnable(bool pending) { flags.set<PendingEnable>(pending); }
     void setPendingDisable(bool pending) { flags.set<PendingDisable>(pending); }
+    
+    // Dynamic movement tracking (BVH position stale)
+    bool isDynamicMoved() const { return flags.get<DynamicMoved>(); }
+    void setDynamicMoved(bool moved) { flags.set<DynamicMoved>(moved); }
     
     // Component checks
     bool hasInteractable() const { return interactableIndex != NO_COMPONENT; }

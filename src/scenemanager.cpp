@@ -146,7 +146,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         for (int ci = 0; ci < m_cutsceneCount; ci++) {
             for (uint8_t ti = 0; ti < m_cutscenes[ci].trackCount; ti++) {
                 auto& track = m_cutscenes[ci].tracks[ti];
-                bool isUI = static_cast<uint8_t>(track.trackType) >= 5;
+                bool isUI = isUITrackType(track.trackType);
                 if (!isUI || track.target == nullptr) continue;
 
                 const char* nameStr = reinterpret_cast<const char*>(track.target);
@@ -179,7 +179,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         for (int ai = 0; ai < m_animationCount; ai++) {
             for (uint8_t ti = 0; ti < m_animations[ai].trackCount; ti++) {
                 auto& track = m_animations[ai].tracks[ti];
-                bool isUI = static_cast<uint8_t>(track.trackType) >= 5;
+                bool isUI = isUITrackType(track.trackType);
                 if (!isUI || track.target == nullptr) continue;
 
                 const char* nameStr = reinterpret_cast<const char*>(track.target);
