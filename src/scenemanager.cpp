@@ -702,6 +702,36 @@ void psxsplash::SceneManager::processEnableDisableEvents() {
 }
 
 // ============================================================================
+// PLAYER
+// ============================================================================
+
+psyqo::Vec3& psxsplash::SceneManager::getPlayerPosition(){
+    return m_playerPosition;
+}
+
+void psxsplash::SceneManager::setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z){
+    m_playerPosition.x = x;
+    m_playerPosition.y = y;
+    m_playerPosition.z = z;
+}
+
+psyqo::Vec3 psxsplash::SceneManager::getPlayerRotation(){
+    psyqo::Vec3 playerRot;
+
+    playerRot.x = (psyqo::FixedPoint<12>)playerRotationX;
+    playerRot.y = (psyqo::FixedPoint<12>)playerRotationY;
+    playerRot.z = (psyqo::FixedPoint<12>)playerRotationZ;
+
+    return playerRot;
+}
+
+void psxsplash::SceneManager::setPlayerRotation(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z){
+   playerRotationX = (psyqo::FixedPoint<10>)x;
+   playerRotationY = (psyqo::FixedPoint<10>)y;
+   playerRotationZ = (psyqo::FixedPoint<10>)z;
+}
+
+// ============================================================================
 // SCENE LOADING
 // ============================================================================
 
