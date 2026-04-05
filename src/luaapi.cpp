@@ -1379,7 +1379,7 @@ int LuaAPI::Camera_MoveRight(lua_State* L) {
 
 int LuaAPI::Camera_FollowPsxPlayer(lua_State* L) {
     psyqo::Lua lua(L);
-    printf("New Function Called\n");
+
     if (s_sceneManager && lua.isBoolean(1)) {
         s_sceneManager->setCameraFollowPlayer(lua.toBoolean(1)); 
     }
