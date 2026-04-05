@@ -194,6 +194,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Camera_MoveRight);
     L.setField(-2, "MoveRight");
     
+    L.push(Camera_FollowPsxPlayer);
+    L.setField(-2, "FollowPsxPlayer");
+
     L.push(Camera_LookAt);
     L.setField(-2, "LookAt");
 
@@ -418,26 +421,6 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "GetElementByIndex");
     
     L.setGlobal("UI");
-
-    // ========================================================================
-    // PLAYER API
-    // ========================================================================
-
-    L.newTable();  
-    
-    L.push(Player_SetPosition);
-    L.setField(-2, "SetPosition");
-
-    L.push(Player_GetPosition);
-    L.setField(-2, "GetPosition");
-
-    L.push(Player_SetRotation);
-    L.setField(-2, "SetRotation");
-
-    L.push(Player_GetRotation);
-    L.setField(-2, "GetRotation");
-
-    L.setGlobal("Player");
 }
 
 // ============================================================================
@@ -1374,6 +1357,15 @@ int LuaAPI::Camera_MoveRight(lua_State* L) {
     return 0;
 }
 
+int LuaAPI::Camera_FollowPsxPlayer(lua_State* L) {
+    psyqo::Lua lua(L);
+    printf("New Function Called\n");
+    if (s_sceneManager && lua.isBoolean(1)) {
+        s_sceneManager->setCameraFollowPlayer(lua.toBoolean(1)); 
+    }
+    return 0;
+}
+
 int LuaAPI::Camera_LookAt(lua_State* L) {
     psyqo::Lua lua(L);
     
@@ -2170,73 +2162,6 @@ int LuaAPI::UI_GetElementByIndex(lua_State* L) {
     int elemIdx = static_cast<int>(lua.toNumber(2));
     int handle = s_uiSystem->getCanvasElementHandle(canvasIdx, elemIdx);
     lua.pushNumber(static_cast<lua_Number>(handle));
-    return 1;
-}
-
-// ============================================================================
-// PLAYER API IMPLEMENTATION
-// ============================================================================
-
-int LuaAPI::Player_SetPosition(lua_State* L) {
-    psyqo::Lua lua(L);
-
-    if (!s_sceneManager) return 0;
-    
-    // vec3
-    if(lua.isTable(1)){
-        psyqo::FixedPoint<12> x, y, z;
-        ReadVec3(lua, 1, x, y, z);
-        s_sceneManager->setPlayerPosition(x,y,z);
-        return 0;
-    }
-    
-    // Three numbers passed in world coordinates 
-    if(lua.isNumber(1) && lua.isNumber(2) && lua.isNumber(3)){
-        psyqo::FixedPoint<12> x, y, z;
-        x = psyqo::FixedPoint<12>(static_cast<int32_t>(lua.toNumber(1)), psyqo::FixedPoint<12>::RAW);
-        y = psyqo::FixedPoint<12>(static_cast<int32_t>(lua.toNumber(2)), psyqo::FixedPoint<12>::RAW);
-        z = psyqo::FixedPoint<12>(static_cast<int32_t>(lua.toNumber(3)), psyqo::FixedPoint<12>::RAW);
-
-        s_sceneManager->setPlayerPosition(x,y,z);
-    }
-
-    return 0;
-}
-
-int LuaAPI::Player_GetPosition(lua_State* L) {
-    psyqo::Lua lua(L);
-    
-    if (s_sceneManager) {
-        psyqo::Vec3 pos = s_sceneManager->getPlayerPosition();
-        PushVec3(lua, pos.x, pos.y, pos.z);
-    } else {
-        PushVec3(lua, psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0));
-    }
-    return 1;
-}
-
-int LuaAPI::Player_SetRotation(lua_State* L) {
-    psyqo::Lua lua(L);
-
-    if (!s_sceneManager || !lua.isTable(1)) return 0;
-    
-    psyqo::FixedPoint<12> x, y, z;
-    ReadVec3(lua, 1, x, y, z);
-
-    s_sceneManager->setPlayerRotation(x,y,z);
-    
-    return 0;
-}
-
-int LuaAPI::Player_GetRotation(lua_State* L) {
-    psyqo::Lua lua(L);
-    
-    if (s_sceneManager) {
-        psyqo::Vec3 pos = s_sceneManager->getPlayerRotation();
-        PushVec3(lua, pos.x, pos.y, pos.z);
-    } else {
-        PushVec3(lua, psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0));
-    }
     return 1;
 }
 

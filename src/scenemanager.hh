@@ -87,18 +87,15 @@ class SceneManager {
     void setControlsEnabled(bool enabled) { m_controlsEnabled = enabled; }
     bool isControlsEnabled() const { return m_controlsEnabled; }
 
+    // enable/disable (Lua-driven)
+    void setCameraFollowPlayer(bool enabled) { m_cameraFollowsPlayer = enabled; }
+
     // Interactable access (for Lua API)
     Interactable* getInteractable(uint16_t index) {
         if (index < m_interactables.size()) return m_interactables[index];
         return nullptr;
     }
-
-    // Player
-    psyqo::Vec3& getPlayerPosition();
-    void setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
-    psyqo::Vec3 getPlayerRotation();
-    void setPlayerRotation(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
-
+    
     // Scene loading (for multi-scene support)
     void requestSceneLoad(int sceneIndex);
     int getCurrentSceneIndex() const { return m_currentSceneIndex; }

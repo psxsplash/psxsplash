@@ -192,6 +192,9 @@ private:
     // Camera.MoveRight(step) 
     static int Camera_MoveRight(lua_State* L);
 
+    // Camera.FollowPsxPlayer 
+    static int Camera_FollowPsxPlayer(lua_State* L);
+
     // Camera.LookAt(target) or Camera.LookAt(x, y, z)
     static int Camera_LookAt(lua_State* L);
 
@@ -345,15 +348,6 @@ private:
     static int UI_GetElementType(lua_State* L);
     static int UI_GetElementCount(lua_State* L);
     static int UI_GetElementByIndex(lua_State* L);
-    
-    // ========================================================================
-    // PLAYER API - Controlling the PsxPlayer
-    // ========================================================================
-    
-    static int Player_SetPosition(lua_State* L);
-    static int Player_GetPosition(lua_State* L);
-    static int Player_SetRotation(lua_State* L);
-    static int Player_GetRotation(lua_State* L);
     
     // ========================================================================
     // HELPERS
