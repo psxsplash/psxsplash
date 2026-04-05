@@ -31,7 +31,14 @@ enum class TrackType : uint8_t {
     UIProgress      = 7,   
     UIPosition      = 8,   
     UIColor         = 9,  
+    CameraH         = 10,
 };
+
+/// Helper: true if a TrackType drives a UI property (canvas or element).
+inline bool isUITrackType(TrackType t) {
+    uint8_t v = static_cast<uint8_t>(t);
+    return v >= 5 && v <= 9;
+}
 
 enum class InterpMode : uint8_t {
     Linear    = 0, 

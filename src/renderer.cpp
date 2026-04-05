@@ -318,6 +318,8 @@ void psxsplash::Renderer::processTriangle(
 
 void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
+    // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
+    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
     uint8_t parity = m_gpu.getParity();
     auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
     balloc.reset();
@@ -350,6 +352,8 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, const BVHManager& bvh) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (!bvh.isLoaded()) { Render(objects); return; }
+    // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
+    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
     uint8_t parity = m_gpu.getParity();
     auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
     balloc.reset();
@@ -369,6 +373,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         if (ref.objectIndex >= objects.size()) continue;
         GameObject* obj = objects[ref.objectIndex];
         if (!obj->isActive()) continue;
+        if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass — rendered below
         if (ref.triangleIndex >= obj->polyCount) continue;
         if (ref.objectIndex != lastObjectIndex) {
             lastObjectIndex = ref.objectIndex;
@@ -386,6 +391,22 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         if (lastObjCulled) continue;
         processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc);
     }
+
+    // Second pass: render dynamically-moved objects (their BVH references are stale).
+    // Uses per-object AABB frustum test then renders all triangles — like the non-BVH path.
+    for (size_t oi = 0; oi < objects.size(); oi++) {
+        GameObject* obj = objects[oi];
+        if (!obj->isActive() || !obj->isDynamicMoved()) continue;
+        BVHNode objBox;
+        objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+        objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+        if (!frustum.testAABB(objBox)) continue;
+        setupObjectTransform(obj, cameraPosition);
+        for (int t = 0; t < obj->polyCount; t++) {
+            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc);
+        }
+    }
+
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
@@ -620,6 +641,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     const RoomPortalRef* roomPortalRefs, int cameraRoom) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
+    // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
+    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
 
     uint8_t parity = m_gpu.getParity();
     auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
@@ -673,6 +696,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             if (ref.objectIndex >= objects.size()) continue;
             GameObject* obj = objects[ref.objectIndex];
             if (!obj->isActive()) continue;
+            if (obj->isDynamicMoved()) continue;  // Rendered in dynamic pass below
             if (ref.triangleIndex >= obj->polyCount) continue;
             if (ref.objectIndex != lastObj) {
                 lastObj = ref.objectIndex;
@@ -1048,6 +1072,20 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         }
     }
 #endif
+
+    // Render dynamically-moved objects that bypass room/portal culling
+    for (size_t oi = 0; oi < objects.size(); oi++) {
+        GameObject* obj = objects[oi];
+        if (!obj->isActive() || !obj->isDynamicMoved()) continue;
+        BVHNode objBox;
+        objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+        objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+        if (!frustum.testAABB(objBox)) continue;
+        setupObjectTransform(obj, cameraPosition);
+        for (int t = 0; t < obj->polyCount; t++) {
+            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc);
+        }
+    }
 
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY

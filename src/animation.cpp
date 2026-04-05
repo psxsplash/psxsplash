@@ -180,9 +180,17 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame) {
         case TrackType::ObjectPosition: {
             if (!track.target) return;
             psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, frame, track.initialValues, out);
+            // Compute delta and shift AABB for frustum culling
+            int32_t dx = (int32_t)out[0] - track.target->position.x.value;
+            int32_t dy = (int32_t)out[1] - track.target->position.y.value;
+            int32_t dz = (int32_t)out[2] - track.target->position.z.value;
             track.target->position.x.value = (int32_t)out[0];
             track.target->position.y.value = (int32_t)out[1];
             track.target->position.z.value = (int32_t)out[2];
+            track.target->aabbMinX += dx; track.target->aabbMaxX += dx;
+            track.target->aabbMinY += dy; track.target->aabbMaxY += dy;
+            track.target->aabbMinZ += dz; track.target->aabbMaxZ += dz;
+            track.target->setDynamicMoved(true);
             break;
         }
 

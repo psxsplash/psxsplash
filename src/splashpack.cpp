@@ -344,8 +344,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                 track.uiHandle = -1;
                 if (objNameLen > 0 && objNameOff != 0) {
                     const char* objName = reinterpret_cast<const char*>(data + objNameOff);
-                    bool isUITrack = static_cast<uint8_t>(track.trackType) >= 5;
-                    if (isUITrack) {
+                    bool isUI = isUITrackType(track.trackType);
+                    if (isUI) {
                         // Store the raw name pointer temporarily in target
                         // (will be resolved to uiHandle later by scenemanager)
                         track.target = reinterpret_cast<GameObject*>(const_cast<char*>(objName));
@@ -431,8 +431,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                 track.uiHandle = -1;
                 if (objNameLen > 0 && objNameOff != 0) {
                     const char* objName = reinterpret_cast<const char*>(data + objNameOff);
-                    bool isUITrack = static_cast<uint8_t>(track.trackType) >= 5;
-                    if (isUITrack) {
+                    bool isUI = isUITrackType(track.trackType);
+                    if (isUI) {
                         track.target = reinterpret_cast<GameObject*>(const_cast<char*>(objName));
                     } else {
                         for (size_t oi = 0; oi < setup.objectNames.size(); oi++) {

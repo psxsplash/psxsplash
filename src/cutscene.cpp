@@ -53,6 +53,11 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                             track.initialValues[2] = m_camera->GetAngleZ();
                         }
                         break;
+                    case TrackType::CameraH:
+                        if (m_camera) {
+                            track.initialValues[0] = (int16_t)m_camera->GetProjectionH();
+                        }
+                        break;
                     case TrackType::ObjectPosition:
                         if (track.target) {
                             track.initialValues[0] = (int16_t)track.target->position.x.value;
@@ -119,7 +124,7 @@ bool CutscenePlayer::hasCameraTracks() const {
     if (!m_active) return false;
     for (uint8_t i = 0; i < m_active->trackCount; i++) {
         auto t = m_active->tracks[i].trackType;
-        if (t == TrackType::CameraPosition || t == TrackType::CameraRotation)
+        if (t == TrackType::CameraPosition || t == TrackType::CameraRotation || t == TrackType::CameraH)
             return true;
     }
     return false;
@@ -201,12 +206,30 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             break;
         }
 
+        case TrackType::CameraH: {
+            if (!m_camera) return;
+            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            int32_t h = (int32_t)out[0];
+            if (h < 1) h = 1;           // Avoid zero/negative — GTE would divide-by-zero
+            if (h > 1024) h = 1024;     // Practical upper limit (~13° vFOV)
+            m_camera->SetProjectionH(h);
+            break;
+        }
+
         case TrackType::ObjectPosition: {
             if (!track.target) return;
             psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            // Compute delta and shift AABB for frustum culling
+            int32_t dx = (int32_t)out[0] - track.target->position.x.value;
+            int32_t dy = (int32_t)out[1] - track.target->position.y.value;
+            int32_t dz = (int32_t)out[2] - track.target->position.z.value;
             track.target->position.x.value = (int32_t)out[0];
             track.target->position.y.value = (int32_t)out[1];
             track.target->position.z.value = (int32_t)out[2];
+            track.target->aabbMinX += dx; track.target->aabbMaxX += dx;
+            track.target->aabbMinY += dy; track.target->aabbMaxY += dy;
+            track.target->aabbMinZ += dz; track.target->aabbMaxZ += dz;
+            track.target->setDynamicMoved(true);
             break;
         }
 
