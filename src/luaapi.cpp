@@ -194,6 +194,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Camera_MoveRight);
     L.setField(-2, "MoveRight");
     
+    L.push(Camera_FollowPsxPlayer);
+    L.setField(-2, "FollowPsxPlayer");
+
     L.push(Camera_LookAt);
     L.setField(-2, "LookAt");
 
@@ -1371,6 +1374,15 @@ int LuaAPI::Camera_MoveRight(lua_State* L) {
 
     cam.SetPosition(pos.x,pos.y,pos.z);
 
+    return 0;
+}
+
+int LuaAPI::Camera_FollowPsxPlayer(lua_State* L) {
+    psyqo::Lua lua(L);
+    printf("New Function Called\n");
+    if (s_sceneManager && lua.isBoolean(1)) {
+        s_sceneManager->setCameraFollowPlayer(lua.toBoolean(1)); 
+    }
     return 0;
 }
 
