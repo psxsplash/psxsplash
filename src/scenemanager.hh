@@ -87,6 +87,9 @@ class SceneManager {
     void setControlsEnabled(bool enabled) { m_controlsEnabled = enabled; }
     bool isControlsEnabled() const { return m_controlsEnabled; }
 
+    // enable/disable (Lua-driven)
+    void setCameraFollowPlayer(bool enabled) { m_cameraFollowsPlayer = enabled; }
+
     // Interactable access (for Lua API)
     Interactable* getInteractable(uint16_t index) {
         if (index < m_interactables.size()) return m_interactables[index];
