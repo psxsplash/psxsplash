@@ -258,15 +258,20 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newZ,
         }
     }
 
-    // Not in current region or any neighbor — try broader search
-    // This handles jumping/falling to non-adjacent regions (e.g., landing on a platform)
-    {
-        uint16_t found = findRegion(newX, newZ);
-        if (found != NAV_NO_REGION) {
-            currentRegion = found;
-            return getFloorY(newX, newZ, found);
-        }
-    }
+    /* 
+    // Latch: This is causing the player to randomly teleport to nav regions above. 
+    // Usually in a single frame teleporting up by 1000-6000 Y in my tests
+ 
+    // Not in current region or any neighbor — try broader search 
+    // This handles jumping/falling to non-adjacent regions (e.g., landing on a platform) 
+    { 
+        uint16_t found = findRegion(newX, newZ); 
+        if (found != NAV_NO_REGION) { 
+            currentRegion = found; 
+            return getFloorY(newX, newZ, found); 
+        } 
+    } 
+    */
 
     // Truly off all regions — clamp to current region boundary
     clampToRegion(newX, newZ, currentRegion);
