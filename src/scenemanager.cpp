@@ -529,9 +529,10 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         // Resolve position via nav regions
         uint16_t prevRegion = m_playerNavRegion;
         int32_t px = m_playerPosition.x.value;
+        int32_t py = m_playerPosition.y.value;
         int32_t pz = m_playerPosition.z.value;
         int32_t floorY = m_navRegions.resolvePosition(
-            px, pz, m_playerNavRegion);
+            px, py, pz, m_playerNavRegion);
 
         if (m_playerNavRegion != NAV_NO_REGION) {
             m_playerPosition.x.value = px;

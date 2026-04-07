@@ -3,7 +3,6 @@
 #include <psyqo/fixed-point.hh>
 #include <psyqo/vector.hh>
 
-
 /**
  * navregion.cpp - Convex Region Navigation System
  *
@@ -160,6 +159,26 @@ uint16_t NavRegionSystem::findRegion(int32_t x, int32_t z) const {
     return best;
 }
 
+uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) const {
+    // When multiple regions overlap at the same XZ position (e.g., floor and
+    // elevated step), prefer the closest physical surface to y
+    
+    uint16_t best = NAV_NO_REGION;
+    int32_t shortestDistance = 0x7FFFFFFF;
+    for (uint16_t i = 0; i < m_header.regionCount; i++) {
+        if (pointInRegion(x, z, i)) {
+            int32_t fy = getFloorY(x, z, i);
+
+            int32_t distance = getYDistance(y,fy);
+            if (distance < shortestDistance) {
+                shortestDistance = distance;
+                best = i;
+            }
+        }
+    }
+    return best;
+}
+
 // ============================================================================
 // Clamp position to region boundary
 // ============================================================================
@@ -202,7 +221,7 @@ void NavRegionSystem::clampToRegion(int32_t& x, int32_t& z, uint16_t regionIndex
 // Resolve position (main per-frame call)
 // ============================================================================
 
-int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newZ,
+int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& newZ,
                                           uint16_t& currentRegion) const {
     if (!isLoaded() || m_header.regionCount == 0) return 0;
 
@@ -210,7 +229,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newZ,
 
     // If no valid region, find one
     if (currentRegion == NAV_NO_REGION || currentRegion >= m_header.regionCount) {
-        currentRegion = findRegion(newX, newZ);
+        currentRegion = findRegionClosest(newX, newY, newZ);
 
         if (currentRegion == NAV_NO_REGION) return 0;
     }
@@ -258,15 +277,16 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newZ,
         }
     }
 
-    // Not in current region or any neighbor — try broader search
-    // This handles jumping/falling to non-adjacent regions (e.g., landing on a platform)
-    {
-        uint16_t found = findRegion(newX, newZ);
-        if (found != NAV_NO_REGION) {
-            currentRegion = found;
-            return getFloorY(newX, newZ, found);
-        }
-    }
+    // Not in current region or any neighbor — try broader search 
+    // This handles jumping/falling to non-adjacent regions (e.g., landing on a platform) 
+    { 
+        uint16_t found = findRegionClosest(newX, newY, newZ); 
+        if (found != NAV_NO_REGION) { 
+            currentRegion = found; 
+            return getFloorY(newX, newZ, found); 
+        } 
+    } 
+    
 
     // Truly off all regions — clamp to current region boundary
     clampToRegion(newX, newZ, currentRegion);
@@ -285,5 +305,19 @@ bool NavRegionSystem::findPath(uint16_t startRegion, uint16_t endRegion,
     (void)endRegion;
     return false;
 }
+
+// ============================================================================
+// Get Y Distance (For region and player)
+// ============================================================================
+
+int32_t NavRegionSystem::getYDistance(int32_t firstY, int32_t secondY){
+    // Abs
+    firstY = firstY < 0 ? -firstY : firstY;
+    secondY = secondY < 0 ? -secondY : secondY;
+
+    // Difference
+    return firstY < secondY ? secondY - firstY : firstY - secondY;
+}
+
 
 }  // namespace psxsplash
