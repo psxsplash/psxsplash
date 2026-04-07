@@ -20,6 +20,7 @@
 #include "fileloader.hh"
 #include "cutscene.hh"
 #include "animation.hh"
+#include "skinmesh.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -69,6 +70,12 @@ class SceneManager {
         if (index >= 0 && index < (int)m_audioClipNames.size()) return m_audioClipNames[index];
         return nullptr;
     }
+
+    // Skinned mesh accessors (for Lua API and renderer)
+    int findSkinAnimByObjectName(const char* name) const;
+    SkinAnimSet& getSkinAnimSet(int index) { return m_skinAnimSets[index]; }
+    SkinAnimState& getSkinAnimState(int index) { return m_skinAnimStates[index]; }
+    int getSkinnedMeshCount() const { return m_skinnedMeshCount; }
     
     // Public API for game systems
     // Interaction system - call from Lua or native code
@@ -164,6 +171,10 @@ class SceneManager {
     Animation m_animations[MAX_ANIMATIONS];
     int m_animationCount = 0;
     AnimationPlayer m_animationPlayer;
+
+    SkinAnimSet  m_skinAnimSets[MAX_SKINNED_MESHES];
+    SkinAnimState m_skinAnimStates[MAX_SKINNED_MESHES];
+    int m_skinnedMeshCount = 0;
     
     UISystem m_uiSystem;
 #ifdef PSXSPLASH_MEMOVERLAY

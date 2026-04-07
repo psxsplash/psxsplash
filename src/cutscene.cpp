@@ -6,20 +6,25 @@
 #include <psyqo/trigonometry.hh>
 #include "streq.hh"
 #include "uisystem.hh"
+#include "scenemanager.hh"
+#include "skinmesh.hh"
 
 namespace psxsplash {
 
 void CutscenePlayer::init(Cutscene* cutscenes, int count, Camera* camera, AudioManager* audio,
-                          UISystem* uiSystem) {
+                          UISystem* uiSystem, SceneManager* sceneMgr) {
     m_cutscenes     = cutscenes;
     m_count         = count;
     m_active        = nullptr;
     m_frame         = 0;
+    m_subFrame      = 0;
     m_nextAudio     = 0;
+    m_nextSkinAnim  = 0;
     m_loop          = false;
     m_camera        = camera;
     m_audio         = audio;
     m_uiSystem      = uiSystem;
+    m_sceneMgr      = sceneMgr;
     m_onCompleteRef = LUA_NOREF;
 }
 
@@ -31,7 +36,9 @@ bool CutscenePlayer::play(const char* name, bool loop) {
         if (m_cutscenes[i].name && streq(m_cutscenes[i].name, name)) {
             m_active    = &m_cutscenes[i];
             m_frame     = 0;
+            m_subFrame  = 0;
             m_nextAudio = 0;
+            m_nextSkinAnim = 0;
 
             // Capture initial state for pre-first-keyframe blending
             for (uint8_t ti = 0; ti < m_active->trackCount; ti++) {
@@ -130,7 +137,7 @@ bool CutscenePlayer::hasCameraTracks() const {
     return false;
 }
 
-void CutscenePlayer::tick() {
+void CutscenePlayer::tick(int32_t dt12) {
     if (!m_active) return;
 
     for (uint8_t i = 0; i < m_active->trackCount; i++) {
@@ -149,14 +156,41 @@ void CutscenePlayer::tick() {
         }
     }
 
-    m_frame++;
+    // Process skin animation events
+    while (m_nextSkinAnim < m_active->skinAnimEventCount) {
+        CutsceneSkinAnimEvent& evt = m_active->skinAnimEvents[m_nextSkinAnim];
+        if (evt.frame <= m_frame) {
+            if (m_sceneMgr) {
+                int skinIdx = (int)evt.skinMeshIndex;
+                if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
+                    SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
+                    state.currentClip  = evt.clipIndex;
+                    state.currentFrame = 0;
+                    state.subFrame     = 0;
+                    state.playing      = true;
+                    state.loop         = (evt.loop != 0);
+                }
+            }
+            m_nextSkinAnim++;
+        } else {
+            break;
+        }
+    }
+
+    // Advance frame using dt12
+    uint32_t accum = (uint32_t)m_subFrame + (uint32_t)dt12;
+    uint16_t wholeFrames = (uint16_t)(accum >> 12);
+    m_subFrame = (uint16_t)(accum & 0xFFF);
+    m_frame += wholeFrames;
+
     if (m_frame > m_active->totalFrames) {
         if (m_loop) {
-            // Restart from the beginning
             m_frame = 0;
+            m_subFrame = 0;
             m_nextAudio = 0;
+            m_nextSkinAnim = 0;
         } else {
-            m_active = nullptr;  // Cutscene finished
+            m_active = nullptr;
             fireOnComplete();
         }
     }
@@ -186,7 +220,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
     switch (track.trackType) {
         case TrackType::CameraPosition: {
             if (!m_camera) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             psyqo::FixedPoint<12> x, y, z;
             x.value = (int32_t)out[0];
             y.value = (int32_t)out[1];
@@ -197,7 +231,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
 
         case TrackType::CameraRotation: {
             if (!m_camera) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             psyqo::Angle rx, ry, rz;
             rx.value = (int32_t)out[0];
             ry.value = (int32_t)out[1];
@@ -208,7 +242,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
 
         case TrackType::CameraH: {
             if (!m_camera) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             int32_t h = (int32_t)out[0];
             if (h < 1) h = 1;           // Avoid zero/negative — GTE would divide-by-zero
             if (h > 1024) h = 1024;     // Practical upper limit (~13° vFOV)
@@ -218,7 +252,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
 
         case TrackType::ObjectPosition: {
             if (!track.target) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             // Compute delta and shift AABB for frustum culling
             int32_t dx = (int32_t)out[0] - track.target->position.x.value;
             int32_t dy = (int32_t)out[1] - track.target->position.y.value;
@@ -235,7 +269,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
 
         case TrackType::ObjectRotation: {
             if (!track.target) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             psyqo::Angle rx, ry, rz;
             rx.value = (int32_t)out[0];
             ry.value = (int32_t)out[1];
@@ -298,7 +332,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
 
         case TrackType::UIProgress: {
             if (!m_uiSystem) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             int16_t v = out[0];
             if (v < 0) v = 0;
             if (v > 100) v = 100;
@@ -308,14 +342,14 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
 
         case TrackType::UIPosition: {
             if (!m_uiSystem) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             m_uiSystem->setPosition(track.uiHandle, out[0], out[1]);
             break;
         }
 
         case TrackType::UIColor: {
             if (!m_uiSystem) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, m_frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             uint8_t cr = (out[0] < 0) ? 0 : ((out[0] > 255) ? 255 : (uint8_t)out[0]);
             uint8_t cg = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
             uint8_t cb = (out[2] < 0) ? 0 : ((out[2] > 255) ? 255 : (uint8_t)out[2]);

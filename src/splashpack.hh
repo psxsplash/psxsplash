@@ -13,6 +13,7 @@
 #include "interactable.hh"
 #include "cutscene.hh"
 #include "animation.hh"
+#include "skinmesh.hh"
 #include "uisystem.hh"
 
 namespace psxsplash {
@@ -101,6 +102,9 @@ struct SplashpackSceneSetup {
 
     Animation loadedAnimations[MAX_ANIMATIONS];
     int animationCount = 0;
+
+    SkinAnimSet loadedSkinAnimSets[MAX_SKINNED_MESHES];
+    int skinnedMeshCount = 0;
 
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;

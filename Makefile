@@ -24,6 +24,7 @@ src/animation.cpp \
 src/uisystem.cpp \
 src/loadingscreen.cpp \
 src/memoverlay.cpp \
+src/skinmesh.cpp \
 src/loadbuffer_patch.cpp
 
 # LOADER=cdrom  → CD-ROM backend (for ISO builds on real hardware)

@@ -12,6 +12,7 @@
 #include "cutscene.hh"
 #include "lua.h"
 #include "mesh.hh"
+#include "skinmesh.hh"
 #include "streq.hh"
 #include "navregion.hh"
 #include "renderer.hh"
@@ -67,8 +68,11 @@ struct SPLASHPACKFileHeader {
     uint16_t animationCount;
     uint16_t roomPortalRefCount;
     uint32_t animationTableOffset;
+    uint16_t skinnedMeshCount;
+    uint16_t pad_skin;
+    uint32_t skinTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == 112, "SPLASHPACKFileHeader must be 112 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == 120, "SPLASHPACKFileHeader must be 120 bytes");
 
 struct SPLASHPACKTextureAtlas {
     uint32_t polygonsOffset;
@@ -307,11 +311,25 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 
             // SPLASHPACKCutscene: 12 bytes at dataOffset
             uint8_t* csPtr = data + dataOffset;
-            cs.totalFrames     = *reinterpret_cast<uint16_t*>(csPtr); csPtr += 2;
-            cs.trackCount      = *csPtr++;                                           
-            cs.audioEventCount = *csPtr++;                                           
-            uint32_t tracksOff = *reinterpret_cast<uint32_t*>(csPtr); csPtr += 4;
-            uint32_t audioOff  = *reinterpret_cast<uint32_t*>(csPtr); csPtr += 4;
+            cs.totalFrames       = *reinterpret_cast<uint16_t*>(csPtr); csPtr += 2;
+            cs.trackCount        = *csPtr++;
+            cs.audioEventCount   = *csPtr++;
+            uint32_t tracksOff   = *reinterpret_cast<uint32_t*>(csPtr); csPtr += 4;
+            uint32_t audioOff    = *reinterpret_cast<uint32_t*>(csPtr); csPtr += 4;
+
+            // v19: skin anim events follow (4 bytes: count + pad + offset)
+            cs.skinAnimEventCount = 0;
+            cs.skinAnimEvents = nullptr;
+            if (header->version >= 19) {
+                cs.skinAnimEventCount = *csPtr++;
+                csPtr += 3; // pad
+                uint32_t skinAnimOff = *reinterpret_cast<uint32_t*>(csPtr); csPtr += 4;
+                if (cs.skinAnimEventCount > MAX_SKIN_ANIM_EVENTS)
+                    cs.skinAnimEventCount = MAX_SKIN_ANIM_EVENTS;
+                cs.skinAnimEvents = (cs.skinAnimEventCount > 0 && skinAnimOff != 0)
+                    ? reinterpret_cast<CutsceneSkinAnimEvent*>(data + skinAnimOff)
+                    : nullptr;
+            }
 
             if (cs.trackCount > MAX_TRACKS) cs.trackCount = MAX_TRACKS;
             if (cs.audioEventCount > MAX_AUDIO_EVENTS) cs.audioEventCount = MAX_AUDIO_EVENTS;
@@ -402,12 +420,26 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                       ? reinterpret_cast<const char*>(data + nameOffset)
                       : nullptr;
 
-            // SPLASHPACKAnimation: 8 bytes (no audio)
+            // SPLASHPACKAnimation: 8 bytes (no audio), then optionally skin anim events (v19)
             uint8_t* anPtr = data + dataOffset;
             an.totalFrames = *reinterpret_cast<uint16_t*>(anPtr); anPtr += 2;
             an.trackCount  = *anPtr++;
-            an.pad         = *anPtr++;
+            an.skinAnimEventCount = 0;
+            an.skinAnimEvents = nullptr;
+            anPtr++; // pad (was 'pad' field)
             uint32_t tracksOff = *reinterpret_cast<uint32_t*>(anPtr); anPtr += 4;
+
+            // v19: skin anim events for animations
+            if (header->version >= 19) {
+                an.skinAnimEventCount = *anPtr++;
+                anPtr += 3; // pad
+                uint32_t skinAnimOff = *reinterpret_cast<uint32_t*>(anPtr); anPtr += 4;
+                if (an.skinAnimEventCount > MAX_SKIN_ANIM_EVENTS)
+                    an.skinAnimEventCount = MAX_SKIN_ANIM_EVENTS;
+                an.skinAnimEvents = (an.skinAnimEventCount > 0 && skinAnimOff != 0)
+                    ? reinterpret_cast<CutsceneSkinAnimEvent*>(data + skinAnimOff)
+                    : nullptr;
+            }
 
             if (an.trackCount > MAX_ANIM_TRACKS) an.trackCount = MAX_ANIM_TRACKS;
 
@@ -458,6 +490,74 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             }
 
             setup.animationCount++;
+        }
+    }
+
+    // Skinned mesh loading (v18+)
+    if (header->version >= 18 && header->skinnedMeshCount > 0 && header->skinTableOffset != 0) {
+        uint8_t* tablePtr = data + header->skinTableOffset;
+        int smCount = header->skinnedMeshCount;
+        if (smCount > MAX_SKINNED_MESHES) smCount = MAX_SKINNED_MESHES;
+
+        for (int si = 0; si < smCount; si++) {
+            uint32_t dataOffset  = *reinterpret_cast<uint32_t*>(tablePtr); tablePtr += 4;
+            uint8_t  nameLen     = *tablePtr++;
+            tablePtr += 3; // pad
+            uint32_t nameOffset  = *reinterpret_cast<uint32_t*>(tablePtr); tablePtr += 4;
+
+            SkinAnimSet& animSet = setup.loadedSkinAnimSets[si];
+
+            // Parse SkinData block
+            uint8_t* skinPtr = data + dataOffset;
+            animSet.gameObjectIndex = *reinterpret_cast<uint16_t*>(skinPtr); skinPtr += 2;
+            animSet.boneCount       = *skinPtr++;
+            animSet.clipCount       = *skinPtr++;
+
+            // Bone indices: polyCount × 3 bytes
+            uint16_t polyCount = 0;
+            if (animSet.gameObjectIndex < setup.objects.size()) {
+                polyCount = setup.objects[animSet.gameObjectIndex]->polyCount;
+            }
+            animSet.boneIndices = skinPtr;
+            skinPtr += polyCount * 3;
+
+            // Align to 4-byte boundary
+            uintptr_t addr = reinterpret_cast<uintptr_t>(skinPtr);
+            skinPtr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
+
+            // Parse clips
+            if (animSet.clipCount > SKINMESH_MAX_CLIPS) animSet.clipCount = SKINMESH_MAX_CLIPS;
+            for (uint8_t ci = 0; ci < animSet.clipCount; ci++) {
+                SkinAnimClip& clip = animSet.clips[ci];
+
+                uint8_t clipNameLen = *skinPtr++;
+                // Null-terminate the name in place
+                clip.name = reinterpret_cast<const char*>(skinPtr);
+                skinPtr += clipNameLen;
+                *skinPtr = '\0';
+                skinPtr++;
+
+                clip.flags      = *skinPtr++;
+                clip.fps        = *skinPtr++;
+                // Align to 2-byte boundary for uint16_t frameCount (MIPS requires aligned reads)
+                addr = reinterpret_cast<uintptr_t>(skinPtr);
+                skinPtr = reinterpret_cast<uint8_t*>((addr + 1) & ~1);
+                clip.frameCount = *reinterpret_cast<uint16_t*>(skinPtr); skinPtr += 2;
+                clip.boneCount  = animSet.boneCount;
+
+                // Frame data: frameCount × boneCount × 24 bytes
+                clip.frames = reinterpret_cast<const BakedBoneMatrix*>(skinPtr);
+                skinPtr += (uint32_t)clip.frameCount * (uint32_t)animSet.boneCount * sizeof(BakedBoneMatrix);
+            }
+
+            // Zero unused clip slots
+            for (uint8_t ci = animSet.clipCount; ci < SKINMESH_MAX_CLIPS; ci++) {
+                animSet.clips[ci].name = nullptr;
+                animSet.clips[ci].frames = nullptr;
+                animSet.clips[ci].frameCount = 0;
+            }
+
+            setup.skinnedMeshCount++;
         }
     }
 

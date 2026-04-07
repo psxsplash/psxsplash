@@ -312,6 +312,22 @@ private:
     // Animation.IsPlaying(name) -> boolean
     static int Animation_IsPlaying(lua_State* L);
 
+    // ========================================================================
+    // SKINNED ANIMATION API - Bone-based mesh animation
+    // ========================================================================
+
+    // SkinnedAnim.Play(objectName, clipName) or (objectName, clipName, {loop, onComplete})
+    static int SkinnedAnim_Play(lua_State* L);
+
+    // SkinnedAnim.Stop(objectName) -> nil
+    static int SkinnedAnim_Stop(lua_State* L);
+
+    // SkinnedAnim.IsPlaying(objectName) -> boolean
+    static int SkinnedAnim_IsPlaying(lua_State* L);
+
+    // SkinnedAnim.GetClip(objectName) -> string or nil
+    static int SkinnedAnim_GetClip(lua_State* L);
+
     // Controls.SetEnabled(bool) - enable/disable all player input
     static int Controls_SetEnabled(lua_State* L);
 

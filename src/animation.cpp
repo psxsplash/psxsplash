@@ -5,13 +5,17 @@
 #include <psyqo/soft-math.hh>
 #include "streq.hh"
 #include "uisystem.hh"
+#include "scenemanager.hh"
+#include "skinmesh.hh"
 
 namespace psxsplash {
 
-void AnimationPlayer::init(Animation* animations, int count, UISystem* uiSystem) {
+void AnimationPlayer::init(Animation* animations, int count, UISystem* uiSystem,
+                           SceneManager* sceneMgr) {
     m_animations = animations;
     m_animCount  = count;
     m_uiSystem   = uiSystem;
+    m_sceneMgr   = sceneMgr;
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         m_slots[i].anim = nullptr;
         m_slots[i].onCompleteRef = LUA_NOREF;
@@ -44,7 +48,9 @@ bool AnimationPlayer::play(const char* name, bool loop) {
     ActiveSlot& slot = m_slots[freeSlot];
     slot.anim  = anim;
     slot.frame = 0;
+    slot.subFrame = 0;
     slot.loop  = loop;
+    slot.nextSkinAnim = 0;
     // onCompleteRef is set separately via setOnCompleteRef before play()
 
     captureInitialValues(anim);
@@ -90,20 +96,48 @@ void AnimationPlayer::setOnCompleteRef(const char* name, int ref) {
     }
 }
 
-void AnimationPlayer::tick() {
+void AnimationPlayer::tick(int32_t dt12) {
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         ActiveSlot& slot = m_slots[i];
         if (!slot.anim) continue;
 
         // Apply all tracks
         for (uint8_t ti = 0; ti < slot.anim->trackCount; ti++) {
-            applyTrack(slot.anim->tracks[ti], slot.frame);
+            applyTrack(slot.anim->tracks[ti], slot.frame, slot.subFrame);
         }
 
-        slot.frame++;
+        // Process skin animation events
+        while (slot.nextSkinAnim < slot.anim->skinAnimEventCount) {
+            CutsceneSkinAnimEvent& evt = slot.anim->skinAnimEvents[slot.nextSkinAnim];
+            if (evt.frame <= slot.frame) {
+                if (m_sceneMgr) {
+                    int skinIdx = (int)evt.skinMeshIndex;
+                    if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
+                        SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
+                        state.currentClip  = evt.clipIndex;
+                        state.currentFrame = 0;
+                        state.subFrame     = 0;
+                        state.playing      = true;
+                        state.loop         = (evt.loop != 0);
+                    }
+                }
+                slot.nextSkinAnim++;
+            } else {
+                break;
+            }
+        }
+
+        // Advance frame using dt12
+        uint32_t accum = (uint32_t)slot.subFrame + (uint32_t)dt12;
+        uint16_t wholeFrames = (uint16_t)(accum >> 12);
+        slot.subFrame = (uint16_t)(accum & 0xFFF);
+        slot.frame += wholeFrames;
+
         if (slot.frame > slot.anim->totalFrames) {
             if (slot.loop) {
                 slot.frame = 0;
+                slot.subFrame = 0;
+                slot.nextSkinAnim = 0;
             } else {
                 Animation* finished = slot.anim;
                 slot.anim = nullptr;
@@ -171,7 +205,7 @@ void AnimationPlayer::captureInitialValues(Animation* anim) {
     }
 }
 
-void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame) {
+void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t subFrame) {
     if (track.keyframeCount == 0 || !track.keyframes) return;
 
     int16_t out[3];
@@ -179,7 +213,7 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame) {
     switch (track.trackType) {
         case TrackType::ObjectPosition: {
             if (!track.target) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
             // Compute delta and shift AABB for frustum culling
             int32_t dx = (int32_t)out[0] - track.target->position.x.value;
             int32_t dy = (int32_t)out[1] - track.target->position.y.value;
@@ -196,7 +230,7 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame) {
 
         case TrackType::ObjectRotation: {
             if (!track.target) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
             psyqo::Angle rx, ry, rz;
             rx.value = (int32_t)out[0];
             ry.value = (int32_t)out[1];
@@ -257,7 +291,7 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame) {
 
         case TrackType::UIProgress: {
             if (!m_uiSystem) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
             int16_t v = out[0];
             if (v < 0) v = 0;
             if (v > 100) v = 100;
@@ -267,14 +301,14 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame) {
 
         case TrackType::UIPosition: {
             if (!m_uiSystem) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
             m_uiSystem->setPosition(track.uiHandle, out[0], out[1]);
             break;
         }
 
         case TrackType::UIColor: {
             if (!m_uiSystem) return;
-            psxsplash::lerpKeyframes(track.keyframes, track.keyframeCount, frame, track.initialValues, out);
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
             uint8_t cr = (out[0] < 0) ? 0 : ((out[0] > 255) ? 255 : (uint8_t)out[0]);
             uint8_t cg = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
             uint8_t cb = (out[2] < 0) ? 0 : ((out[2] > 255) ? 255 : (uint8_t)out[2]);

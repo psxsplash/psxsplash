@@ -16,6 +16,7 @@
 #include <psyqo/vector.hh>
 
 #include "gtemath.hh"
+#include "skinmesh.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -332,10 +333,12 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     int32_t fogFarSZ = m_fog.fogFarSZ;
     for (auto& obj : objects) {
         if (!obj->isActive()) continue;
+        if (obj->isSkinned()) continue;
         setupObjectTransform(obj, cameraPosition);
         for (int i = 0; i < obj->polyCount; i++)
             processTriangle(obj->polygons[i], fogFarSZ, ot, balloc);
     }
+    renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
@@ -374,6 +377,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         GameObject* obj = objects[ref.objectIndex];
         if (!obj->isActive()) continue;
         if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass — rendered below
+        if (obj->isSkinned()) continue;  // Skip skinned objects — rendered in skinned pass
         if (ref.triangleIndex >= obj->polyCount) continue;
         if (ref.objectIndex != lastObjectIndex) {
             lastObjectIndex = ref.objectIndex;
@@ -397,6 +401,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     for (size_t oi = 0; oi < objects.size(); oi++) {
         GameObject* obj = objects[oi];
         if (!obj->isActive() || !obj->isDynamicMoved()) continue;
+        if (obj->isSkinned()) continue;
         BVHNode objBox;
         objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
@@ -406,6 +411,8 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc);
         }
     }
+
+    renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -697,6 +704,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             GameObject* obj = objects[ref.objectIndex];
             if (!obj->isActive()) continue;
             if (obj->isDynamicMoved()) continue;  // Rendered in dynamic pass below
+            if (obj->isSkinned()) continue;  // Rendered in skinned pass
             if (ref.triangleIndex >= obj->polyCount) continue;
             if (ref.objectIndex != lastObj) {
                 lastObj = ref.objectIndex;
@@ -1077,6 +1085,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     for (size_t oi = 0; oi < objects.size(); oi++) {
         GameObject* obj = objects[oi];
         if (!obj->isActive() || !obj->isDynamicMoved()) continue;
+        if (obj->isSkinned()) continue;
         BVHNode objBox;
         objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
@@ -1086,6 +1095,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc);
         }
     }
+
+    renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -1098,6 +1109,274 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
 #endif
     m_frameCount++;
+}
+
+// ============================================================================
+// Skinned mesh rendering - per-vertex bone transforms via rtps()
+// ============================================================================
+
+void psxsplash::Renderer::renderSkinnedObjects(
+    eastl::vector<GameObject*>& objects,
+    const psyqo::Vec3& cameraPosition,
+    int32_t fogFarSZ,
+    psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
+    psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+    const Frustum* frustum) {
+
+    if (!m_skinSets || !m_skinStates || m_skinCount == 0) return;
+
+    static psyqo::Matrix33 composedRots[SKINMESH_MAX_BONES];
+    static psyqo::Vec3 composedTrans[SKINMESH_MAX_BONES];
+    static BakedBoneMatrix lerpedBones[SKINMESH_MAX_BONES];
+
+    for (int si = 0; si < m_skinCount; si++) {
+        const SkinAnimSet& animSet = m_skinSets[si];
+        const SkinAnimState& animState = m_skinStates[si];
+
+        if (animSet.gameObjectIndex >= objects.size()) continue;
+        GameObject* obj = objects[animSet.gameObjectIndex];
+        if (!obj->isActive()) continue;
+        if (animSet.clipCount == 0) continue;
+
+        // Frustum cull using object AABB
+        if (frustum) {
+            BVHNode objBox;
+            objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+            objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+            if (!frustum->testAABB(objBox)) continue;
+        }
+
+        // Get current clip and frame
+        uint8_t clipIdx = animState.currentClip;
+        if (clipIdx >= animSet.clipCount) clipIdx = 0;
+        const SkinAnimClip& clip = animSet.clips[clipIdx];
+        if (!clip.frames || clip.frameCount == 0) continue;
+
+        uint16_t frame = animState.currentFrame;
+        if (frame >= clip.frameCount) frame = clip.frameCount - 1;
+
+        const BakedBoneMatrix* boneMatricesA = &clip.frames[(uint32_t)frame * animSet.boneCount];
+        const BakedBoneMatrix* boneMatrices = boneMatricesA; // default: no interpolation
+
+        // Interpolate between frames when subFrame > 0
+        uint16_t sf = animState.subFrame;
+        if (sf > 0 && frame + 1 < clip.frameCount) {
+            const BakedBoneMatrix* boneMatricesB = &clip.frames[(uint32_t)(frame + 1) * animSet.boneCount];
+            for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
+                const BakedBoneMatrix& bA = boneMatricesA[bi];
+                const BakedBoneMatrix& bB = boneMatricesB[bi];
+                BakedBoneMatrix& out = lerpedBones[bi];
+                for (int k = 0; k < 9; k++) {
+                    int32_t a = bA.r[k], b = bB.r[k];
+                    out.r[k] = (int16_t)(a + (((b - a) * sf) >> 12));
+                }
+                for (int k = 0; k < 3; k++) {
+                    int32_t a = bA.t[k], b = bB.t[k];
+                    out.t[k] = (int16_t)(a + (((b - a) * sf) >> 12));
+                }
+            }
+            boneMatrices = lerpedBones;
+        } else if (sf > 0 && (animState.loop || (clip.flags & 0x01)) && clip.frameCount > 1) {
+            // Looping: interpolate last frame → first frame
+            const BakedBoneMatrix* boneMatricesB = &clip.frames[0];
+            for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
+                const BakedBoneMatrix& bA = boneMatricesA[bi];
+                const BakedBoneMatrix& bB = boneMatricesB[bi];
+                BakedBoneMatrix& out = lerpedBones[bi];
+                for (int k = 0; k < 9; k++) {
+                    int32_t a = bA.r[k], b = bB.r[k];
+                    out.r[k] = (int16_t)(a + (((b - a) * sf) >> 12));
+                }
+                for (int k = 0; k < 3; k++) {
+                    int32_t a = bA.t[k], b = bB.t[k];
+                    out.t[k] = (int16_t)(a + (((b - a) * sf) >> 12));
+                }
+            }
+            boneMatrices = lerpedBones;
+        }
+
+        // Compose camera × object rotation
+        psyqo::Matrix33 camObjRot;
+        MatrixMultiplyGTE(m_currentCamera->GetRotation(), obj->rotation, &camObjRot);
+
+        // Compute camera-space object position
+        ::clear<Register::TRX, Safe>();
+        ::clear<Register::TRY, Safe>();
+        ::clear<Register::TRZ, Safe>();
+        writeSafe<PseudoRegister::Rotation>(m_currentCamera->GetRotation());
+        writeSafe<PseudoRegister::V0>(obj->position);
+        Kernels::mvmva<Kernels::MX::RT, Kernels::MV::V0, Kernels::TV::TR>();
+        psyqo::Vec3 objCamPos = readSafe<PseudoRegister::SV>();
+        objCamPos.x += cameraPosition.x;
+        objCamPos.y += cameraPosition.y;
+        objCamPos.z += cameraPosition.z;
+
+        // Pre-compose per-bone rotation matrices and translations
+        for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
+            const BakedBoneMatrix& bm = boneMatrices[bi];
+
+            psyqo::Matrix33 boneRot;
+            boneRot.vs[0].x.value = bm.r[0]; boneRot.vs[0].y.value = bm.r[1]; boneRot.vs[0].z.value = bm.r[2];
+            boneRot.vs[1].x.value = bm.r[3]; boneRot.vs[1].y.value = bm.r[4]; boneRot.vs[1].z.value = bm.r[5];
+            boneRot.vs[2].x.value = bm.r[6]; boneRot.vs[2].y.value = bm.r[7]; boneRot.vs[2].z.value = bm.r[8];
+
+            // composedRots[bi] = camObjRot × boneRot
+            MatrixMultiplyGTE(camObjRot, boneRot, &composedRots[bi]);
+
+            // composedTrans[bi] = objCamPos + camObjRot × boneTrans
+            psyqo::Vec3 boneTrans;
+            boneTrans.x.value = bm.t[0]; boneTrans.y.value = bm.t[1]; boneTrans.z.value = bm.t[2];
+
+            writeSafe<PseudoRegister::Rotation>(camObjRot);
+            ::clear<Register::TRX, Safe>();
+            ::clear<Register::TRY, Safe>();
+            ::clear<Register::TRZ, Safe>();
+            writeSafe<PseudoRegister::V0>(boneTrans);
+            Kernels::mvmva<Kernels::MX::RT, Kernels::MV::V0, Kernels::TV::TR>();
+            psyqo::Vec3 rotatedTrans = readSafe<PseudoRegister::SV>();
+
+            composedTrans[bi].x.value = objCamPos.x.value + rotatedTrans.x.value;
+            composedTrans[bi].y.value = objCamPos.y.value + rotatedTrans.y.value;
+            composedTrans[bi].z.value = objCamPos.z.value + rotatedTrans.z.value;
+        }
+
+        const uint8_t* boneIdx = animSet.boneIndices;
+        for (int ti = 0; ti < animSet.polyCount; ti++) {
+            Tri& tri = animSet.polygons[ti];
+
+            uint8_t bA = boneIdx ? boneIdx[ti * 3 + 0] : 0;
+            uint8_t bB = boneIdx ? boneIdx[ti * 3 + 1] : 0;
+            uint8_t bC = boneIdx ? boneIdx[ti * 3 + 2] : 0;
+            if (bA >= animSet.boneCount) bA = 0;
+            if (bB >= animSet.boneCount) bB = 0;
+            if (bC >= animSet.boneCount) bC = 0;
+
+            // Per-vertex rtps (3 calls instead of rtpt) due to different bone matrices
+            // Vertex A
+            writeSafe<PseudoRegister::Rotation>(composedRots[bA]);
+            writeSafe<PseudoRegister::Translation>(composedTrans[bA]);
+            writeSafe<PseudoRegister::V0>(tri.v0);
+            Kernels::rtps();
+            uint32_t sz0Raw; read<Register::SZ3>(&sz0Raw);
+            psyqo::Vertex projected0;
+            read<Register::SXY2>(&projected0.packed);
+
+            // Vertex B
+            writeSafe<PseudoRegister::Rotation>(composedRots[bB]);
+            writeSafe<PseudoRegister::Translation>(composedTrans[bB]);
+            writeSafe<PseudoRegister::V0>(tri.v1);
+            Kernels::rtps();
+            uint32_t sz1Raw; read<Register::SZ3>(&sz1Raw);
+            psyqo::Vertex projected1;
+            read<Register::SXY2>(&projected1.packed);
+
+            // Vertex C
+            writeSafe<PseudoRegister::Rotation>(composedRots[bC]);
+            writeSafe<PseudoRegister::Translation>(composedTrans[bC]);
+            writeSafe<PseudoRegister::V0>(tri.v2);
+            Kernels::rtps();
+            uint32_t sz2Raw; read<Register::SZ3>(&sz2Raw);
+            psyqo::Vertex projected2;
+            read<Register::SXY2>(&projected2.packed);
+
+            int32_t sz0 = (int32_t)sz0Raw, sz1 = (int32_t)sz1Raw, sz2 = (int32_t)sz2Raw;
+
+            // All behind camera → invisible
+            if (sz0 <= 0 && sz1 <= 0 && sz2 <= 0) continue;
+            // Beyond fog wall → invisible
+            if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) continue;
+
+            int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
+            if (zIndex >= (int32_t)ORDERING_TABLE_SIZE) continue;
+            if (zIndex < 1) zIndex = 1;
+
+            // Skip near-plane vertices (no subdivision for skinned meshes)
+            static constexpr int32_t NEAR_SZ_THRESHOLD = 4;
+            if (sz0 < NEAR_SZ_THRESHOLD || sz1 < NEAR_SZ_THRESHOLD ||
+                sz2 < NEAR_SZ_THRESHOLD) continue;
+
+            // Off-screen reject
+            if (isCompletelyOutside(projected0, projected1, projected2)) continue;
+
+            // Backface cull (SXY FIFO holds A,B,C after 3 sequential rtps calls)
+            Kernels::nclip();
+            int32_t mac0 = 0;
+            read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
+            if (mac0 <= 0) continue;
+
+            clampForRasterizer(projected0);
+            clampForRasterizer(projected1);
+            clampForRasterizer(projected2);
+
+            // Per-vertex fog
+            psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
+            bool hasFog = false;
+            int32_t fogIR[3] = {0, 0, 0};
+            if (m_fog.enabled && fogFarSZ > 0) {
+                int32_t fogNear = fogFarSZ >> 3;
+                int32_t range = fogFarSZ - fogNear;
+                if (range < 1) range = 1;
+                int32_t szArr[3] = {sz0, sz1, sz2};
+                for (int vi = 0; vi < 3; vi++) {
+                    if (szArr[vi] <= fogNear) fogIR[vi] = 0;
+                    else if (szArr[vi] >= fogFarSZ) fogIR[vi] = 4096;
+                    else fogIR[vi] = ((szArr[vi] - fogNear) * 4096) / range;
+                }
+                hasFog = (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
+            }
+
+            // Emit GPU primitives
+            if (tri.isUntextured()) {
+                if (hasFog) {
+                    cA = fogBlend(cA, fogIR[0], m_fog.color);
+                    cB = fogBlend(cB, fogIR[1], m_fog.color);
+                    cC = fogBlend(cC, fogIR[2], m_fog.color);
+                }
+                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
+                p.primitive.pointA = projected0; p.primitive.pointB = projected1; p.primitive.pointC = projected2;
+                p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
+                p.primitive.setOpaque();
+                ot.insert(p, zIndex);
+            } else if (hasFog) {
+                psyqo::Color fogA = fogBaseColor(fogIR[0], m_fog.color);
+                psyqo::Color fogB = fogBaseColor(fogIR[1], m_fog.color);
+                psyqo::Color fogC = fogBaseColor(fogIR[2], m_fog.color);
+                psyqo::Color texA = fogTexColor(cA, fogIR[0]);
+                psyqo::Color texB = fogTexColor(cB, fogIR[1]);
+                psyqo::Color texC = fogTexColor(cC, fogIR[2]);
+
+                auto& fogP = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
+                fogP.primitive.pointA = projected0; fogP.primitive.pointB = projected1; fogP.primitive.pointC = projected2;
+                fogP.primitive.setColorA(fogA); fogP.primitive.setColorB(fogB); fogP.primitive.setColorC(fogC);
+                fogP.primitive.setSemiTrans();
+                ot.insert(fogP, zIndex);
+
+                auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
+                texP.primitive.pointA = projected0; texP.primitive.pointB = projected1; texP.primitive.pointC = projected2;
+                texP.primitive.uvA = tri.uvA; texP.primitive.uvB = tri.uvB;
+                texP.primitive.uvC.u = tri.uvC.u; texP.primitive.uvC.v = tri.uvC.v;
+                texP.primitive.tpage = tri.tpage;
+                texP.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
+                psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
+                texP.primitive.clutIndex = clut;
+                texP.primitive.setColorA(texA); texP.primitive.setColorB(texB); texP.primitive.setColorC(texC);
+                texP.primitive.setOpaque();
+                ot.insert(texP, zIndex);
+            } else {
+                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
+                p.primitive.pointA = projected0; p.primitive.pointB = projected1; p.primitive.pointC = projected2;
+                p.primitive.uvA = tri.uvA; p.primitive.uvB = tri.uvB;
+                p.primitive.uvC.u = tri.uvC.u; p.primitive.uvC.v = tri.uvC.v;
+                p.primitive.tpage = tri.tpage;
+                p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
+                psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
+                p.primitive.clutIndex = clut;
+                p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
+                p.primitive.setOpaque();
+                ot.insert(p, zIndex);
+            }
+        }
+    }
 }
 
 void psxsplash::Renderer::VramUpload(const uint16_t* imageData, int16_t posX,
