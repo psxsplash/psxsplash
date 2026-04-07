@@ -129,7 +129,7 @@ public:
     /// Updates currentRegion in-place.
     /// newX/newZ are clamped to stay within the region boundary.
     /// Returns the Y position for the player's feet.
-    int32_t resolvePosition(int32_t& newX, int32_t& newZ,
+    int32_t resolvePosition(int32_t& newX, int32_t& newY, int32_t& newZ,
                             uint16_t& currentRegion) const;
 
     /// Test if a point (XZ) is inside a specific region.
@@ -140,6 +140,10 @@ public:
 
     /// Find which region contains a point (brute-force, for initialization).
     uint16_t findRegion(int32_t x, int32_t z) const;
+
+    /// Find which region contains a point (brute-force, for initialization).
+    uint16_t findRegionClosest(int32_t x, int32_t y, int32_t z) const;
+
 
     /// Clamp an XZ position to stay within a region's polygon boundary.
     /// Returns the clamped position.
@@ -165,6 +169,8 @@ private:
                                       int32_t ax, int32_t az,
                                       int32_t bx, int32_t bz,
                                       int32_t& outX, int32_t& outZ);
+
+    static int32_t getYDistance(int32_t firstY, int32_t secondY);
 
 };
 
