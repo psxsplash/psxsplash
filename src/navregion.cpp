@@ -2,6 +2,7 @@
 
 #include <psyqo/fixed-point.hh>
 #include <psyqo/vector.hh>
+#include <psyqo/xprintf.h>
 
 /**
  * navregion.cpp - Convex Region Navigation System
@@ -277,6 +278,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
         }
     }
 
+    /*
     // Not in current region or any neighbor — try broader search 
     // This handles jumping/falling to non-adjacent regions (e.g., landing on a platform) 
     { 
@@ -286,7 +288,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
             return getFloorY(newX, newZ, found); 
         } 
     } 
-    
+    */
 
     // Truly off all regions — clamp to current region boundary
     clampToRegion(newX, newZ, currentRegion);

@@ -714,6 +714,11 @@ void psxsplash::SceneManager::setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::
     m_playerPosition.x = x;
     m_playerPosition.y = y;
     m_playerPosition.z = z;
+
+    if (m_navRegions.isLoaded()) 
+    {
+        m_playerNavRegion = m_navRegions.findRegionClosest(x.value, y.value, z.value);
+    }
 }
 
 psyqo::Vec3 psxsplash::SceneManager::getPlayerRotation(){
