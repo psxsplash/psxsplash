@@ -3,6 +3,7 @@
 
 #include <psyqo/fixed-point.hh>
 #include <psyqo/soft-math.hh>
+#include "gtemath.hh"
 #include "streq.hh"
 #include "uisystem.hh"
 #include "scenemanager.hh"
@@ -239,7 +240,8 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t 
             auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, m_trig);
             auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, m_trig);
             auto temp = psyqo::SoftMath::multiplyMatrix33(matY, matX);
-            track.target->rotation = psyqo::SoftMath::multiplyMatrix33(temp, matZ);
+            track.target->rotation = psxsplash::transposeMatrix33(
+                psyqo::SoftMath::multiplyMatrix33(temp, matZ));
             break;
         }
 

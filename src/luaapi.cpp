@@ -11,6 +11,7 @@
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
+#include "gtemath.hh"
 
 
 namespace psxsplash {
@@ -717,7 +718,8 @@ int LuaAPI::Entity_SetRotationY(lua_State* L) {
     psyqo::FixedPoint<12> fp12 = readFP(lua, 2);
     psyqo::Angle angle;
     angle.value = fp12.value >> 2;
-    go->rotation = psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig);
+    go->rotation = psxsplash::transposeMatrix33(
+        psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig));
     return 0;
 }
 
