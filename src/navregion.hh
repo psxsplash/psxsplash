@@ -24,7 +24,7 @@ static constexpr int NAV_MAX_VERTS_PER_REGION = 8;   // Max polygon verts
 static constexpr int NAV_MAX_NEIGHBORS = 8;           // Max portal edges per region
 static constexpr int NAV_MAX_PATH_STEPS = 32;         // Max A* path length
 static constexpr uint16_t NAV_NO_REGION = 0xFFFF;     // Sentinel: no region
-
+static constexpr int32_t NAV_ATTACH_DISTANCE = 1024;
 // ============================================================================
 // Surface type for navigation regions
 // ============================================================================
@@ -144,6 +144,8 @@ public:
     /// Find which region contains a point (brute-force, for initialization).
     uint16_t findRegionClosest(int32_t x, int32_t y, int32_t z) const;
 
+    /// Is the player off the nav region?
+    bool isOffNavRegion(int32_t x, int32_t y, int32_t z) const;
 
     /// Clamp an XZ position to stay within a region's polygon boundary.
     /// Returns the clamped position.

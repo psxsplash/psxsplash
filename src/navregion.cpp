@@ -177,7 +177,27 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
             }
         }
     }
+    if(best >= m_header.regionCount || shortestDistance > NAV_ATTACH_DISTANCE)
+    {
+        printf("OFF NAV Best is %d Distance: %d\n",best,shortestDistance);
+        return NAV_NO_REGION;
+    }
+    
+    printf("Returning Best Nav: %d\n",best);
     return best;
+}
+
+bool NavRegionSystem::isOffNavRegion(int32_t x, int32_t y, int32_t z) const {
+    // When multiple regions overlap at the same XZ position (e.g., floor and
+    // elevated step), prefer the closest physical surface to y
+    
+    uint16_t bestRegion = findRegionClosest(x,y,z);
+    if(bestRegion == NAV_NO_REGION)
+    {
+        return true;
+    }
+
+    return false;
 }
 
 // ============================================================================
@@ -226,12 +246,10 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
                                           uint16_t& currentRegion) const {
     if (!isLoaded() || m_header.regionCount == 0) return 0;
 
-
-
     // If no valid region, find one
     if (currentRegion == NAV_NO_REGION || currentRegion >= m_header.regionCount) {
         currentRegion = findRegionClosest(newX, newY, newZ);
-
+        printf("Newest Region %d \n",currentRegion);
         if (currentRegion == NAV_NO_REGION) return 0;
     }
 
@@ -289,9 +307,10 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
         } 
     } 
     */
-
+    //printf("Region is %d\n", currentRegion);
     // Truly off all regions — clamp to current region boundary
-    clampToRegion(newX, newZ, currentRegion);
+    //clampToRegion(newX, newZ, currentRegion);
+    
     return getFloorY(newX, newZ, currentRegion);
 }
 

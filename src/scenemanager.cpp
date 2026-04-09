@@ -12,6 +12,7 @@
 
 #include <psyqo/primitives/misc.hh>
 #include <psyqo/trigonometry.hh>
+#include <psyqo/xprintf.h>
 
 #if defined(LOADER_CDROM)
 #include "cdromhelper.hh"
@@ -215,6 +216,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
     m_playerPosition = sceneSetup.playerStartPosition;
+    m_navRegions.clampToRegion(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
 
     playerRotationX = 0.0_pi;
     playerRotationY = 0.0_pi;
@@ -486,6 +488,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 #endif
 
     uint32_t navmeshStart = gpu.now();
+
+    //m_navRegions.findRegionClosest(m_playerPosition.x.value,m_playerPosition.y.value,m_playerPosition.z.value);
+
     if (!freecam && m_navRegions.isLoaded()) {
         // Apply gravity scaled by dt12 (4096 = 1 frame)
         int32_t gravityDelta = (int32_t)(((int64_t)m_gravityPerFrame * m_dt12) >> 12);
@@ -507,21 +512,31 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             m_playerPosition.x.value = px;
             m_playerPosition.z.value = pz;
 
+            uint16_t newNavRegion = m_navRegions.findRegionClosest(px,py,pz);
+            floorY = m_navRegions.getFloorY(px,pz,newNavRegion);
             int32_t cameraAtFloor = floorY - m_playerHeight.raw();
 
-            if (m_playerPosition.y.value >= cameraAtFloor) {
+            printf("floorY is %d\n",floorY);
+            //m_playerPosition.y.value >= cameraAtFloor && 
+            if (m_navRegions.isOffNavRegion(px,py,pz) == false) {
                 m_playerPosition.y.value = cameraAtFloor;
                 m_velocityY = 0;
                 m_isGrounded = true;
-            } else {
+                printf("Grounded\n");
+            } else { // FALLING
                 m_isGrounded = false;
+                printf("Falling\n");
             }
-        } else {
+        } else { // JUMPING
             m_playerPosition = oldPlayerPosition;
             m_playerNavRegion = prevRegion;
             m_velocityY = 0;
             m_isGrounded = true;
+            printf("Jumping In Air\n");
         }
+            
+        m_velocityY = 0;
+        //printf("Player Loc: %d  %d  %d\n",m_playerPosition.x,m_playerPosition.y,m_playerPosition.z);
     }
 
 
