@@ -8,6 +8,7 @@
 #include "camera.hh"
 #include "gameobject.hh"
 #include "audiomanager.hh"
+#include "controls.hh"
 
 #include <psyqo-lua/lua.hh>
 
@@ -37,12 +38,19 @@ enum class TrackType : uint8_t {
     UIPosition      = 8,   
     UIColor         = 9,  
     CameraH         = 10,
+    RumbleSmall     = 11,
+    RumbleLarge     = 12,
 };
 
 /// Helper: true if a TrackType drives a UI property (canvas or element).
 inline bool isUITrackType(TrackType t) {
     uint8_t v = static_cast<uint8_t>(t);
     return v >= 5 && v <= 9;
+}
+
+/// Helper: true if a TrackType drives a vibration motor.
+inline bool isVibrationTrackType(TrackType t) {
+    return t == TrackType::RumbleSmall || t == TrackType::RumbleLarge;
 }
 
 enum class InterpMode : uint8_t {
@@ -110,7 +118,8 @@ class CutscenePlayer {
 public:
     /// Initialize with loaded cutscene data. Safe to pass nullptr/0 if no cutscenes.
     void init(Cutscene* cutscenes, int count, Camera* camera, AudioManager* audio,
-              UISystem* uiSystem = nullptr, SceneManager* sceneMgr = nullptr);
+              UISystem* uiSystem = nullptr, SceneManager* sceneMgr = nullptr,
+              Controls* controls = nullptr);
 
     /// Play cutscene by name. Returns false if not found.
     /// If loop is true, the cutscene replays from the start when it ends.
@@ -152,6 +161,7 @@ private:
     AudioManager*  m_audio      = nullptr;
     UISystem*      m_uiSystem   = nullptr;
     SceneManager*  m_sceneMgr   = nullptr;
+    Controls*      m_controls   = nullptr;
     lua_State*     m_luaState   = nullptr;
     int            m_onCompleteRef = LUA_NOREF;
 

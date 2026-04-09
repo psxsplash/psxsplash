@@ -115,7 +115,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         &m_currentCamera,
         &m_audio,
         &m_uiSystem,
-        this
+        this,
+        &m_controls
     );
 
     // Copy animation data into scene manager storage
@@ -129,7 +130,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_animationCount > 0 ? m_animations : nullptr,
         m_animationCount,
         &m_uiSystem,
-        this
+        this,
+        &m_controls
     );
 
     // Copy skinned mesh data from splashpack into scene manager storage

@@ -8,15 +8,17 @@
 #include "uisystem.hh"
 #include "scenemanager.hh"
 #include "skinmesh.hh"
+#include "controls.hh"
 
 namespace psxsplash {
 
 void AnimationPlayer::init(Animation* animations, int count, UISystem* uiSystem,
-                           SceneManager* sceneMgr) {
+                           SceneManager* sceneMgr, Controls* controls) {
     m_animations = animations;
     m_animCount  = count;
     m_uiSystem   = uiSystem;
     m_sceneMgr   = sceneMgr;
+    m_controls   = controls;
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         m_slots[i].anim = nullptr;
         m_slots[i].onCompleteRef = LUA_NOREF;
@@ -66,6 +68,8 @@ void AnimationPlayer::stop(const char* name) {
             m_slots[i].anim = nullptr;
         }
     }
+    // Stop vibration in case any stopped animation was driving motors
+    if (m_controls) m_controls->stopMotors();
 }
 
 void AnimationPlayer::stopAll() {
@@ -75,6 +79,8 @@ void AnimationPlayer::stopAll() {
             m_slots[i].anim = nullptr;
         }
     }
+    // Stop vibration motors
+    if (m_controls) m_controls->stopMotors();
 }
 
 bool AnimationPlayer::isPlaying(const char* name) const {
@@ -142,6 +148,8 @@ void AnimationPlayer::tick(int32_t dt12) {
             } else {
                 Animation* finished = slot.anim;
                 slot.anim = nullptr;
+                // Stop vibration when animation ends naturally
+                if (m_controls) m_controls->stopMotors();
                 fireSlotComplete(slot);
                 (void)finished;
             }
@@ -199,6 +207,11 @@ void AnimationPlayer::captureInitialValues(Animation* anim) {
                     track.initialValues[1] = cg;
                     track.initialValues[2] = cb;
                 }
+                break;
+            case TrackType::RumbleSmall:
+            case TrackType::RumbleLarge:
+                // Motors always start at 0 (off)
+                track.initialValues[0] = 0;
                 break;
             default:
                 break;
@@ -315,6 +328,34 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t 
             uint8_t cg = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
             uint8_t cb = (out[2] < 0) ? 0 : ((out[2] > 255) ? 255 : (uint8_t)out[2]);
             m_uiSystem->setColor(track.uiHandle, cr, cg, cb);
+            break;
+        }
+
+        // ── Vibration track types ──
+
+        case TrackType::RumbleSmall: {
+            if (!m_controls) return;
+            // Step semantics: on/off, no interpolation
+            CutsceneKeyframe* kf = track.keyframes;
+            uint8_t count = track.keyframeCount;
+            int16_t val = (count > 0 && frame < kf[0].getFrame())
+                ? track.initialValues[0] : kf[0].values[0];
+            for (uint8_t i = 0; i < count; i++) {
+                if (kf[i].getFrame() <= frame) val = kf[i].values[0];
+                else break;
+            }
+            m_controls->setSmallMotor((uint8_t)(val != 0 ? 1 : 0));
+            break;
+        }
+
+        case TrackType::RumbleLarge: {
+            if (!m_controls) return;
+            // Interpolated: 0-255 motor speed
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
+            int16_t v = out[0];
+            if (v < 0) v = 0;
+            if (v > 255) v = 255;
+            m_controls->setLargeMotor((uint8_t)v);
             break;
         }
 

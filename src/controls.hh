@@ -56,6 +56,30 @@ class Controls {
     int16_t getRightStickX() const { return m_rightStickX; }
     int16_t getRightStickY() const { return m_rightStickY; }
 
+    /// Set vibration motor values.
+    /// @param smallMotor 0=off, non-zero=on (right/small motor, high frequency)
+    /// @param largeMotor 0x00..0xFF speed (left/large motor, low frequency)
+    void setMotors(uint8_t smallMotor, uint8_t largeMotor) {
+        m_motorSmallCache = smallMotor;
+        m_motorLargeCache = largeMotor;
+    }
+
+    /// Set only the small (right) vibration motor. 0=off, non-zero=on.
+    void setSmallMotor(uint8_t value) {
+        m_motorSmallCache = value;
+    }
+
+    /// Set only the large (left) vibration motor. 0x00..0xFF speed.
+    void setLargeMotor(uint8_t value) {
+        m_motorLargeCache = value;
+    }
+
+    /// Stop both vibration motors immediately.
+    void stopMotors() {
+        m_motorSmallCache = 0;
+        m_motorLargeCache = 0;
+    }
+
   private:
     psyqo::AdvancedPad m_input;
     psyqo::Trig<> m_trig;
@@ -67,6 +91,10 @@ class Controls {
     // Configurable movement speeds (set from splashpack, or defaults)
     psyqo::FixedPoint<12> m_moveSpeed = 0.002_fp;
     psyqo::FixedPoint<12> m_sprintSpeed = 0.01_fp;
+
+    // Cached motor values for independent track control
+    uint8_t m_motorSmallCache = 0;
+    uint8_t m_motorLargeCache = 0;
     
     // Button state tracking
     uint16_t m_previousButtons = 0;
@@ -85,6 +113,10 @@ class Controls {
     
     /// Get movement axes from D-pad as simulated stick values (-127 to +127)
     void getDpadAxes(int16_t &outX, int16_t &outY) const;
+
+    /// Send cached motor values to the controller via raw SIO.
+    /// Called each frame from UpdateButtonStates() after AdvancedPad's VSync poll.
+    void sendMotorValues();
 };
 
 }  // namespace psxsplash

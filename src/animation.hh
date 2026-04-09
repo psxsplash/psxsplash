@@ -10,6 +10,7 @@ namespace psxsplash {
 
 class UISystem;
 class SceneManager;
+class Controls;
 
 static constexpr int MAX_ANIMATIONS          = 16;
 static constexpr int MAX_ANIM_TRACKS         = 8;
@@ -27,7 +28,7 @@ struct Animation {
 class AnimationPlayer {
 public:
     void init(Animation* animations, int count, UISystem* uiSystem = nullptr,
-              SceneManager* sceneMgr = nullptr);
+              SceneManager* sceneMgr = nullptr, Controls* controls = nullptr);
 
     /// Play animation by name. Returns false if not found or no free slots.
     bool play(const char* name, bool loop = false);
@@ -66,6 +67,7 @@ private:
     ActiveSlot    m_slots[MAX_SIMULTANEOUS_ANIMS];
     UISystem*     m_uiSystem    = nullptr;
     SceneManager* m_sceneMgr    = nullptr;
+    Controls*     m_controls    = nullptr;
     lua_State*    m_luaState    = nullptr;
     psyqo::Trig<> m_trig;
 

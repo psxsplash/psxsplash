@@ -9,11 +9,12 @@
 #include "uisystem.hh"
 #include "scenemanager.hh"
 #include "skinmesh.hh"
+#include "controls.hh"
 
 namespace psxsplash {
 
 void CutscenePlayer::init(Cutscene* cutscenes, int count, Camera* camera, AudioManager* audio,
-                          UISystem* uiSystem, SceneManager* sceneMgr) {
+                          UISystem* uiSystem, SceneManager* sceneMgr, Controls* controls) {
     m_cutscenes     = cutscenes;
     m_count         = count;
     m_active        = nullptr;
@@ -26,6 +27,7 @@ void CutscenePlayer::init(Cutscene* cutscenes, int count, Camera* camera, AudioM
     m_audio         = audio;
     m_uiSystem      = uiSystem;
     m_sceneMgr      = sceneMgr;
+    m_controls      = controls;
     m_onCompleteRef = LUA_NOREF;
 }
 
@@ -113,6 +115,11 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                             track.initialValues[2] = cb;
                         }
                         break;
+                    case TrackType::RumbleSmall:
+                    case TrackType::RumbleLarge:
+                        // Motors always start at 0 (off)
+                        track.initialValues[0] = 0;
+                        break;
                 }
             }
 
@@ -124,6 +131,10 @@ bool CutscenePlayer::play(const char* name, bool loop) {
 
 void CutscenePlayer::stop() {
     if (!m_active) return;
+    // Stop vibration motors when cutscene stops
+    if (m_controls) {
+        m_controls->stopMotors();
+    }
     m_active = nullptr;
     fireOnComplete();
 }
@@ -191,6 +202,10 @@ void CutscenePlayer::tick(int32_t dt12) {
             m_nextAudio = 0;
             m_nextSkinAnim = 0;
         } else {
+            // Stop vibration when cutscene ends naturally
+            if (m_controls) {
+                m_controls->stopMotors();
+            }
             m_active = nullptr;
             fireOnComplete();
         }
@@ -356,6 +371,34 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             uint8_t cg = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
             uint8_t cb = (out[2] < 0) ? 0 : ((out[2] > 255) ? 255 : (uint8_t)out[2]);
             m_uiSystem->setColor(track.uiHandle, cr, cg, cb);
+            break;
+        }
+
+        // ── Vibration track types ──
+
+        case TrackType::RumbleSmall: {
+            if (!m_controls) return;
+            // Step semantics: on/off, no interpolation
+            CutsceneKeyframe* kf = track.keyframes;
+            uint8_t count = track.keyframeCount;
+            int16_t val = (count > 0 && m_frame < kf[0].getFrame())
+                ? track.initialValues[0] : kf[0].values[0];
+            for (uint8_t i = 0; i < count; i++) {
+                if (kf[i].getFrame() <= m_frame) val = kf[i].values[0];
+                else break;
+            }
+            m_controls->setSmallMotor((uint8_t)(val != 0 ? 1 : 0));
+            break;
+        }
+
+        case TrackType::RumbleLarge: {
+            if (!m_controls) return;
+            // Interpolated: 0-255 motor speed
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
+            int16_t v = out[0];
+            if (v < 0) v = 0;
+            if (v > 255) v = 255;
+            m_controls->setLargeMotor((uint8_t)v);
             break;
         }
     }

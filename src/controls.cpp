@@ -71,7 +71,9 @@ void psxsplash::Controls::forceAnalogMode() {
     static const uint8_t enterConfig[] = {0x01, 0x43, 0x00, 0x01, 0x00};
     // 2) Set analog mode (0x01) + lock (0x03)
     static const uint8_t setAnalog[] = {0x01, 0x44, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00};
-    // 3) Exit config mode
+    // 3) Map vibration motors: byte[0]=small motor (M2), byte[1]=large motor (M1)
+    static const uint8_t mapMotors[] = {0x01, 0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF};
+    // 4) Exit config mode
     static const uint8_t exitConfig[] = {0x01, 0x43, 0x00, 0x00, 0x00};
 
     configurePort(0);
@@ -80,6 +82,10 @@ void psxsplash::Controls::forceAnalogMode() {
 
     configurePort(0);
     sendCommand(setAnalog, sizeof(setAnalog));
+    SIO::Ctrl = 0;
+
+    configurePort(0);
+    sendCommand(mapMotors, sizeof(mapMotors));
     SIO::Ctrl = 0;
 
     configurePort(0);
@@ -113,6 +119,9 @@ void psxsplash::Controls::getDpadAxes(int16_t &outX, int16_t &outY) const {
 
 void psxsplash::Controls::UpdateButtonStates() {
     m_previousButtons = m_currentButtons;
+
+    // Send motor values via raw SIO (after AdvancedPad's VSync poll has completed)
+    sendMotorValues();
     
     // Read all button states into a single bitmask
     m_currentButtons = 0;
@@ -241,4 +250,35 @@ void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
             playerPosition.y -= dtSpeed;
         }
     }
+}
+
+void psxsplash::Controls::sendMotorValues() {
+    // Skip SIO transaction when both motors are off — nothing to send.
+    if (m_motorSmallCache == 0 && m_motorLargeCache == 0) return;
+
+    using namespace psyqo::Hardware;
+
+    // Send a 0x42 ReadPad command with motor bytes via raw SIO.
+    // AdvancedPad's VSync poll sends 0x00 for the motor bytes, so we
+    // re-send the desired values here during the game tick.  Motor inertia
+    // bridges the brief gap where AdvancedPad zeroes them.
+    configurePort(0);
+
+    transceive(0x01);         // byte 0: device select
+    if (!waitForAck()) { SIO::Ctrl = 0; return; }
+
+    transceive(0x42);         // byte 1: ReadPad command
+    if (!waitForAck()) { SIO::Ctrl = 0; return; }
+
+    transceive(0x00);         // byte 2: TAP (ignored)
+    if (!waitForAck()) { SIO::Ctrl = 0; return; }
+
+    transceive(m_motorSmallCache);  // byte 3: small motor (right, on/off)
+    if (!waitForAck()) { SIO::Ctrl = 0; return; }
+
+    transceive(m_motorLargeCache);  // byte 4: large motor (left, 0-255)
+    // No more bytes needed; remaining response bytes are button/analog data
+    // which we don't care about (AdvancedPad already reads them).
+
+    SIO::Ctrl = 0;
 }
