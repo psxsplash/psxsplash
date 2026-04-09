@@ -8,6 +8,7 @@
 #include "camera.hh"
 #include "gameobject.hh"
 #include "audiomanager.hh"
+#include "controls.hh"
 
 #include <psyqo-lua/lua.hh>
 
@@ -15,10 +16,15 @@ namespace psxsplash {
 
 class UISystem;  // Forward declaration
 
-static constexpr int MAX_CUTSCENES    = 16;
-static constexpr int MAX_TRACKS       = 8;
-static constexpr int MAX_KEYFRAMES    = 64;
-static constexpr int MAX_AUDIO_EVENTS = 64;
+// Forward declarations for skinned mesh animation triggers
+struct SkinAnimState;
+class SceneManager;
+
+static constexpr int MAX_CUTSCENES         = 16;
+static constexpr int MAX_TRACKS            = 8;
+static constexpr int MAX_KEYFRAMES         = 64;
+static constexpr int MAX_AUDIO_EVENTS      = 64;
+static constexpr int MAX_SKIN_ANIM_EVENTS  = 16;
 
 enum class TrackType : uint8_t {
     CameraPosition  = 0,
@@ -32,12 +38,19 @@ enum class TrackType : uint8_t {
     UIPosition      = 8,   
     UIColor         = 9,  
     CameraH         = 10,
+    RumbleSmall     = 11,
+    RumbleLarge     = 12,
 };
 
 /// Helper: true if a TrackType drives a UI property (canvas or element).
 inline bool isUITrackType(TrackType t) {
     uint8_t v = static_cast<uint8_t>(t);
     return v >= 5 && v <= 9;
+}
+
+/// Helper: true if a TrackType drives a vibration motor.
+inline bool isVibrationTrackType(TrackType t) {
+    return t == TrackType::RumbleSmall || t == TrackType::RumbleLarge;
 }
 
 enum class InterpMode : uint8_t {
@@ -68,6 +81,16 @@ struct CutsceneAudioEvent {
 };
 static_assert(sizeof(CutsceneAudioEvent) == 8, "CutsceneAudioEvent must be 8 bytes");
 
+/// Skinned-mesh animation trigger within a cutscene or animation.
+struct CutsceneSkinAnimEvent {
+    uint16_t frame;         // Trigger frame
+    uint8_t  skinMeshIndex; // Index into SceneManager::m_skinAnimSets
+    uint8_t  clipIndex;     // Index into the skinned mesh's clips
+    uint8_t  loop;          // 0 = one-shot, 1 = looping
+    uint8_t  pad[3];
+};
+static_assert(sizeof(CutsceneSkinAnimEvent) == 8, "CutsceneSkinAnimEvent must be 8 bytes");
+
 struct CutsceneTrack {
     TrackType         trackType;
     uint8_t           keyframeCount;
@@ -79,12 +102,15 @@ struct CutsceneTrack {
 };
 
 struct Cutscene {
-    const char*          name;        // Points into splashpack data
-    uint16_t             totalFrames;
-    uint8_t              trackCount;
-    uint8_t              audioEventCount;
-    CutsceneTrack        tracks[MAX_TRACKS];
-    CutsceneAudioEvent*  audioEvents; // Points into splashpack data
+    const char*              name;        // Points into splashpack data
+    uint16_t                 totalFrames;
+    uint8_t                  trackCount;
+    uint8_t                  audioEventCount;
+    uint8_t                  skinAnimEventCount;
+    uint8_t                  _pad[3];
+    CutsceneTrack            tracks[MAX_TRACKS];
+    CutsceneAudioEvent*      audioEvents;     // Points into splashpack data
+    CutsceneSkinAnimEvent*   skinAnimEvents;   // Points into splashpack data
 };
 
 
@@ -92,7 +118,8 @@ class CutscenePlayer {
 public:
     /// Initialize with loaded cutscene data. Safe to pass nullptr/0 if no cutscenes.
     void init(Cutscene* cutscenes, int count, Camera* camera, AudioManager* audio,
-              UISystem* uiSystem = nullptr);
+              UISystem* uiSystem = nullptr, SceneManager* sceneMgr = nullptr,
+              Controls* controls = nullptr);
 
     /// Play cutscene by name. Returns false if not found.
     /// If loop is true, the cutscene replays from the start when it ends.
@@ -117,21 +144,26 @@ public:
     /// Set the lua_State for callbacks. Must be called before play().
     void setLuaState(lua_State* L) { m_luaState = L; }
 
-    /// Advance one frame. Call once per frame. Does nothing when idle.
-    void tick();
+    /// Advance by dt12 (time-based). dt12 is in 0.12 fixed-point
+    /// (4096 = one 30fps frame). Call once per frame.
+    void tick(int32_t dt12);
 
 private:
-    Cutscene*     m_cutscenes = nullptr;
-    int           m_count     = 0;
-    Cutscene*     m_active    = nullptr;
-    uint16_t      m_frame     = 0;
-    uint8_t       m_nextAudio = 0;
-    bool          m_loop      = false;
-    Camera*       m_camera    = nullptr;
-    AudioManager* m_audio     = nullptr;
-    UISystem*     m_uiSystem  = nullptr;
-    lua_State*    m_luaState  = nullptr;
-    int           m_onCompleteRef = LUA_NOREF;
+    Cutscene*      m_cutscenes  = nullptr;
+    int            m_count      = 0;
+    Cutscene*      m_active     = nullptr;
+    uint16_t       m_frame      = 0;       // Current whole frame
+    uint16_t       m_subFrame   = 0;       // 0..4095 (0.12 fp fraction within frame)
+    uint8_t        m_nextAudio  = 0;
+    uint8_t        m_nextSkinAnim = 0;
+    bool           m_loop       = false;
+    Camera*        m_camera     = nullptr;
+    AudioManager*  m_audio      = nullptr;
+    UISystem*      m_uiSystem   = nullptr;
+    SceneManager*  m_sceneMgr   = nullptr;
+    Controls*      m_controls   = nullptr;
+    lua_State*     m_luaState   = nullptr;
+    int            m_onCompleteRef = LUA_NOREF;
 
     psyqo::Trig<> m_trig;
 

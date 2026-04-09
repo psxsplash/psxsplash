@@ -5,11 +5,13 @@
 #include "camera.hh"
 #include "cutscene.hh"
 #include "animation.hh"
+#include "skinmesh.hh"
 #include "uisystem.hh"
 
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
+#include "gtemath.hh"
 
 
 namespace psxsplash {
@@ -328,6 +330,25 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "IsPlaying");
 
     L.setGlobal("Animation");
+
+    // ========================================================================
+    // SKINNED ANIMATION API
+    // ========================================================================
+    L.newTable();
+
+    L.push(SkinnedAnim_Play);
+    L.setField(-2, "Play");
+
+    L.push(SkinnedAnim_Stop);
+    L.setField(-2, "Stop");
+
+    L.push(SkinnedAnim_IsPlaying);
+    L.setField(-2, "IsPlaying");
+
+    L.push(SkinnedAnim_GetClip);
+    L.setField(-2, "GetClip");
+
+    L.setGlobal("SkinnedAnim");
 
     // ========================================================================
     // CONTROLS API
@@ -697,7 +718,8 @@ int LuaAPI::Entity_SetRotationY(lua_State* L) {
     psyqo::FixedPoint<12> fp12 = readFP(lua, 2);
     psyqo::Angle angle;
     angle.value = fp12.value >> 2;
-    go->rotation = psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig);
+    go->rotation = psxsplash::transposeMatrix33(
+        psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig));
     return 0;
 }
 
@@ -1868,6 +1890,125 @@ int LuaAPI::Animation_IsPlaying(lua_State* L) {
         lua.push(s_animationPlayer->isPlaying(lua.toString(1)));
     } else {
         lua.push(false);
+    }
+    return 1;
+}
+
+// ============================================================================
+// SKINNED ANIMATION API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::SkinnedAnim_Play(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isString(1) || !lua.isString(2)) return 0;
+
+    const char* objectName = lua.toString(1);
+    const char* clipName = lua.toString(2);
+
+    int si = s_sceneManager->findSkinAnimByObjectName(objectName);
+    if (si < 0) return 0;
+
+    SkinAnimSet& animSet = s_sceneManager->getSkinAnimSet(si);
+    SkinAnimState& animState = s_sceneManager->getSkinAnimState(si);
+
+    // Find clip by name
+    int clipIdx = -1;
+    for (int ci = 0; ci < animSet.clipCount; ci++) {
+        if (animSet.clips[ci].name && streq(animSet.clips[ci].name, clipName)) {
+            clipIdx = ci;
+            break;
+        }
+    }
+    if (clipIdx < 0) return 0;
+
+    bool loop = false;
+    int onCompleteRef = LUA_NOREF;
+
+    if (lua.isTable(3)) {
+        lua.getField(3, "loop");
+        if (lua.isBoolean(-1)) loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(3, "onComplete");
+        if (lua.isFunction(-1)) {
+            onCompleteRef = lua.ref();  // pops and stores in registry
+        } else {
+            lua.pop();
+        }
+    }
+
+    animState.currentClip = (uint8_t)clipIdx;
+    animState.currentFrame = 0;
+    animState.subFrame = 0;
+    animState.playing = true;
+    animState.loop = loop;
+
+    // Release old callback if any
+    if (animState.luaCallbackRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, animState.luaCallbackRef);
+    }
+    animState.luaCallbackRef = onCompleteRef;
+
+    return 0;
+}
+
+int LuaAPI::SkinnedAnim_Stop(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isString(1)) return 0;
+
+    int si = s_sceneManager->findSkinAnimByObjectName(lua.toString(1));
+    if (si < 0) return 0;
+
+    SkinAnimState& animState = s_sceneManager->getSkinAnimState(si);
+    animState.playing = false;
+
+    // Release callback
+    if (animState.luaCallbackRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, animState.luaCallbackRef);
+        animState.luaCallbackRef = LUA_NOREF;
+    }
+
+    return 0;
+}
+
+int LuaAPI::SkinnedAnim_IsPlaying(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isString(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    int si = s_sceneManager->findSkinAnimByObjectName(lua.toString(1));
+    if (si < 0) {
+        lua.push(false);
+        return 1;
+    }
+
+    lua.push(s_sceneManager->getSkinAnimState(si).playing);
+    return 1;
+}
+
+int LuaAPI::SkinnedAnim_GetClip(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isString(1)) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int si = s_sceneManager->findSkinAnimByObjectName(lua.toString(1));
+    if (si < 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    const SkinAnimSet& animSet = s_sceneManager->getSkinAnimSet(si);
+    const SkinAnimState& animState = s_sceneManager->getSkinAnimState(si);
+
+    if (animState.currentClip < animSet.clipCount &&
+        animSet.clips[animState.currentClip].name) {
+        lua.push(animSet.clips[animState.currentClip].name);
+    } else {
+        lua_pushnil(L);
     }
     return 1;
 }

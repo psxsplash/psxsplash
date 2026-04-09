@@ -8,6 +8,7 @@
 #include <psyqo/xprintf.h>
 
 #include "gameobject.hh"
+#include "gtemath.hh"
 
 // OOM-guarded allocator for Lua. The linker redirects luaI_realloc
 // here instead of straight to psyqo_realloc, so we can log before
@@ -159,7 +160,8 @@ static int gameobjectSetRotation(psyqo::Lua L) {
     auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, s_trig);
     auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, s_trig);
     auto temp = psyqo::SoftMath::multiplyMatrix33(matY, matX);
-    go->rotation = psyqo::SoftMath::multiplyMatrix33(temp, matZ);
+    go->rotation = psxsplash::transposeMatrix33(
+        psyqo::SoftMath::multiplyMatrix33(temp, matZ));
     return 0;
 }
 
@@ -182,7 +184,8 @@ static int gameobjectSetRotationY(psyqo::Lua L) {
     psyqo::FixedPoint<12> fp12 = readFP(L, 2);
     psyqo::Angle angle;
     angle.value = fp12.value >> 2;
-    go->rotation = psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig);
+    go->rotation = psxsplash::transposeMatrix33(
+        psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig));
     return 0;
 }
 

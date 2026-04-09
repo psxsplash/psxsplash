@@ -16,6 +16,7 @@
 #include "bvh.hh"
 #include "camera.hh"
 #include "gameobject.hh"
+#include "skinmesh.hh"
 #include "triclip.hh"
 
 namespace psxsplash {
@@ -74,6 +75,10 @@ class Renderer final {
 #endif
     psyqo::GPU& getGPU() { return m_gpu; }
 
+    void SetSkinData(const SkinAnimSet* sets, const SkinAnimState* states, int count) {
+        m_skinSets = sets; m_skinStates = states; m_skinCount = count;
+    }
+
     static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr,
                               "Access to renderer was tried without prior initialization");
@@ -102,6 +107,10 @@ class Renderer final {
     MemOverlay* m_memOverlay = nullptr;
 #endif
 
+    const SkinAnimSet* m_skinSets = nullptr;
+    const SkinAnimState* m_skinStates = nullptr;
+    int m_skinCount = 0;
+
     TriangleRef m_visibleRefs[MAX_VISIBLE_TRIANGLES];
     int m_frameCount = 0;
 
@@ -112,6 +121,13 @@ class Renderer final {
                          psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
                          psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
                          int depth = 0);
+
+    void renderSkinnedObjects(eastl::vector<GameObject*>& objects,
+                              const psyqo::Vec3& cameraPosition,
+                              int32_t fogFarSZ,
+                              psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
+                              psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+                              const Frustum* frustum = nullptr);
 };
 
 }  // namespace psxsplash

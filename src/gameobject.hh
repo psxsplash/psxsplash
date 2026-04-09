@@ -26,7 +26,8 @@ class GameObject final {
     typedef Utilities::BitSpan<bool, 1> PendingEnable;
     typedef Utilities::BitSpan<bool, 2> PendingDisable;
     typedef Utilities::BitSpan<bool, 3> DynamicMoved;
-    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable, DynamicMoved> GameObjectFlags;
+    typedef Utilities::BitSpan<bool, 4> IsSkinned;
+    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable, DynamicMoved, IsSkinned> GameObjectFlags;
     
   public:
     union {
@@ -72,6 +73,9 @@ class GameObject final {
     // Dynamic movement tracking (BVH position stale)
     bool isDynamicMoved() const { return flags.get<DynamicMoved>(); }
     void setDynamicMoved(bool moved) { flags.set<DynamicMoved>(moved); }
+    
+    // Skinned mesh flag (bit 4)
+    bool isSkinned() const { return flags.get<IsSkinned>(); }
     
     // Component checks
     bool hasInteractable() const { return interactableIndex != NO_COMPONENT; }

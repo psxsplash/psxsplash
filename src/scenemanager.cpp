@@ -115,7 +115,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_cutsceneCount,
         &m_currentCamera,
         &m_audio,
-        &m_uiSystem
+        &m_uiSystem,
+        this,
+        &m_controls
     );
 
     // Copy animation data into scene manager storage
@@ -128,8 +130,34 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_animationPlayer.init(
         m_animationCount > 0 ? m_animations : nullptr,
         m_animationCount,
-        &m_uiSystem
+        &m_uiSystem,
+        this,
+        &m_controls
     );
+
+    // Copy skinned mesh data from splashpack into scene manager storage
+    m_skinnedMeshCount = sceneSetup.skinnedMeshCount;
+    for (int i = 0; i < m_skinnedMeshCount; i++) {
+        m_skinAnimSets[i] = sceneSetup.loadedSkinAnimSets[i];
+        m_skinAnimStates[i] = SkinAnimState{};
+        m_skinAnimStates[i].animSet = &m_skinAnimSets[i];
+
+        uint16_t goIdx = m_skinAnimSets[i].gameObjectIndex;
+        if (goIdx < m_gameObjects.size()) {
+            GameObject* go = m_gameObjects[goIdx];
+            m_skinAnimSets[i].polygons  = go->polygons;
+            m_skinAnimSets[i].polyCount = go->polyCount;
+            go->polyCount = 0;
+            go->flagsAsInt |= 0x10;
+        } else {
+            m_skinAnimSets[i].polygons  = nullptr;
+            m_skinAnimSets[i].polyCount = 0;
+        }
+    }
+    Renderer::GetInstance().SetSkinData(
+        m_skinnedMeshCount > 0 ? m_skinAnimSets : nullptr,
+        m_skinnedMeshCount > 0 ? m_skinAnimStates : nullptr,
+        m_skinnedMeshCount);
 
     // Initialize UI system (v13+)
     if (sceneSetup.uiCanvasCount > 0 && sceneSetup.uiTableOffset != 0 && s_font != nullptr) {
@@ -317,9 +345,6 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     LuaAPI::IncrementFrameCount();
     
-    m_cutscenePlayer.tick();
-    m_animationPlayer.tick();
-
     {
         uint32_t now = gpu.now();
         if (m_lastFrameTime != 0) {
@@ -331,6 +356,14 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             if (m_dt12 > 4096 * 4) m_dt12 = 4096 * 4; // cap at 4 frames
         }
         m_lastFrameTime = now;
+    }
+
+    m_cutscenePlayer.tick(m_dt12);
+    m_animationPlayer.tick(m_dt12);
+
+    // Tick skinned mesh animations
+    for (int i = 0; i < m_skinnedMeshCount; i++) {
+        SkinMesh_Tick(&m_skinAnimStates[i], L.getState().getState(), m_dt12);
     }
     
     uint32_t renderingStart = gpu.now();
@@ -874,6 +907,8 @@ void psxsplash::SceneManager::clearScene() {
     m_cutscenePlayer.init(nullptr, 0, nullptr, nullptr);  // Reset cutscene player
     m_animationCount = 0;
     m_animationPlayer.init(nullptr, 0);  // Reset animation player
+    m_skinnedMeshCount = 0;
+    Renderer::GetInstance().SetSkinData(nullptr, nullptr, 0);
     // BVH and NavRegions will be overwritten by next load
     
     // Reset UI system (disconnect from renderer before splashpack data disappears)
@@ -952,6 +987,15 @@ void psxsplash::SceneManager::shrinkBuffer() {
         }
     }
 
+    for (int si = 0; si < m_skinnedMeshCount; si++) {
+        auto& ss = m_skinAnimSets[si];
+        ss.boneIndices = reloc(ss.boneIndices);
+        for (uint8_t ci = 0; ci < ss.clipCount; ci++) {
+            ss.clips[ci].name = reloc(ss.clips[ci].name);
+            ss.clips[ci].frames = reloc(ss.clips[ci].frames);
+        }
+    }
+
     m_uiSystem.relocate(delta);
 
     if (!m_gameObjects.empty()) {
@@ -984,6 +1028,19 @@ int psxsplash::SceneManager::findAudioClipByName(const char* name) const {
     for (size_t i = 0; i < m_audioClipNames.size(); i++) {
         if (m_audioClipNames[i] && streq(m_audioClipNames[i], name)) {
             return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int psxsplash::SceneManager::findSkinAnimByObjectName(const char* name) const {
+    if (!name || m_objectNames.empty()) return -1;
+    for (size_t i = 0; i < m_objectNames.size() && i < m_gameObjects.size(); i++) {
+        if (m_objectNames[i] && streq(m_objectNames[i], name)) {
+            for (int si = 0; si < m_skinnedMeshCount; si++) {
+                if (m_skinAnimSets[si].gameObjectIndex == (uint16_t)i) return si;
+            }
+            return -1;  // Object found but not skinned
         }
     }
     return -1;
