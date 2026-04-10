@@ -15,7 +15,6 @@
 #include "skinmesh.hh"
 #include "streq.hh"
 #include "navregion.hh"
-#include "renderer.hh"
 
 namespace psxsplash {
 
@@ -92,7 +91,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
     psyqo::Kernel::assert(__builtin_memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
-    psyqo::Kernel::assert(header->version >= 17, "Splashpack version too old (need v17+): re-export from SplashEdit");
+    psyqo::Kernel::assert(header->version >= 20, "Splashpack version too old (need v20+): re-export from SplashEdit");
 
     setup.playerStartPosition = header->playerStartPos;
     setup.playerStartRotation = header->playerStartRot;
@@ -212,42 +211,15 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         }
     }
 
+    // Atlas metadata — v20: pixel data is in a separate .vram file.
+    // We still parse the metadata entries (to advance the cursor) since
+    // tpage/clut coordinates are baked into the triangle data.
     for (uint16_t i = 0; i < header->textureAtlasCount; i++) {
-        psxsplash::SPLASHPACKTextureAtlas *atlas = reinterpret_cast<psxsplash::SPLASHPACKTextureAtlas *>(cursor);
-        uint8_t *offsetData = data + atlas->polygonsOffset;
-        // Ensure 4-byte alignment for DMA transfer. If the exporter
-        // produced an unaligned offset, copy to an aligned temporary.
-        uint32_t pixelBytes = (uint32_t)atlas->width * atlas->height * 2;
-        if (reinterpret_cast<uintptr_t>(offsetData) & 3) {
-            uint8_t* aligned = new uint8_t[(pixelBytes + 3) & ~3];
-            __builtin_memcpy(aligned, offsetData, pixelBytes);
-            psxsplash::Renderer::GetInstance().VramUpload(
-                reinterpret_cast<uint16_t*>(aligned), atlas->x, atlas->y, atlas->width, atlas->height);
-            delete[] aligned;
-        } else {
-            psxsplash::Renderer::GetInstance().VramUpload(
-                reinterpret_cast<uint16_t*>(offsetData), atlas->x, atlas->y, atlas->width, atlas->height);
-        }
         cursor += sizeof(psxsplash::SPLASHPACKTextureAtlas);
     }
 
+    // CLUT metadata — v20: CLUT data is in a separate .vram file.
     for (uint16_t i = 0; i < header->clutCount; i++) {
-        psxsplash::SPLASHPACKClut *clut = reinterpret_cast<psxsplash::SPLASHPACKClut *>(cursor);
-        uint8_t *clutOffset = data + clut->clutOffset;
-        // Same alignment guard for CLUT data.
-        uint32_t clutBytes = (uint32_t)clut->length * 2;
-        if (reinterpret_cast<uintptr_t>(clutOffset) & 3) {
-            uint8_t* aligned = new uint8_t[(clutBytes + 3) & ~3];
-            __builtin_memcpy(aligned, clutOffset, clutBytes);
-            psxsplash::Renderer::GetInstance().VramUpload(
-                reinterpret_cast<uint16_t*>(aligned), clut->clutPackingX * 16,
-                clut->clutPackingY, clut->length, 1);
-            delete[] aligned;
-        } else {
-            psxsplash::Renderer::GetInstance().VramUpload(
-                reinterpret_cast<uint16_t*>(clutOffset), clut->clutPackingX * 16,
-                clut->clutPackingY, clut->length, 1);
-        }
         cursor += sizeof(psxsplash::SPLASHPACKClut);
     }
 
@@ -274,7 +246,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             uint8_t  nameLen   = *audioTable++;
             uint32_t nameOff   = *reinterpret_cast<uint32_t*>(audioTable); audioTable += 4;
             SplashpackSceneSetup::AudioClipSetup clip;
-            clip.adpcmData = data + dataOff;
+            // v20: ADPCM data is in a separate .spu file; dataOff is 0.
+            clip.adpcmData = nullptr;
             clip.sizeBytes = size;
             clip.sampleRate = rate;
             clip.loop = (loop != 0);
@@ -560,8 +533,6 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             setup.skinnedMeshCount++;
         }
     }
-
-    setup.liveDataSize = header->pixelDataOffset;
 
 }
 

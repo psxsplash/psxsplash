@@ -109,9 +109,6 @@ struct SplashpackSceneSetup {
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
     uint32_t uiTableOffset = 0;
-
-
-    uint32_t liveDataSize = 0;
 };
 
 class SplashPackLoader {
