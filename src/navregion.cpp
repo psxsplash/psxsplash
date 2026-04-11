@@ -250,7 +250,6 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
     // If no valid region, find one
     if (currentRegion == NAV_NO_REGION || currentRegion >= m_header.regionCount) {
         currentRegion = findRegionClosest(newX, newY, newZ);
-        printf("Newest Region %d \n",currentRegion);
         if (currentRegion == NAV_NO_REGION) return 0;
     }
 
