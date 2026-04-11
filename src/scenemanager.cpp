@@ -12,7 +12,6 @@
 
 #include <psyqo/primitives/misc.hh>
 #include <psyqo/trigonometry.hh>
-#include <psyqo/xprintf.h>
 
 #if defined(LOADER_CDROM)
 #include "cdromhelper.hh"
