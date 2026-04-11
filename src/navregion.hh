@@ -155,7 +155,7 @@ public:
     bool findPath(uint16_t startRegion, uint16_t endRegion,
                   NavPath& path) const;
 
-    bool isRegionWalled(const uint16_t noWallRegions[], size_t count, uint16_t targetRegionn);
+    bool isRegionWalled(const uint16_t noWallRegions[], size_t count, uint16_t targetRegion);
 
     private:
     NavDataHeader m_header = {};
