@@ -332,12 +332,11 @@ bool NavRegionSystem::findPath(uint16_t startRegion, uint16_t endRegion,
 // ============================================================================
 
 int32_t NavRegionSystem::getYDistance(int32_t firstY, int32_t secondY){
-    // Abs
-    firstY = firstY < 0 ? -firstY : firstY;
-    secondY = secondY < 0 ? -secondY : secondY;
-
     // Difference
-    return firstY < secondY ? secondY - firstY : firstY - secondY;
+    int32_t result = firstY - secondY;
+    
+    // Abs
+    return result < 0 ? -result : result;
 }
 
 
