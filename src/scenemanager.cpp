@@ -535,20 +535,24 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 
         uint16_t newNavRegion = m_navRegions.findRegionClosest(px,py,pz);
 
-        bool isPlayerNavWalled = m_navRegions.isRegionWalled(noWallRegions, 18, m_playerNavRegion);
+        bool isPlatform = m_navRegions.isRegionPlatform(m_playerNavRegion);
+        uint8_t walkoffMask = m_navRegions.getWalkoffEdgeMask(m_playerNavRegion);
+        bool canWalkOff = isPlatform || (walkoffMask != 0);
         
         // Not in original region
         if(m_playerNavRegion != newNavRegion){
 
             // Valid Region to No Region
             if(m_playerNavRegion != NAV_NO_REGION && newNavRegion == NAV_NO_REGION){
-                if(isPlayerNavWalled == false){
+                if(canWalkOff){
                    m_isGrounded = false; 
                 }
             }
             else{
                 m_playerNavRegion = newNavRegion;
-                isPlayerNavWalled = m_navRegions.isRegionWalled(noWallRegions, 18, m_playerNavRegion);
+                isPlatform = m_navRegions.isRegionPlatform(m_playerNavRegion);
+                walkoffMask = m_navRegions.getWalkoffEdgeMask(m_playerNavRegion);
+                canWalkOff = isPlatform || (walkoffMask != 0);
             } 
         }
 
@@ -582,7 +586,12 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             m_isGrounded = false;
         }
         
-        if(isPlayerNavWalled){
+        // Clamp movement to region boundaries where walls exist
+        if (isPlatform) {
+            // Platform regions have no boundary clamping
+        } else if (walkoffMask != 0) {
+            m_navRegions.clampToRegionSelective(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
+        } else {
             m_navRegions.clampToRegion(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
         }
     }

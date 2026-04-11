@@ -217,12 +217,6 @@ class SceneManager {
     void processEnableDisableEvents();
     void clearScene();  // Deallocate current scene objects
 
-    static constexpr uint16_t noWallRegions[18] = { 
-        7,8,9,10,11, 
-        12,16,17,18,19,
-        22,23,24,25,26,
-        27,28,29};
-    
     const uint16_t m_coyoteTimeDistance = 24; // How far you can fall and still jump
     const uint16_t m_downwardVelocityCap = 32; // Limit downward velocity
 

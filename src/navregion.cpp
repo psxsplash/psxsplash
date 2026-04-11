@@ -143,9 +143,7 @@ bool NavRegionSystem::pointInRegion(int32_t x, int32_t z, uint16_t regionIndex) 
 // ============================================================================
 
 uint16_t NavRegionSystem::findRegion(int32_t x, int32_t z) const {
-    // When multiple regions overlap at the same XZ position (e.g., floor and
-    // elevated step), prefer the highest physical surface. In PSX Y-down space,
-    // highest surface = smallest (most negative) floor Y value.
+    // Prefer the highest surface (smallest Y in Y-down space)
     uint16_t best = NAV_NO_REGION;
     int32_t bestY = 0x7FFFFFFF;
     for (uint16_t i = 0; i < m_header.regionCount; i++) {
@@ -161,8 +159,7 @@ uint16_t NavRegionSystem::findRegion(int32_t x, int32_t z) const {
 }
 
 uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) const {
-    // When multiple regions overlap at the same XZ position (e.g., floor and
-    // elevated step), prefer the closest physical surface to y
+    // Prefer the closest surface to y, skipping regions the player is below
     
     uint16_t best = NAV_NO_REGION;
     int32_t shortestDistance = 0x7FFFFFFF;
@@ -189,9 +186,6 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
 }
 
 bool NavRegionSystem::isOffNavRegion(int32_t x, int32_t y, int32_t z) const {
-    // When multiple regions overlap at the same XZ position (e.g., floor and
-    // elevated step), prefer the closest physical surface to y
-    
     uint16_t bestRegion = findRegionClosest(x,y,z);
     if(bestRegion == NAV_NO_REGION)
     {
@@ -240,6 +234,52 @@ void NavRegionSystem::clampToRegion(int32_t& x, int32_t& z, uint16_t regionIndex
 }
 
 // ============================================================================
+// Clamp position to non-walkoff boundary edges only
+// ============================================================================
+
+void NavRegionSystem::clampToRegionSelective(int32_t& x, int32_t& z, uint16_t regionIndex) const {
+    if (regionIndex >= m_header.regionCount) return;
+    const auto& reg = m_regions[regionIndex];
+
+    if (pointInConvexPoly(x, z, reg.vertsX, reg.vertsZ, reg.vertCount))
+        return; // Already inside
+
+    // Find which edge the player is closest to.
+    // If that edge is a walkoff edge, let them leave without clamping.
+    int32_t bestX = x, bestZ = z;
+    int64_t bestDistSq = 0x7FFFFFFFFFFFFFFFLL;
+    int bestEdge = -1;
+
+    for (int i = 0; i < reg.vertCount; i++) {
+        int next = (i + 1) % reg.vertCount;
+        int32_t cx, cz;
+        closestPointOnSegment(x, z,
+                              reg.vertsX[i], reg.vertsZ[i],
+                              reg.vertsX[next], reg.vertsZ[next],
+                              cx, cz);
+
+        int64_t dx = (int64_t)(x - cx);
+        int64_t dz = (int64_t)(z - cz);
+        int64_t distSq = dx * dx + dz * dz;
+
+        if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            bestX = cx;
+            bestZ = cz;
+            bestEdge = i;
+        }
+    }
+
+    // If the closest edge allows walkoff, do not clamp
+    if (bestEdge >= 0 && (reg.walkoffEdgeMask & (1 << bestEdge))) {
+        return;
+    }
+
+    x = bestX;
+    z = bestZ;
+}
+
+// ============================================================================
 // Resolve position (main per-frame call)
 // ============================================================================
 
@@ -257,10 +297,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
     if (pointInRegion(newX, newZ, currentRegion)) {
         int32_t fy = getFloorY(newX, newZ, currentRegion);
 
-        // Check if a portal neighbor has a higher floor at this position.
-        // This handles overlapping regions (e.g., floor and elevated step).
-        // When the player walks onto the step, the step region (portal neighbor)
-        // has a higher floor (smaller Y in PSX Y-down) and should take priority.
+        // Prefer portal neighbor with a higher floor (smaller Y in Y-down space)
         const auto& reg = m_regions[currentRegion];
         for (int i = 0; i < reg.portalCount; i++) {
             uint16_t portalIdx = reg.portalStart + i;
@@ -297,7 +334,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
     }
 
     /*
-    // Not in current region or any neighbor — try broader search 
+    // Not in current region or any neighbor -- try broader search 
     // This handles jumping/falling to non-adjacent regions (e.g., landing on a platform) 
     { 
         uint16_t found = findRegionClosest(newX, newY, newZ); 
@@ -308,7 +345,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
     } 
     */
     //printf("Region is %d\n", currentRegion);
-    // Truly off all regions — clamp to current region boundary
+    // Off all regions -- clamp to current region boundary
     clampToRegion(newX, newZ, currentRegion);
     
     return getFloorY(newX, newZ, currentRegion);
@@ -320,7 +357,6 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
 
 bool NavRegionSystem::findPath(uint16_t startRegion, uint16_t endRegion,
                                 NavPath& path) const {
-    // STUB: Returns false until NPC pathfinding is implemented.
     path.stepCount = 0;
     (void)startRegion;
     (void)endRegion;
@@ -332,24 +368,22 @@ bool NavRegionSystem::findPath(uint16_t startRegion, uint16_t endRegion,
 // ============================================================================
 
 int32_t NavRegionSystem::getYDistance(int32_t firstY, int32_t secondY){
-    // Difference
     int32_t result = firstY - secondY;
-    
-    // Abs
     return result < 0 ? -result : result;
 }
 
+// ============================================================================
+// Region flag accessors
+// ============================================================================
 
-bool NavRegionSystem::isRegionWalled(const uint16_t noWallRegions[], size_t count, uint16_t targetRegion)
-{
-    for (size_t i = 0; i < count; i++)
-    {
-        if (noWallRegions[i] == targetRegion)
-        {
-            return false;
-        }
-    }
-
-    return true;
+bool NavRegionSystem::isRegionPlatform(uint16_t regionIndex) const {
+    if (regionIndex >= m_header.regionCount) return false;
+    return (m_regions[regionIndex].flags & NAV_FLAG_PLATFORM) != 0;
 }
+
+uint8_t NavRegionSystem::getWalkoffEdgeMask(uint16_t regionIndex) const {
+    if (regionIndex >= m_header.regionCount) return 0;
+    return m_regions[regionIndex].walkoffEdgeMask;
+}
+
 }  // namespace psxsplash

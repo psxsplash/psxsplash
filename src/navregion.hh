@@ -7,7 +7,7 @@
  *   - Walkable surface decomposed into convex polygonal regions (XZ plane).
  *   - Adjacent regions share portal edges.
  *   - Player has a single current region index.
- *   - Movement: point-in-convex-polygon test → portal crossing → neighbor update.
+ *   - Movement: point-in-polygon test, portal crossing, neighbor update.
  *   - Floor Y: project XZ onto region's floor plane.
  */
 
@@ -25,6 +25,7 @@ static constexpr int NAV_MAX_NEIGHBORS = 8;           // Max portal edges per re
 static constexpr int NAV_MAX_PATH_STEPS = 32;         // Max A* path length
 static constexpr uint16_t NAV_NO_REGION = 0xFFFF;     // Sentinel: no region
 static constexpr int32_t NAV_ATTACH_DISTANCE = 512;
+static constexpr uint8_t NAV_FLAG_PLATFORM = 0x01;
 // ============================================================================
 // Surface type for navigation regions
 // ============================================================================
@@ -35,7 +36,7 @@ enum NavSurfaceType : uint8_t {
 };
 
 // ============================================================================
-// Portal edge — shared edge between two adjacent regions
+// Portal edge: shared edge between two adjacent regions
 // ============================================================================
 struct NavPortal {
     int32_t  ax, az;            // Portal edge start (20.12 XZ)
@@ -46,7 +47,7 @@ struct NavPortal {
 static_assert(sizeof(NavPortal) == 20, "NavPortal must be 20 bytes");
 
 // ============================================================================
-// Nav Region — convex polygon on the XZ plane with floor info
+// Nav Region: convex polygon on the XZ plane with floor info
 // ============================================================================
 struct NavRegion {
     // Convex polygon vertices (XZ, 20.12 fixed-point)
@@ -66,7 +67,8 @@ struct NavRegion {
     // Metadata
     NavSurfaceType surfaceType;  // 1 byte
     uint8_t  roomIndex;          // Interior room (0xFF = exterior)  1 byte
-    uint8_t  pad[2];             // Alignment  2 bytes
+    uint8_t  flags;              // bit 0 = platform (unwalled, walkoff all boundary edges)  1 byte
+    uint8_t  walkoffEdgeMask;    // bit i = edge i to (i+1)%vertCount allows walkoff  1 byte
     // Total: 32 + 32 + 12 + 4 + 4 = 84 bytes
 };
 static_assert(sizeof(NavRegion) == 84, "NavRegion must be 84 bytes");
@@ -91,7 +93,7 @@ struct NavPath {
 };
 
 // ============================================================================
-// NavRegionSystem — manages navigation at runtime
+// NavRegionSystem: manages navigation at runtime
 // ============================================================================
 class NavRegionSystem {
 public:
@@ -148,14 +150,20 @@ public:
     bool isOffNavRegion(int32_t x, int32_t y, int32_t z) const;
 
     /// Clamp an XZ position to stay within a region's polygon boundary.
-    /// Returns the clamped position.
     void clampToRegion(int32_t& x, int32_t& z, uint16_t regionIndex) const;
 
-    // TODO: Implement this
+    /// Clamp to non-walkoff boundary edges only. Walkoff edges are skipped,
+    /// allowing the player to leave the region through those edges.
+    void clampToRegionSelective(int32_t& x, int32_t& z, uint16_t regionIndex) const;
+
+    /// True if the region has the platform flag set.
+    bool isRegionPlatform(uint16_t regionIndex) const;
+
+    /// Return the walkoff edge bitmask for a region.
+    uint8_t getWalkoffEdgeMask(uint16_t regionIndex) const;
+
     bool findPath(uint16_t startRegion, uint16_t endRegion,
                   NavPath& path) const;
-
-    bool isRegionWalled(const uint16_t noWallRegions[], size_t count, uint16_t targetRegion);
 
     private:
     NavDataHeader m_header = {};
