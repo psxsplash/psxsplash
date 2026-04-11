@@ -237,7 +237,6 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
     m_playerPosition = sceneSetup.playerStartPosition;
-    m_navRegions.clampToRegion(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
 
     playerRotationX = 0.0_pi;
     playerRotationY = 0.0_pi;
