@@ -549,6 +549,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             }
             else{
                 m_playerNavRegion = newNavRegion;
+                isPlayerNavWalled = m_navRegions.isRegionWalled(noWallRegions, 18, m_playerNavRegion);
             } 
         }
 
