@@ -309,7 +309,7 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
     */
     //printf("Region is %d\n", currentRegion);
     // Truly off all regions — clamp to current region boundary
-    //clampToRegion(newX, newZ, currentRegion);
+    clampToRegion(newX, newZ, currentRegion);
     
     return getFloorY(newX, newZ, currentRegion);
 }
