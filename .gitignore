@@ -14,6 +14,7 @@ PSX.Dev-README.md
 .editorconfig
 .clang-format
 compile_commands.json
+.idea
 LICENSEE.DAT
 *.iso
 system.cnf

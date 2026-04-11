@@ -15,6 +15,7 @@
 
 #if defined(LOADER_CDROM)
 #include "cdromhelper.hh"
+#include "fileloader_cdrom.hh"
 #endif
 
 #include "lua.h"
@@ -42,7 +43,12 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     
     // Initialize audio system
     m_audio.init();
-    
+
+#ifdef LOADER_CDROM
+    m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(
+        psxsplash::FileLoader::Get()).getCDRomDevice());
+#endif
+
     // Register the Lua API
     LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem);
 

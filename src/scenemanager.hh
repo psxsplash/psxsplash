@@ -15,6 +15,7 @@
 #include "splashpack.hh"
 #include "navregion.hh"
 #include "audiomanager.hh"
+#include "musicmanager.hh"
 #include "interactable.hh"
 #include "luaapi.hh"
 #include "fileloader.hh"
@@ -89,6 +90,7 @@ class SceneManager {
     Camera& getCamera() { return m_currentCamera; }
     Lua& getLua() { return L; }
     AudioManager& getAudio() { return m_audio; }
+    MusicManager& getMusic() { return m_music; }
 
     // Controls enable/disable (Lua-driven)
     void setControlsEnabled(bool enabled) { m_controlsEnabled = enabled; }
@@ -162,6 +164,7 @@ class SceneManager {
     
     // Audio system
     AudioManager m_audio;
+    MusicManager m_music;
     
     // Cutscene playback
     Cutscene m_cutscenes[MAX_CUTSCENES];
