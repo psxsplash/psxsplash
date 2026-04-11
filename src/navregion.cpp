@@ -170,6 +170,10 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
         if (pointInRegion(x, z, i)) {
             int32_t fy = getFloorY(x, z, i);
 
+            // Player below the region so skip
+            if(y-32 > fy){
+                continue;
+            }
             int32_t distance = getYDistance(y,fy);
             if (distance < shortestDistance) {
                 shortestDistance = distance;
@@ -179,11 +183,8 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
     }
     if(best >= m_header.regionCount || shortestDistance > NAV_ATTACH_DISTANCE)
     {
-        printf("OFF NAV Best is %d Distance: %d\n",best,shortestDistance);
         return NAV_NO_REGION;
     }
-    
-    printf("Returning Best Nav: %d\n",best);
     return best;
 }
 
@@ -341,4 +342,16 @@ int32_t NavRegionSystem::getYDistance(int32_t firstY, int32_t secondY){
 }
 
 
+bool NavRegionSystem::isRegionWalled(const uint16_t noWallRegions[], size_t count, uint16_t targetRegion)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        if (noWallRegions[i] == targetRegion)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
 }  // namespace psxsplash

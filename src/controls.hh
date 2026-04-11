@@ -86,7 +86,7 @@ class Controls {
 
     bool m_sprinting = false;
     static constexpr uint8_t m_stickDeadzone = 0x30;
-    static constexpr psyqo::Angle rotSpeed = 0.01_pi;
+    static constexpr psyqo::Angle rotSpeed = 0.02_pi;
     
     // Configurable movement speeds (set from splashpack, or defaults)
     psyqo::FixedPoint<12> m_moveSpeed = 0.002_fp;

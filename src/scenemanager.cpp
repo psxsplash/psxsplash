@@ -522,54 +522,76 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 
     uint32_t navmeshStart = gpu.now();
 
-    //m_navRegions.findRegionClosest(m_playerPosition.x.value,m_playerPosition.y.value,m_playerPosition.z.value);
-
     if (!freecam && m_navRegions.isLoaded()) {
         // Apply gravity scaled by dt12 (4096 = 1 frame)
         int32_t gravityDelta = (int32_t)(((int64_t)m_gravityPerFrame * m_dt12) >> 12);
         m_velocityY += gravityDelta;
+        
+        // Downward velocity cap
+        if(m_velocityY >= m_downwardVelocityCap)
+        {
+            m_velocityY = m_downwardVelocityCap;
+        }
 
         // Apply vertical velocity to position, scaled by dt12
         int32_t posYDelta = (int32_t)(((int64_t)m_velocityY * m_dt12) >> 12);
         m_playerPosition.y.value += posYDelta;
 
-        // Resolve position via nav regions
-        uint16_t prevRegion = m_playerNavRegion;
         int32_t px = m_playerPosition.x.value;
         int32_t py = m_playerPosition.y.value;
         int32_t pz = m_playerPosition.z.value;
-        int32_t floorY = m_navRegions.resolvePosition(
-            px, py, pz, m_playerNavRegion);
 
-        if (m_playerNavRegion != NAV_NO_REGION) {
-            m_playerPosition.x.value = px;
-            m_playerPosition.z.value = pz;
+        uint16_t newNavRegion = m_navRegions.findRegionClosest(px,py,pz);
 
-            uint16_t newNavRegion = m_navRegions.findRegionClosest(px,py,pz);
-            floorY = m_navRegions.getFloorY(px,pz,newNavRegion);
-            int32_t cameraAtFloor = floorY - m_playerHeight.raw();
+        bool isPlayerNavWalled = m_navRegions.isRegionWalled(noWallRegions, 18, m_playerNavRegion);
+        
+        // Not in original region
+        if(m_playerNavRegion != newNavRegion){
 
-            printf("floorY is %d\n",floorY);
-            //m_playerPosition.y.value >= cameraAtFloor && 
-            if (m_navRegions.isOffNavRegion(px,py,pz) == false) {
-                m_playerPosition.y.value = cameraAtFloor;
-                m_velocityY = 0;
-                m_isGrounded = true;
-                printf("Grounded\n");
-            } else { // FALLING
-                m_isGrounded = false;
-                printf("Falling\n");
+            // Valid Region to No Region
+            if(m_playerNavRegion != NAV_NO_REGION && newNavRegion == NAV_NO_REGION){
+                if(isPlayerNavWalled == false){
+                   m_isGrounded = false; 
+                }
             }
-        } else { // JUMPING
-            m_playerPosition = oldPlayerPosition;
-            m_playerNavRegion = prevRegion;
-            m_velocityY = 0;
-            m_isGrounded = true;
-            printf("Jumping In Air\n");
+            else{
+                m_playerNavRegion = newNavRegion;
+            } 
         }
+
+        // Is there a valid region?
+        if(m_playerNavRegion != NAV_NO_REGION){
+            int32_t floorY = m_navRegions.getFloorY(px,pz,m_playerNavRegion);
+            int32_t cameraAtFloor = floorY - m_playerHeight.raw();
             
-        m_velocityY = 0;
-        //printf("Player Loc: %d  %d  %d\n",m_playerPosition.x,m_playerPosition.y,m_playerPosition.z);
+            // Lock down the Y if grounded
+            if(m_isGrounded){
+                if(m_playerPosition.y.value > cameraAtFloor){
+                    m_playerPosition.y.value = cameraAtFloor;
+                    m_velocityY = 0;
+                } 
+            }
+            // Handles falling / jumping on to a region
+            else if(m_playerPosition.y.value > floorY - m_playerHeight.raw()) {
+                
+                m_isGrounded = true;
+            }
+
+            // Let the player fall for a bit before disabling jump 
+            if(m_playerPosition.y.value > floorY + m_playerHeight.raw() + m_coyoteTimeDistance)
+            {
+                m_isGrounded = false;
+                m_playerNavRegion = NAV_NO_REGION;
+            }
+        }
+        else // No Nav Region
+        {
+            m_isGrounded = false;
+        }
+        
+        if(isPlayerNavWalled){
+            m_navRegions.clampToRegion(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
+        }
     }
 
 

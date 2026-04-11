@@ -24,7 +24,7 @@ static constexpr int NAV_MAX_VERTS_PER_REGION = 8;   // Max polygon verts
 static constexpr int NAV_MAX_NEIGHBORS = 8;           // Max portal edges per region
 static constexpr int NAV_MAX_PATH_STEPS = 32;         // Max A* path length
 static constexpr uint16_t NAV_NO_REGION = 0xFFFF;     // Sentinel: no region
-static constexpr int32_t NAV_ATTACH_DISTANCE = 1024;
+static constexpr int32_t NAV_ATTACH_DISTANCE = 512;
 // ============================================================================
 // Surface type for navigation regions
 // ============================================================================
@@ -155,7 +155,9 @@ public:
     bool findPath(uint16_t startRegion, uint16_t endRegion,
                   NavPath& path) const;
 
-private:
+    bool isRegionWalled(const uint16_t noWallRegions[], size_t count, uint16_t targetRegionn);
+
+    private:
     NavDataHeader m_header = {};
     const NavRegion* m_regions = nullptr;
     const NavPortal* m_portals = nullptr;
