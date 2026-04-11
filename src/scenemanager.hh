@@ -210,14 +210,12 @@ class SceneManager {
     // Scene transition state
     int m_currentSceneIndex = 0;
     int m_pendingSceneIndex = -1;        // -1 = no pending load
-    uint8_t* m_currentSceneData = nullptr; // Owned pointer to loaded data
-    uint32_t m_liveDataSize = 0;         // Bytes of m_currentSceneData still needed at runtime
+    uint8_t* m_currentSceneData = nullptr; // Owned pointer to loaded splashpack data
     
     // System update methods (called from GameTick)
     void updateInteractionSystem();
     void processEnableDisableEvents();
     void clearScene();  // Deallocate current scene objects
-    void shrinkBuffer(); // Free pixel/audio bulk data after VRAM/SPU uploads
 
     static constexpr uint16_t noWallRegions[18] = { 
         7,8,9,10,11, 
@@ -227,5 +225,9 @@ class SceneManager {
     
     const uint16_t m_coyoteTimeDistance = 24; // How far you can fall and still jump
     const uint16_t m_downwardVelocityCap = 32; // Limit downward velocity
+
+    // VRAM/SPU upload from separate data files (v20+)
+    void uploadVramData(uint8_t* vramData, int vramSize);
+    void uploadSpuData(uint8_t* spuData, int spuSize);
 };
 }  // namespace psxsplash

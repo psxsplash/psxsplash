@@ -41,9 +41,6 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     L.Reset();
     
-    // Initialize audio system
-    m_audio.init();
-    
     // Register the Lua API
     LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem);
 
@@ -94,12 +91,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // Copy component arrays
     m_interactables = std::move(sceneSetup.interactables);
 
-    // Load audio clips into SPU RAM
+    // Audio clip names are stored in the splashpack. ADPCM data is loaded
+    // separately via uploadSpuData() before InitializeScene() is called.
     m_audioClipNames = std::move(sceneSetup.audioClipNames);
-    for (size_t i = 0; i < sceneSetup.audioClips.size(); i++) {
-        auto& clip = sceneSetup.audioClips[i];
-        m_audio.loadClip((int)i, clip.adpcmData, clip.sizeBytes, clip.sampleRate, clip.loop);
-    }
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 55);
 
@@ -160,11 +154,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_skinnedMeshCount);
 
     // Initialize UI system (v13+)
+    // Font pixel data is uploaded separately via uploadVramData() before InitializeScene.
     if (sceneSetup.uiCanvasCount > 0 && sceneSetup.uiTableOffset != 0 && s_font != nullptr) {
         m_uiSystem.init(*s_font);
         m_uiSystem.loadFromSplashpack(splashpackData, sceneSetup.uiCanvasCount,
                                       sceneSetup.uiFontCount, sceneSetup.uiTableOffset);
-        m_uiSystem.uploadFonts(Renderer::GetInstance().getGPU());
         Renderer::GetInstance().SetUISystem(&m_uiSystem);
 
         if (loading && loading->isActive()) loading->updateProgress(gpu, 70);
@@ -336,8 +330,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 95);
 
-    m_liveDataSize = sceneSetup.liveDataSize;
-    shrinkBuffer();
+    // v20: No more shrinkBuffer() — VRAM/SPU data is in separate files,
+    // so the splashpack buffer IS the live data. No relocation needed.
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
 }
@@ -831,10 +825,6 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     CDRomHelper::WakeDrive();
 #endif
 
-    // Build filename using the active backend's naming convention
-    char filename[32];
-    FileLoader::BuildSceneFilename(sceneIndex, filename, sizeof(filename));
-
     psyqo::Prim::FastFill ff(psyqo::Color{.r = 0, .g = 0, .b = 0});
     ff.rect = psyqo::Rect{0, 0, 320, 240};
     gpu.sendPrimitive(ff);
@@ -863,10 +853,42 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         }
     }
 
+    if (loading.isActive()) loading.updateProgress(gpu, 10);
+
+    // ── Step 1: Load VRAM data, upload to GPU, free buffer ──
+    {
+        char vramFilename[32];
+        FileLoader::BuildVramFilename(sceneIndex, vramFilename, sizeof(vramFilename));
+        int vramSize = 0;
+        uint8_t* vramData = FileLoader::Get().LoadFileSync(vramFilename, vramSize);
+        if (vramData) {
+            uploadVramData(vramData, vramSize);
+            FileLoader::Get().FreeFile(vramData);
+        }
+    }
+
     if (loading.isActive()) loading.updateProgress(gpu, 20);
 
-    // Load scene data — use progress-aware variant so the loading bar
-    // animates during the (potentially slow) CD-ROM read.
+    // ── Step 2: Load SPU data, upload to SPU RAM, free buffer ──
+    // Must init audio before uploading ADPCM data so SPU RAM is ready.
+    m_audio.init();
+    {
+        char spuFilename[32];
+        FileLoader::BuildSpuFilename(sceneIndex, spuFilename, sizeof(spuFilename));
+        int spuSize = 0;
+        uint8_t* spuData = FileLoader::Get().LoadFileSync(spuFilename, spuSize);
+        if (spuData) {
+            uploadSpuData(spuData, spuSize);
+            FileLoader::Get().FreeFile(spuData);
+        }
+    }
+
+    if (loading.isActive()) loading.updateProgress(gpu, 25);
+
+    // ── Step 3: Load splashpack (live data only, stays resident) ──
+    char filename[32];
+    FileLoader::BuildSceneFilename(sceneIndex, filename, sizeof(filename));
+
     int fileSize = 0;
     uint8_t* newData = nullptr;
 
@@ -878,7 +900,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
                 auto* c = static_cast<Ctx*>(ud);
                 c->ls->updateProgress(*c->gpu, pct);
             },
-            &ctx, 20, 30
+            &ctx, 25, 35
         };
         newData = FileLoader::Get().LoadFileSyncWithProgress(
             filename, fileSize, &progress);
@@ -895,7 +917,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         return;
     }
 
-    if (loading.isActive()) loading.updateProgress(gpu, 30);
+    if (loading.isActive()) loading.updateProgress(gpu, 35);
 
     // Stop the CD-ROM motor and mask all interrupts for gameplay.
 #if defined(LOADER_CDROM)
@@ -907,6 +929,125 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     // Initialize with new data (creates fresh Lua VM inside)
     InitializeScene(newData, loading.isActive() ? &loading : nullptr);
+}
+
+// ============================================================================
+// VRAM DATA UPLOAD (v20+ separate .vram file)
+// ============================================================================
+// Format: 'V' 'R' atlasCount(u16) clutCount(u16) fontCount(u8) pad(u8)
+//         Per-atlas: vramX(u16) vramY(u16) width(u16) height(u16) + pixel data + align4
+//         Per-CLUT: clutPackingX(u16) clutPackingY(u16) length(u16) pad(u16) + data + align4
+//         Per-font: glyphW(u8) glyphH(u8) vramX(u16) vramY(u16) textureH(u16)
+//                   dataSize(u32) + pixel data + align4
+
+void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
+    if (!vramData || vramSize < 8) return;
+
+    uint8_t* ptr = vramData;
+
+    // Header
+    // Skip magic 'V','R'
+    ptr += 2;
+    uint16_t atlasCount = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+    uint16_t clutCount  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+    uint8_t  fontCount  = *ptr++;
+    ptr++; // pad
+
+    auto& renderer = Renderer::GetInstance();
+
+    // Upload texture atlases
+    for (uint16_t i = 0; i < atlasCount; i++) {
+        uint16_t vramX  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t vramY  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t width  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t height = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+
+        uint32_t pixelBytes = (uint32_t)width * height * 2;
+        renderer.VramUpload(reinterpret_cast<uint16_t*>(ptr), vramX, vramY, width, height);
+        ptr += pixelBytes;
+
+        // Align to 4 bytes
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        ptr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
+    }
+
+    // Upload CLUTs
+    for (uint16_t i = 0; i < clutCount; i++) {
+        uint16_t clutPackingX = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t clutPackingY = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t length       = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        ptr += 2; // pad
+
+        renderer.VramUpload(reinterpret_cast<uint16_t*>(ptr),
+                            clutPackingX * 16, clutPackingY, length, 1);
+        ptr += (uint32_t)length * 2;
+
+        // Align to 4 bytes
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        ptr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
+    }
+
+    // Upload font pixel data
+    for (uint8_t i = 0; i < fontCount; i++) {
+        // uint8_t glyphW = ptr[0]; // not needed for upload
+        // uint8_t glyphH = ptr[1]; // not needed for upload
+        ptr += 2; // skip glyphW, glyphH
+        uint16_t fontVramX  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t fontVramY  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t textureH   = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint32_t dataSize   = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
+
+        if (dataSize > 0) {
+            // 4bpp 256px wide = 64 VRAM hwords wide
+            renderer.VramUpload(reinterpret_cast<const uint16_t*>(ptr),
+                                (int16_t)fontVramX, (int16_t)fontVramY,
+                                64, (int16_t)textureH);
+
+            // Upload white CLUT (entry 0=transparent, entry 1=white)
+            static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
+            renderer.VramUpload(whiteCLUT,
+                                (int16_t)fontVramX, (int16_t)fontVramY,
+                                2, 1);
+            ptr += dataSize;
+        }
+
+        // Align to 4 bytes
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        ptr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
+    }
+}
+
+// ============================================================================
+// SPU DATA UPLOAD (v20+ separate .spu file)
+// ============================================================================
+// Format: 'S' 'A' clipCount(u16)
+//         Per-clip: sizeBytes(u32) sampleRate(u16) loop(u8) pad(u8) + ADPCM data + align4
+
+void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
+    if (!spuData || spuSize < 4) return;
+
+    uint8_t* ptr = spuData;
+
+    // Header
+    // Skip magic 'S','A'
+    ptr += 2;
+    uint16_t clipCount = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+
+    for (uint16_t i = 0; i < clipCount; i++) {
+        uint32_t sizeBytes = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
+        uint16_t sampleRate = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint8_t  loop       = *ptr++;
+        ptr++; // pad
+
+        if (sizeBytes > 0) {
+            m_audio.loadClip((int)i, ptr, sizeBytes, sampleRate, loop != 0);
+            ptr += sizeBytes;
+        }
+
+        // Align to 4 bytes
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        ptr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
+    }
 }
 
 void psxsplash::SceneManager::clearScene() {
@@ -948,86 +1089,6 @@ void psxsplash::SceneManager::clearScene() {
     m_roomPortalRefs = nullptr;
     m_roomPortalRefCount = 0;
     m_sceneType = 0;
-}
-
-void psxsplash::SceneManager::shrinkBuffer() {
-    if (m_liveDataSize == 0 || m_currentSceneData == nullptr) return;
-
-    uint8_t* oldBase = m_currentSceneData;
-
-    uint8_t* volatile newBaseV = new uint8_t[m_liveDataSize];
-    uint8_t* newBase = newBaseV;
-    if (!newBase) return;  
-    __builtin_memcpy(newBase, oldBase, m_liveDataSize);
-
-    intptr_t delta = reinterpret_cast<intptr_t>(newBase) - reinterpret_cast<intptr_t>(oldBase);
-
-    auto reloc = [delta](auto* ptr) -> decltype(ptr) {
-        if (!ptr) return ptr;
-        return reinterpret_cast<decltype(ptr)>(reinterpret_cast<intptr_t>(ptr) + delta);
-    };
-
-    for (auto& go : m_gameObjects) {
-        go = reloc(go);
-        go->polygons = reloc(go->polygons);
-    }
-    for (auto& lf : m_luaFiles) {
-        lf = reloc(lf);
-        lf->luaCode = reloc(lf->luaCode);
-    }
-    for (auto& name : m_objectNames) name = reloc(name);
-    for (auto& name : m_audioClipNames) name = reloc(name);
-    for (auto& inter : m_interactables) inter = reloc(inter);
-
-    m_bvh.relocate(delta);
-    m_navRegions.relocate(delta);
-
-    m_rooms = reloc(m_rooms);
-    m_portals = reloc(m_portals);
-    m_roomTriRefs = reloc(m_roomTriRefs);
-    m_roomCells = reloc(m_roomCells);
-    m_roomPortalRefs = reloc(m_roomPortalRefs);
-
-    for (int ci = 0; ci < m_cutsceneCount; ci++) {
-        auto& cs = m_cutscenes[ci];
-        cs.name = reloc(cs.name);
-        cs.audioEvents = reloc(cs.audioEvents);
-        for (uint8_t ti = 0; ti < cs.trackCount; ti++) {
-            auto& track = cs.tracks[ti];
-            track.keyframes = reloc(track.keyframes);
-            if (track.target) track.target = reloc(track.target);
-        }
-    }
-
-    for (int ai = 0; ai < m_animationCount; ai++) {
-        auto& an = m_animations[ai];
-        an.name = reloc(an.name);
-        for (uint8_t ti = 0; ti < an.trackCount; ti++) {
-            auto& track = an.tracks[ti];
-            track.keyframes = reloc(track.keyframes);
-            if (track.target) track.target = reloc(track.target);
-        }
-    }
-
-    for (int si = 0; si < m_skinnedMeshCount; si++) {
-        auto& ss = m_skinAnimSets[si];
-        ss.boneIndices = reloc(ss.boneIndices);
-        for (uint8_t ci = 0; ci < ss.clipCount; ci++) {
-            ss.clips[ci].name = reloc(ss.clips[ci].name);
-            ss.clips[ci].frames = reloc(ss.clips[ci].frames);
-        }
-    }
-
-    m_uiSystem.relocate(delta);
-
-    if (!m_gameObjects.empty()) {
-        L.RelocateGameObjects(
-            reinterpret_cast<GameObject**>(m_gameObjects.data()),
-            m_gameObjects.size(), delta);
-    }
-
-    FileLoader::Get().FreeFile(oldBase);
-    m_currentSceneData = newBase;
 }
 
 // ============================================================================

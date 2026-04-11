@@ -106,6 +106,12 @@ class FileLoader {
     /** scene_N.splashpack  or  SCENE_N.SPK;1 */
     static void BuildSceneFilename(int sceneIndex, char* out, int maxLen);
 
+    /** scene_N.vram  or  SCENE_N.VRM;1 */
+    static void BuildVramFilename(int sceneIndex, char* out, int maxLen);
+
+    /** scene_N.spu  or  SCENE_N.SPU;1 */
+    static void BuildSpuFilename(int sceneIndex, char* out, int maxLen);
+
     /** scene_N.loading  or  SCENE_N.LDG;1 */
     static void BuildLoadingFilename(int sceneIndex, char* out, int maxLen);
 

@@ -35,6 +35,22 @@ void FileLoader::BuildSceneFilename(int sceneIndex, char* out, int maxLen) {
 #endif
 }
 
+void FileLoader::BuildVramFilename(int sceneIndex, char* out, int maxLen) {
+#if defined(LOADER_CDROM)
+    snprintf(out, maxLen, "SCENE_%d.VRM;1", sceneIndex);
+#else
+    snprintf(out, maxLen, "scene_%d.vram", sceneIndex);
+#endif
+}
+
+void FileLoader::BuildSpuFilename(int sceneIndex, char* out, int maxLen) {
+#if defined(LOADER_CDROM)
+    snprintf(out, maxLen, "SCENE_%d.SPU;1", sceneIndex);
+#else
+    snprintf(out, maxLen, "scene_%d.spu", sceneIndex);
+#endif
+}
+
 void FileLoader::BuildLoadingFilename(int sceneIndex, char* out, int maxLen) {
 #if defined(LOADER_CDROM)
     snprintf(out, maxLen, "SCENE_%d.LDG;1", sceneIndex);
