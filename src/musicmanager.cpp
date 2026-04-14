@@ -14,6 +14,7 @@ MusicManager::MusicManager() {
 }
 
 void MusicManager::playCDDATrack(int trackNum) {
+#ifdef LOADER_CDROM
     CDRomHelper::WakeDrive();
 
     if (!(SPU_CTRL & 0x1)) {
@@ -25,42 +26,46 @@ void MusicManager::playCDDATrack(int trackNum) {
     mCDRomDevice->playCDDATrack(trackNum,
         [this, trackNum](bool success) {
             mPlayingCDDA = success;
-            ramsyscall_printf("CDDA playback success %d\n", success);
             if (mPlayingCDDA)
                 mCurrentCDDATrack = trackNum;
     });
+#endif // LOADER_CDROM
 }
 
 void MusicManager::resumeCDDA() {
-    ramsyscall_printf("resume\n");
+#ifdef LOADER_CDROM
     if (mCurrentCDDATrack >= 0 && !mPlayingCDDA) {
         mCDRomDevice->resumeCDDA([this](bool success) {
             if (success)
                 mPlayingCDDA = true;
         });
     }
+#endif // LOADER_CDROM
 }
 
 void MusicManager::pauseCDDA() {
-    ramsyscall_printf("pause\n");
+#ifdef LOADER_CDROM
     if (mCurrentCDDATrack >= 0 && mPlayingCDDA) {
         mCDRomDevice->pauseCDDA();
         mPlayingCDDA = false;
     }
+#endif // LOADER_CDROM
 }
 
 void MusicManager::stopCDDA() {
+#ifdef LOADER_CDROM
     mCDRomDevice->stopCDDA();
     mCurrentCDDATrack = -1;
     mPlayingCDDA = false;
+#endif // LOADER_CDROM
 }
 
 void MusicManager::tellCDDA(lua_State* L) {
+#ifdef LOADER_CDROM
     if (!L) return;
     psyqo::Lua luaState(L);
     int cb = LUA_NOREF;
     if (luaState.isFunction(-1)) {
-        ramsyscall_printf("function\n");
         cb = luaState.ref();
     }
     else {
@@ -68,7 +73,6 @@ void MusicManager::tellCDDA(lua_State* L) {
     }
 
     mCDRomDevice->getPlaybackLocation([L, cb](psyqo::CDRomDevice::PlaybackLocation* location) {
-        ramsyscall_printf("cb %d\n", cb);
         if (location && cb != LUA_NOREF) {
             psyqo::FixedPoint<12> loc((location->relative.m * 60) + location->relative.s,location->relative.f * 54);
 
@@ -85,9 +89,12 @@ void MusicManager::tellCDDA(lua_State* L) {
             }
         }
     });
+#endif // LOADER_CDROM
 }
 
 void MusicManager::setCDDAVolume(int left, int right) {
+#ifdef LOADER_CDROM
     mCDRomDevice->setVolume(left, 0, 0, right);
+#endif // LOADER_CDROM
 }
 } // namespace psxsplash
