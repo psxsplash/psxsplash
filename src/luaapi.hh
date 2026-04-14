@@ -236,6 +236,12 @@ private:
 
     // Audio.StopCDDA()
     static int Audio_StopCDDA(lua_State* L);
+
+    // Audio.TellCDDA()
+    static int Audio_TellCDDA(lua_State* L);
+
+    // Audio.SetCDDAVolume()
+    static int Audio_SetCDDAVolume(lua_State* L);
     
     // ========================================================================
     // DEBUG API - Development helpers
