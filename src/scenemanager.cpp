@@ -837,6 +837,8 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     if (loading.isActive()) loading.updateProgress(gpu, 20);
 
     // ── Step 2: Load SPU data, upload to SPU RAM, free buffer ──
+    // Must init audio before uploading ADPCM data so SPU RAM is ready.
+    m_audio.init();
     {
         char spuFilename[32];
         FileLoader::BuildSpuFilename(sceneIndex, spuFilename, sizeof(spuFilename));
