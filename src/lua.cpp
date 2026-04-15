@@ -260,7 +260,7 @@ void psxsplash::Lua::Init() {
                 if (L.isFixedPoint(i)) {
                     auto fp = L.toFixedPoint(i);
                     int32_t raw = fp.raw();
-                    int integer = raw >> 12;
+                    int integer = raw / 4096;
                     unsigned fraction = (raw < 0 ? -raw : raw) & 0xfff;
                     if (fraction == 0) {
                         len += snprintf(buf + len, sizeof(buf) - len, "%d", integer);
