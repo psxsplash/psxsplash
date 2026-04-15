@@ -239,6 +239,16 @@ private:
     static int Debug_DrawBox(lua_State* L);
     
     // ========================================================================
+    // CONVERT API - Extra functions for working with fixed point numbers 
+    // ========================================================================
+
+    // Convert.IntToFp(intValue) - Returns fp value
+    static int Convert_IntToFp(lua_State* L);
+
+    // Convert.FpToInt(fpValue) - Returns int value
+    static int Convert_FpToInt(lua_State* L);
+
+    // ========================================================================
     // MATH API - Additional math functions
     // ========================================================================
     

@@ -255,12 +255,11 @@ void psxsplash::Lua::Init() {
             // Convert both operands to strings and concatenate
             char buf[64];
             int len = 0;
-
             for (int i = 1; i <= 2; i++) {
                 if (L.isFixedPoint(i)) {
                     auto fp = L.toFixedPoint(i);
                     int32_t raw = fp.raw();
-                    int integer = raw >> 12;
+                    int integer = raw / 4096;
                     unsigned fraction = (raw < 0 ? -raw : raw) & 0xfff;
                     if (fraction == 0) {
                         len += snprintf(buf + len, sizeof(buf) - len, "%d", integer);

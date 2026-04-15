@@ -249,6 +249,19 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Debug");
     
     // ========================================================================
+    // CONVERT API
+    // ========================================================================
+    L.newTable();  // Convert table
+    
+    L.push(Convert_IntToFp);
+    L.setField(-2, "IntToFp");
+
+    L.push(Convert_FpToInt);
+    L.setField(-2, "FpToInt");
+    
+    L.setGlobal("Convert");
+
+    // ========================================================================
     // MATH API
     // ========================================================================
     L.newTable();  // PSXMath table (avoid conflict with Lua's math)
@@ -1601,6 +1614,38 @@ int LuaAPI::Debug_DrawBox(lua_State* L) {
     // TODO: Queue 12 LINE_G2 primitives (box wireframe) through Renderer
     return 0;
 }
+
+// ============================================================================
+// FP API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Convert_IntToFp(lua_State* L) {
+    psyqo::Lua lua(L);
+    
+    if (!lua.isNumber(1)) {
+        return 0;
+    }
+
+    psyqo::FixedPoint<12> numberFp; 
+    numberFp = psyqo::FixedPoint<12>(static_cast<int32_t>(lua.toNumber(1)), psyqo::FixedPoint<12>::RAW);
+    
+    lua.push(numberFp);
+    return 1;
+}
+
+int LuaAPI::Convert_FpToInt(lua_State* L) {
+    psyqo::Lua lua(L);
+    
+    if (!lua.isFixedPoint(1)) { 
+        return 0;
+    }
+
+    uint32_t numberInt = lua.toFixedPoint(1).raw();
+
+    lua.pushNumber(numberInt);
+    return 1;
+}
+
 
 // ============================================================================
 // MATH API IMPLEMENTATION
