@@ -271,6 +271,25 @@ private:
     static int Math_Max(lua_State* L);
     
     // ========================================================================
+    // RANDOM API - Get random numbers
+    // ========================================================================
+
+    // Random.Number(max) returns from 1 to max inclusive
+    static int Random_Number(lua_State* L);
+
+    // Random.GeneratorNumber(max) returns from 1 to max inclusive
+    static int Random_GeneratorNumber(lua_State* L);
+
+    // Random.Range(min,max) returns from min inclusive to max inclusive 
+    static int Random_Range(lua_State* L);
+
+    // Random.GeneratorRange(min,max) returns from min inclusive to max inclusive
+    static int Random_GeneratorRange(lua_State* L);
+
+    // Random.Seed(newSeed) sets the seed for the random number generator 
+    static int Random_GeneratorSeed(lua_State* L);
+
+    // ========================================================================
     // SCENE API - Scene management
     // ========================================================================
     

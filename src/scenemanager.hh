@@ -6,6 +6,7 @@
 #include <psyqo/vector.hh>
 #include <psyqo/gpu.hh>
 
+#include "random.hh"
 #include "bvh.hh"
 #include "camera.hh"
 #include "collision.hh"
@@ -124,6 +125,9 @@ class SceneManager {
 
     // Check and process pending scene load (called from GameTick)
     void processPendingSceneLoad();
+    
+    static Random m_random;
+    static Random m_randomGenerator;
 
   private:
     psxsplash::Lua L;

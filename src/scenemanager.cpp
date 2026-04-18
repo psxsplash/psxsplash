@@ -28,6 +28,9 @@ using namespace psxsplash;
 // Static member definition
 psyqo::Font<>* psxsplash::SceneManager::s_font = nullptr;
 
+Random psxsplash::SceneManager::m_random;
+Random psxsplash::SceneManager::m_randomGenerator;
+
 // Default player collision radius: ~0.5 world units at GTE 100 -> 20 in 20.12
 static constexpr int32_t PLAYER_RADIUS = 20;
 
