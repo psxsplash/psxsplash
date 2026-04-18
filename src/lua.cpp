@@ -255,7 +255,6 @@ void psxsplash::Lua::Init() {
             // Convert both operands to strings and concatenate
             char buf[64];
             int len = 0;
-
             for (int i = 1; i <= 2; i++) {
                 if (L.isFixedPoint(i)) {
                     auto fp = L.toFixedPoint(i);
