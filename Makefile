@@ -25,6 +25,7 @@ src/animation.cpp \
 src/uisystem.cpp \
 src/loadingscreen.cpp \
 src/memoverlay.cpp \
+src/musicmanager.cpp \
 src/skinmesh.cpp \
 src/loadbuffer_patch.cpp
 
@@ -71,3 +72,4 @@ LIBRARIES := $(subst liblua.a,liblua-noparser.a,$(LIBRARIES))
 # metatable init and redirect it to pre-compiled bytecode.
 LDFLAGS += -Wl,--wrap=luaL_loadbufferx
 endif
+

@@ -229,6 +229,24 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Audio_StopAll);
     L.setField(-2, "StopAll");
+
+    L.push(Audio_PlayCDDA);
+    L.setField(-2, "PlayCDDA");
+
+    L.push(Audio_ResumeCDDA);
+    L.setField(-2, "ResumeCDDA");
+
+    L.push(Audio_PauseCDDA);
+    L.setField(-2, "PauseCDDA");
+
+    L.push(Audio_StopCDDA);
+    L.setField(-2, "StopCDDA");
+
+    L.push(Audio_TellCDDA);
+    L.setField(-2, "TellCDDA");
+
+    L.push(Audio_SetCDDAVolume);
+    L.setField(-2, "SetCDDAVolume");
     
     L.setGlobal("Audio");
     
@@ -1595,6 +1613,47 @@ int LuaAPI::Audio_StopAll(lua_State* L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
     s_sceneManager->getAudio().stopAll();
+    return 0;
+}
+
+int LuaAPI::Audio_PlayCDDA(lua_State *L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) return 0;
+    s_sceneManager->getMusic().playCDDATrack(static_cast<int>(lua.toNumber(1)));
+    return 0;
+}
+
+int LuaAPI::Audio_ResumeCDDA(lua_State *L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) return 0;
+    s_sceneManager->getMusic().resumeCDDA();
+    return 0;
+}
+
+int LuaAPI::Audio_PauseCDDA(lua_State *L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) return 0;
+    s_sceneManager->getMusic().pauseCDDA();
+    return 0;
+}
+
+int LuaAPI::Audio_StopCDDA(lua_State *L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) return 0;
+    s_sceneManager->getMusic().stopCDDA();
+    return 0;
+}
+
+int LuaAPI::Audio_TellCDDA(lua_State *L) {
+    if (!s_sceneManager) return 0;
+    s_sceneManager->getMusic().tellCDDA(L);
+    return 0;
+}
+
+int LuaAPI::Audio_SetCDDAVolume(lua_State *L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) return 0;
+    s_sceneManager->getMusic().setCDDAVolume(static_cast<int>(lua.toNumber(1)), static_cast<int>(lua.toNumber(2)));
     return 0;
 }
 

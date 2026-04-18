@@ -224,6 +224,24 @@ private:
     
     // Audio.StopAll()
     static int Audio_StopAll(lua_State* L);
+
+    // Audio.PlayCDDA(trackNo)
+    static int Audio_PlayCDDA(lua_State* L);
+
+    // Audio.ResumeCDDA()
+    static int Audio_ResumeCDDA(lua_State* L);
+
+    // Audio.PauseCDDA()
+    static int Audio_PauseCDDA(lua_State* L);
+
+    // Audio.StopCDDA()
+    static int Audio_StopCDDA(lua_State* L);
+
+    // Audio.TellCDDA()
+    static int Audio_TellCDDA(lua_State* L);
+
+    // Audio.SetCDDAVolume()
+    static int Audio_SetCDDAVolume(lua_State* L);
     
     // ========================================================================
     // DEBUG API - Development helpers

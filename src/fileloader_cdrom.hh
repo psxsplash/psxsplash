@@ -212,6 +212,8 @@ class FileLoaderCDRom final : public FileLoader {
     /** Stash the GPU pointer so LoadFileSync can spin on pumpCallbacks. */
     void setGPU(psyqo::GPU* gpu) { m_gpu = gpu; }
 
+    psyqo::CDRomDevice* getCDRomDevice() { return &m_cdrom; }
+
   private:
     psyqo::CDRomDevice m_cdrom;
     psyqo::ISO9660Parser m_isoParser;
