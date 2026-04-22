@@ -43,9 +43,6 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     auto& gpu = Renderer::GetInstance().getGPU();
 
     L.Reset();
-    
-    // Initialize audio system
-    m_audio.init();
 
 #ifdef LOADER_CDROM
     m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(
