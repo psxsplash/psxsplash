@@ -56,7 +56,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem);
 
 #ifdef PSXSPLASH_PROFILER
-    debug::Profiler::getInstance().initialize();
+    debug::Profiler::getInstance().initialize(s_font);
 #endif
 
     SplashpackSceneSetup sceneSetup;
@@ -362,6 +362,11 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         m_lastFrameTime = now;
     }
 
+#ifdef PSXSPLASH_PROFILER
+    uint32_t frameStart = gpu.now();
+    uint32_t animationStart = frameStart;
+#endif
+
     m_cutscenePlayer.tick(m_dt12);
     m_animationPlayer.tick(m_dt12);
 
@@ -369,6 +374,12 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     for (int i = 0; i < m_skinnedMeshCount; i++) {
         SkinMesh_Tick(&m_skinAnimStates[i], L.getState().getState(), m_dt12);
     }
+
+#ifdef PSXSPLASH_PROFILER
+    uint32_t animationEnd = gpu.now();
+    uint32_t animationTime = animationEnd - animationStart;
+    psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_ANIMATION, animationTime);
+#endif
     
     uint32_t renderingStart = gpu.now();
     auto& renderer = psxsplash::Renderer::GetInstance();
@@ -449,6 +460,11 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     
     gpu.pumpCallbacks();
     uint32_t collisionEnd = gpu.now();
+    uint32_t collisionTime = collisionEnd - collisionStart;
+
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_COLLISION, collisionTime);
+#endif
     
     uint32_t luaStart = gpu.now();
     // Lua update tick - call onUpdate for all registered objects with onUpdate handler
@@ -631,6 +647,11 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 
     // Process pending scene transitions (at end of frame)
     processPendingSceneLoad();
+
+#ifdef PSXSPLASH_PROFILER
+    uint32_t frameEnd = gpu.now();
+    psxsplash::debug::Profiler::getInstance().endFrame(frameEnd - frameStart);
+#endif
 }
 
 void psxsplash::SceneManager::fireTriggerEnter(int16_t luaFileIndex, uint16_t triggerIndex) {
