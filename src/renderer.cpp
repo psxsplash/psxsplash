@@ -22,6 +22,9 @@
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
 #endif
+#ifdef PSXSPLASH_PROFILER
+#include "profiler.hh"
+#endif
 
 using namespace psyqo::fixed_point_literals;
 using namespace psyqo::trig_literals;
@@ -349,11 +352,17 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
 #endif
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
+#endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
+#endif
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
     m_frameCount++;
 }
@@ -424,11 +433,17 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
 #endif
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
+#endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
+#endif
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
     m_frameCount++;
 }
@@ -1108,11 +1123,17 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
 #endif
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
+#endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
+#endif
+#ifdef PSXSPLASH_PROFILER
+    psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
     m_frameCount++;
 }
