@@ -120,7 +120,8 @@ class Renderer final {
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
                          psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
-                         int depth = 0);
+                         int depth = 0,
+                         psyqo::PrimPieces::UVCoords uvOffset = {});
 
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,
                               const psyqo::Vec3& cameraPosition,

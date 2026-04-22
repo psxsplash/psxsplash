@@ -89,6 +89,9 @@ private:
     // Entity.ForEach(callback) -> nil
     // Calls callback(object, index) for each active game object
     static int Entity_ForEach(lua_State* L);
+
+    // Entity.SetUVOffset(x, y)
+    static int Entity_SetUVOffset(lua_State* L);
     
     // ========================================================================
     // VEC3 API - Vector math

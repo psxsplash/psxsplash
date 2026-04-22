@@ -317,6 +317,16 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             break;
         }
 
+        case TrackType::ObjectUVOffset: {
+            if (!track.target) return;
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
+            uint8_t u = (out[0] < 0) ? 0 : ((out[0] > 255) ? 255 : (uint8_t)out[0]);
+            uint8_t v = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
+
+            track.target->uvOffset = { u, v };
+            break;
+        }
+
         // ── UI track types ──
 
         case TrackType::UICanvasVisible: {

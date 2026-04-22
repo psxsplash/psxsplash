@@ -48,7 +48,7 @@ class GameObject final {
     
     // Component indices (0xFFFF = no component)
     uint16_t interactableIndex;
-    uint16_t _reserved0;       // Was healthIndex (legacy, kept for binary layout)
+    psyqo::PrimPieces::UVCoords uvOffset;       // Was healthIndex (legacy)
     // Runtime-only: Lua event bitmask (set during RegisterGameObject)
     // In the splashpack binary these 4 bytes are _reserved1 + _reserved2 (zeros).
     uint32_t eventMask;
