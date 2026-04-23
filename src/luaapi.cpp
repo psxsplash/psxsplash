@@ -86,6 +86,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Entity_ForEach);
     L.setField(-2, "ForEach");
+
+    L.push(Entity_SetUVOffset);
+    L.setField(-2, "SetUVOffset");
     
     L.setGlobal("Entity");
     
@@ -802,6 +805,24 @@ int LuaAPI::Entity_ForEach(lua_State* L) {
         }
     }
     
+    return 0;
+}
+
+int LuaAPI::Entity_SetUVOffset(lua_State *L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    if (!go || !lua.isNumber(2) || !lua.isNumber(3)) return 0;
+
+    uint8_t u = static_cast<uint8_t>(lua.toNumber(2));
+    uint8_t v = static_cast<uint8_t>(lua.toNumber(3));
+    go->uvOffset = { u, v };
+
     return 0;
 }
 
