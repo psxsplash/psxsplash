@@ -52,6 +52,11 @@ ifeq ($(ROOMDEBUG),1)
 CPPFLAGS += -DPSXSPLASH_ROOM_DEBUG
 endif
 
+# PROFILER=1  → Enable per-frame profiler overlay + PCSX variable export
+ifeq ($(PROFILER),1)
+CPPFLAGS += -DPSXSPLASH_PROFILER
+endif
+
 ifdef OT_SIZE
 CPPFLAGS += -DOT_SIZE=$(OT_SIZE)
 endif
