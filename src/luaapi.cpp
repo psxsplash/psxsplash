@@ -817,7 +817,7 @@ int LuaAPI::Entity_SetUVOffset(lua_State *L) {
     auto go = lua.toUserdata<GameObject>(-1);
     lua.pop();
 
-    if (!go) return 0;
+    if (!go || !lua.isNumber(2) || !lua.isNumber(3)) return 0;
 
     uint8_t u = static_cast<uint8_t>(lua.toNumber(2));
     uint8_t v = static_cast<uint8_t>(lua.toNumber(3));

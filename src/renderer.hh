@@ -121,7 +121,7 @@ class Renderer final {
                          psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
                          psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
                          int depth = 0,
-                         psyqo::PrimPieces::UVCoords uvOffset = {});
+                         psyqo::PrimPieces::UVCoords uvOffset = { 0 });
 
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,
                               const psyqo::Vec3& cameraPosition,

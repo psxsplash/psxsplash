@@ -83,6 +83,13 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                             track.initialValues[0] = track.target->isActive() ? 1 : 0;
                         }
                         break;
+                    case TrackType::ObjectUVOffset: {
+                        if (track.target) {
+                            track.initialValues[0] = track.target->uvOffset.u;
+                            track.initialValues[1] = track.target->uvOffset.v;
+                        }
+                        break;
+                    }
                     case TrackType::UICanvasVisible:
                         if (m_uiSystem) {
                             track.initialValues[0] = m_uiSystem->isCanvasVisible(track.uiHandle) ? 1 : 0;

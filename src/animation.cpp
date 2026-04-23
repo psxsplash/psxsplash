@@ -186,6 +186,12 @@ void AnimationPlayer::captureInitialValues(Animation* anim) {
                     track.initialValues[0] = m_uiSystem->isElementVisible(track.uiHandle) ? 1 : 0;
                 }
                 break;
+            case TrackType::ObjectUVOffset:
+                if (track.target) {
+                    track.initialValues[0] = track.target->uvOffset.u;
+                    track.initialValues[1] = track.target->uvOffset.v;
+                }
+                break;
             case TrackType::UIProgress:
                 if (m_uiSystem) {
                     track.initialValues[0] = m_uiSystem->getProgress(track.uiHandle);

@@ -90,7 +90,7 @@ private:
     // Calls callback(object, index) for each active game object
     static int Entity_ForEach(lua_State* L);
 
-    // Entity.SetUVOffset(x, y)
+    // Entity.SetUVOffset(object, u, v)
     static int Entity_SetUVOffset(lua_State* L);
     
     // ========================================================================

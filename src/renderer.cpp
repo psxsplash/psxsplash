@@ -18,7 +18,6 @@
 #include "gtemath.hh"
 #include "skinmesh.hh"
 #include "uisystem.hh"
-#include "common/syscalls/syscalls.h"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
 #endif
@@ -1331,6 +1330,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
                 hasFog = (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
             }
 
+            psyqo::PrimPieces::UVCoords uvOffset = obj->uvOffset;
+
             // Emit GPU primitives
             if (tri.isUntextured()) {
                 if (hasFog) {
@@ -1359,8 +1360,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
 
                 auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
                 texP.primitive.pointA = projected0; texP.primitive.pointB = projected1; texP.primitive.pointC = projected2;
-                texP.primitive.uvA = tri.uvA; texP.primitive.uvB = tri.uvB;
-                texP.primitive.uvC.u = tri.uvC.u; texP.primitive.uvC.v = tri.uvC.v;
+                texP.primitive.uvA.u = tri.uvA.u + uvOffset.u; texP.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+                texP.primitive.uvB.u = tri.uvB.u + uvOffset.u; texP.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+                texP.primitive.uvC.u = tri.uvC.u + uvOffset.u; texP.primitive.uvC.v = tri.uvC.v + uvOffset.v;
                 texP.primitive.tpage = tri.tpage;
                 texP.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
                 psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
@@ -1371,8 +1373,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
             } else {
                 auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
                 p.primitive.pointA = projected0; p.primitive.pointB = projected1; p.primitive.pointC = projected2;
-                p.primitive.uvA = tri.uvA; p.primitive.uvB = tri.uvB;
-                p.primitive.uvC.u = tri.uvC.u; p.primitive.uvC.v = tri.uvC.v;
+                p.primitive.uvA.u = tri.uvA.u + uvOffset.u; p.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+                p.primitive.uvB.u = tri.uvB.u + uvOffset.u; p.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+                p.primitive.uvC.u = tri.uvC.u + uvOffset.u; p.primitive.uvC.v = tri.uvC.v + uvOffset.v;
                 p.primitive.tpage = tri.tpage;
                 p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
                 psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
