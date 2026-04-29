@@ -12,6 +12,7 @@
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
 #include "gtemath.hh"
+#include "luautility.hh"
 
 
 namespace psxsplash {
@@ -83,6 +84,36 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Entity_SetRotationY);
     L.setField(-2, "SetRotationY");
+
+    L.push(Entity_SetRotation);
+    L.setField(-2, "SetRotation");
+
+    L.push(Entity_GetForward);
+    L.setField(-2, "GetForward");
+
+    L.push(Entity_GetRight);
+    L.setField(-2, "GetRight");
+
+    L.push(Entity_GetUp);
+    L.setField(-2, "GetUp");
+
+    L.push(Entity_MoveForward);
+    L.setField(-2, "MoveForward");
+
+    L.push(Entity_MoveBackward);
+    L.setField(-2, "MoveBackward");
+
+    L.push(Entity_MoveLeft);
+    L.setField(-2, "MoveLeft");
+
+    L.push(Entity_MoveRight);
+    L.setField(-2, "MoveRight");
+
+    L.push(Entity_MoveUp);
+    L.setField(-2, "MoveUp");
+
+    L.push(Entity_MoveDown);
+    L.setField(-2, "MoveDown");
     
     L.push(Entity_ForEach);
     L.setField(-2, "ForEach");
@@ -695,23 +726,8 @@ int LuaAPI::Entity_SetPosition(lua_State* L) {
     
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 2, x, y, z);
-    
-    // Compute position delta to shift the world-space AABB
-    int32_t dx = x.value - go->position.x.value;
-    int32_t dy = y.value - go->position.y.value;
-    int32_t dz = z.value - go->position.z.value;
-    
-    go->position.x = x;
-    go->position.y = y;
-    go->position.z = z;
-    
-    // Shift AABB by the position delta so frustum culling uses correct bounds
-    go->aabbMinX += dx; go->aabbMaxX += dx;
-    go->aabbMinY += dy; go->aabbMaxY += dy;
-    go->aabbMinZ += dz; go->aabbMaxZ += dz;
-    
-    // Mark as dynamically moved so the renderer knows to bypass BVH for this object
-    go->setDynamicMoved(true);
+
+    LuaUtility::SetPosition(go,x,y,z);
     
     return 0;
 }
@@ -774,6 +790,241 @@ int LuaAPI::Entity_SetRotationY(lua_State* L) {
     angle.value = fp12.value >> 2;
     go->rotation = psxsplash::transposeMatrix33(
         psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig));
+    return 0;
+}
+
+int LuaAPI::Entity_SetRotation(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    if (!go) return 0;
+
+
+    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
+    // This matches psyqo::Angle convention used by the engine.
+    psyqo::FixedPoint<12> x, y, z;
+    ReadVec3(lua, 2, x, y, z);
+
+    // Convert to Angle (FixedPoint<10>) 
+    psyqo::Angle rx, ry, rz;
+    rx.value = x.value >> 2;
+    ry.value = y.value >> 2;
+    rz.value = z.value >> 2;
+
+    auto matY = psyqo::SoftMath::generateRotationMatrix33(ry, psyqo::SoftMath::Axis::Y, s_trig);
+    auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, s_trig);
+    auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, s_trig);
+    auto temp = psyqo::SoftMath::multiplyMatrix33(matY, matX);
+    go->rotation = psxsplash::transposeMatrix33(
+        psyqo::SoftMath::multiplyMatrix33(temp, matZ));
+
+    return 0;
+}
+
+
+int LuaAPI::Entity_GetForward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    if (!go) {
+        psyqo::FixedPoint<12> zero(0);
+        PushVec3(lua, zero, zero, zero);
+        return 0;
+    }
+
+    psyqo::Vec3 directionVector = LuaUtility::GetForward(go->rotation);
+
+    PushVec3(lua, directionVector.x, directionVector.y, directionVector.z);
+    return 1;
+}
+
+int LuaAPI::Entity_GetRight(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    if (!go) {
+        psyqo::FixedPoint<12> zero(0);
+        PushVec3(lua, zero, zero, zero);
+        return 0;
+    }
+
+    psyqo::Vec3 directionVector = LuaUtility::GetRight(go->rotation);
+
+    PushVec3(lua, directionVector.x, directionVector.y, directionVector.z);
+    return 1;
+}
+
+int LuaAPI::Entity_GetUp(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    if (!go) {
+        psyqo::FixedPoint<12> zero(0);
+        PushVec3(lua, zero, zero, zero);
+        return 0;
+    }
+
+    psyqo::Vec3 directionVector = LuaUtility::GetUp(go->rotation);
+
+    PushVec3(lua, directionVector.x, directionVector.y, directionVector.z);
+    return 1;
+}
+
+int LuaAPI::Entity_MoveForward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+
+    auto go = lua.toUserdata<GameObject>(-1);
+
+    lua.pop();
+
+    if (!go) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 2);
+
+    psyqo::Vec3 newPos = LuaUtility::GetForward(go->rotation) * stepAmount;
+    newPos = newPos + go->position;
+
+    LuaUtility::SetPosition(go,newPos);
+   
+    return 0;
+}
+
+int LuaAPI::Entity_MoveBackward(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+
+    auto go = lua.toUserdata<GameObject>(-1);
+
+    lua.pop();
+
+    if (!go) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 2);
+
+    psyqo::Vec3 newPos = LuaUtility::GetBackward(go->rotation) * stepAmount;
+    newPos = newPos + go->position;
+
+    LuaUtility::SetPosition(go,newPos);
+   
+    return 0;
+}
+
+int LuaAPI::Entity_MoveLeft(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+
+    auto go = lua.toUserdata<GameObject>(-1);
+
+    lua.pop();
+
+    if (!go) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 2);
+
+    psyqo::Vec3 newPos = LuaUtility::GetLeft(go->rotation) * stepAmount;
+    newPos = newPos + go->position;
+
+    LuaUtility::SetPosition(go,newPos);
+   
+    return 0;
+}
+
+int LuaAPI::Entity_MoveRight(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+
+    auto go = lua.toUserdata<GameObject>(-1);
+
+    lua.pop();
+
+    if (!go) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 2);
+
+    psyqo::Vec3 newPos = LuaUtility::GetRight(go->rotation) * stepAmount;
+    newPos = newPos + go->position;
+
+    LuaUtility::SetPosition(go,newPos);
+   
+    return 0;
+}
+
+int LuaAPI::Entity_MoveUp(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+
+    auto go = lua.toUserdata<GameObject>(-1);
+
+    lua.pop();
+
+    if (!go) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 2);
+
+    psyqo::Vec3 newPos = LuaUtility::GetUp(go->rotation) * stepAmount;
+    newPos = newPos + go->position;
+
+    LuaUtility::SetPosition(go,newPos);
+   
+    return 0;
+}
+
+int LuaAPI::Entity_MoveDown(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+
+    auto go = lua.toUserdata<GameObject>(-1);
+
+    lua.pop();
+
+    if (!go) return 0;
+
+    psyqo::FixedPoint<12> stepAmount = readFP(lua, 2);
+
+    psyqo::Vec3 newPos = LuaUtility::GetDown(go->rotation) * stepAmount;
+    newPos = newPos + go->position;
+
+    LuaUtility::SetPosition(go,newPos);
+   
     return 0;
 }
 
