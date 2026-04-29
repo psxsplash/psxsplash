@@ -10,6 +10,7 @@ src/gtemath.cpp \
 src/worldcollision.cpp \
 src/navregion.cpp \
 src/random.cpp\
+src/luautility.cpp\
 src/lua.cpp \
 src/luaapi.cpp \
 src/scenemanager.cpp \

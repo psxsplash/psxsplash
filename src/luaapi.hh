@@ -85,7 +85,37 @@ private:
     
     // Entity.SetRotationY(object, angle) -> nil
     static int Entity_SetRotationY(lua_State* L);
+
+    // Entity.SetRotation(object, {x, y, z})
+    static int Entity_SetRotation(lua_State* L);
     
+    // Entity.GetForward() 
+    static int Entity_GetForward(lua_State* L);
+
+    // Entity.GetRight() 
+    static int Entity_GetRight(lua_State* L);
+
+    // Entity.GetUp() 
+    static int Entity_GetUp(lua_State* L);
+
+    // Entity.MoveForward(step) 
+    static int Entity_MoveForward(lua_State* L);
+
+    // Entity.MoveBackward(step) 
+    static int Entity_MoveBackward(lua_State* L);
+
+    // Entity.MoveLeft(step) 
+    static int Entity_MoveLeft(lua_State* L);
+
+    // Entity.MoveRight(step) 
+    static int Entity_MoveRight(lua_State* L);
+
+    // Entity.MoveUp(step) 
+    static int Entity_MoveUp(lua_State* L);
+
+    // Entity.MoveDown(step) 
+    static int Entity_MoveDown(lua_State* L);
+
     // Entity.ForEach(callback) -> nil
     // Calls callback(object, index) for each active game object
     static int Entity_ForEach(lua_State* L);
