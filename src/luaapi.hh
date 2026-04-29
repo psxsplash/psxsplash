@@ -89,13 +89,13 @@ private:
     // Entity.SetRotation(object, {x, y, z})
     static int Entity_SetRotation(lua_State* L);
     
-    // Entity.GetForward() -> {x, y, z}
+    // Entity.GetForward(object) -> {x, y, z}
     static int Entity_GetForward(lua_State* L);
 
-    // Entity.GetRight() -> {x, y, z}
+    // Entity.GetRight(object) -> {x, y, z}
     static int Entity_GetRight(lua_State* L);
 
-    // Entity.GetUp() -> {x, y, z}
+    // Entity.GetUp(object) -> {x, y, z}
     static int Entity_GetUp(lua_State* L);
 
     // Entity.MoveForward(object,step) 
