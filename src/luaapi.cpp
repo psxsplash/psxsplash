@@ -13,6 +13,7 @@
 #include <psyqo/fixed-point.hh>
 #include "gtemath.hh"
 
+#include <psyqo/xprintf.h>
 
 namespace psxsplash {
 
@@ -301,7 +302,13 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Math_Max);
     L.setField(-2, "Max");
+
+    L.push(Math_Cos);
+    L.setField(-2, "Cos");
     
+    L.push(Math_Sin);
+    L.setField(-2, "Sin");
+
     L.setGlobal("PSXMath");
     
     // ========================================================================
@@ -1795,6 +1802,44 @@ int LuaAPI::Math_Max(lua_State* L) {
     lua_Number b = lua.toNumber(2);
     
     lua.pushNumber(a > b ? a : b);
+    return 1;
+}
+
+int LuaAPI::Math_Cos(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isNumber(1))
+    {
+        return 0;
+    }
+
+    int value = (int)lua.toNumber(1);
+    psyqo::Angle angle = ((uint32_t)value * (2.0_pi)) / 360;
+
+    auto result = s_trig.cos(angle);
+
+    lua.push(result);
+
+    return 1;
+}
+
+int LuaAPI::Math_Sin(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isNumber(1))
+    {
+        return 0;
+    }
+
+    int value = (int)lua.toNumber(1);
+    psyqo::Angle angle = ((uint32_t)value * (2.0_pi)) / 360;
+
+    auto result = s_trig.sin(angle);
+
+    lua.push(result);
+
     return 1;
 }
 
