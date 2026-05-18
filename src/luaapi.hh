@@ -288,6 +288,12 @@ private:
     // Math.Max(a, b)  
     static int Math_Max(lua_State* L);
     
+    // Math.Cos(value)
+    static int Math_Cos(lua_State* L);
+
+    // Math.Sin(value)
+    static int Math_Sin(lua_State* L);
+
     // ========================================================================
     // RANDOM API - Get random numbers
     // ========================================================================
