@@ -138,18 +138,30 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     // ========================================================================
     L.newTable();  // Input table
     
-    L.push(Input_IsPressed);
-    L.setField(-2, "IsPressed");
+    L.push(Input_IsPressedPlayer1);
+    L.setField(-2, "IsPressedPlayer1");
     
-    L.push(Input_IsReleased);
-    L.setField(-2, "IsReleased");
+    L.push(Input_IsReleasedPlayer1);
+    L.setField(-2, "IsReleasedPlayer1");
     
-    L.push(Input_IsHeld);
-    L.setField(-2, "IsHeld");
+    L.push(Input_IsHeldPlayer1);
+    L.setField(-2, "IsHeldPlayer1");
     
-    L.push(Input_GetAnalog);
-    L.setField(-2, "GetAnalog");
+    L.push(Input_GetAnalogPlayer1);
+    L.setField(-2, "GetAnalogPlayer1");
     
+    L.push(Input_IsPressedPlayer2);
+    L.setField(-2, "IsPressedPlayer2");
+
+    L.push(Input_IsReleasedPlayer2);
+    L.setField(-2, "IsReleasedPlayer2");
+
+    L.push(Input_IsHeldPlayer2);
+    L.setField(-2, "IsHeldPlayer2");
+
+    L.push(Input_GetAnalogPlayer2);
+    L.setField(-2, "GetAnalogPlayer2");
+
     // Register button constants
     RegisterInputConstants(L);
     
@@ -416,11 +428,17 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     // ========================================================================
     L.newTable();
 
-    L.push(Controls_SetEnabled);
-    L.setField(-2, "SetEnabled");
+    L.push(Controls_SetEnabledPlayer1);
+    L.setField(-2, "SetEnabledPlayer1");
 
-    L.push(Controls_IsEnabled);
-    L.setField(-2, "IsEnabled");
+    L.push(Controls_IsEnabledPlayer1);
+    L.setField(-2, "IsEnabledPlayer1");
+
+    L.push(Controls_SetEnabledPlayer2);
+    L.setField(-2, "SetEnabledPlayer2");
+
+    L.push(Controls_IsEnabledPlayer2);
+    L.setField(-2, "IsEnabledPlayer2");
 
     L.setGlobal("Controls");
 
@@ -1186,7 +1204,7 @@ void LuaAPI::RegisterInputConstants(psyqo::Lua& L) {
     L.setField(-2, "R3");
 }
 
-int LuaAPI::Input_IsPressed(lua_State* L) {
+int LuaAPI::Input_IsPressedPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager || !lua.isNumber(1)) {
@@ -1195,11 +1213,24 @@ int LuaAPI::Input_IsPressed(lua_State* L) {
     }
     
     auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
-    lua.push(s_sceneManager->getControls().wasButtonPressed(button));
+    lua.push(s_sceneManager->getControlsPlayer1().wasButtonPressed(button));
     return 1;
 }
 
-int LuaAPI::Input_IsReleased(lua_State* L) {
+int LuaAPI::Input_IsPressedPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
+    lua.push(s_sceneManager->getControlsPlayer2().wasButtonPressed(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsReleasedPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager || !lua.isNumber(1)) {
@@ -1208,11 +1239,24 @@ int LuaAPI::Input_IsReleased(lua_State* L) {
     }
     
     auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
-    lua.push(s_sceneManager->getControls().wasButtonReleased(button));
+    lua.push(s_sceneManager->getControlsPlayer1().wasButtonReleased(button));
     return 1;
 }
 
-int LuaAPI::Input_IsHeld(lua_State* L) {
+int LuaAPI::Input_IsReleasedPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
+    lua.push(s_sceneManager->getControlsPlayer2().wasButtonReleased(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsHeldPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager || !lua.isNumber(1)) {
@@ -1221,11 +1265,24 @@ int LuaAPI::Input_IsHeld(lua_State* L) {
     }
     
     auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
-    lua.push(s_sceneManager->getControls().isButtonHeld(button));
+    lua.push(s_sceneManager->getControlsPlayer1().isButtonHeld(button));
     return 1;
 }
 
-int LuaAPI::Input_GetAnalog(lua_State* L) {
+int LuaAPI::Input_IsHeldPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
+    lua.push(s_sceneManager->getControlsPlayer2().isButtonHeld(button));
+    return 1;
+}
+
+int LuaAPI::Input_GetAnalogPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager) {
@@ -1235,7 +1292,7 @@ int LuaAPI::Input_GetAnalog(lua_State* L) {
     }
     
     int stick = lua.isNumber(1) ? static_cast<int>(lua.toNumber(1)) : 0;
-    auto& controls = s_sceneManager->getControls();
+    auto& controls = s_sceneManager->getControlsPlayer1();
     
     int16_t x, y;
     if (stick == 1) {
@@ -1246,6 +1303,35 @@ int LuaAPI::Input_GetAnalog(lua_State* L) {
         y = controls.getLeftStickY();
     }
     
+    // Scale to approximately [-1.0, 1.0] in Lua number space
+    // Stick range is -127 to +127; divide by 127
+    lua.pushNumber(x * kFixedScale / 127);
+    lua.pushNumber(y * kFixedScale / 127);
+    return 2;
+}
+
+int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 2;
+    }
+
+    int stick = lua.isNumber(1) ? static_cast<int>(lua.toNumber(1)) : 0;
+    auto& controls = s_sceneManager->getControlsPlayer2();
+
+    int16_t x, y;
+    if (stick == 1) {
+        x = controls.getRightStickX();
+        y = controls.getRightStickY();
+    }
+    else {
+        x = controls.getLeftStickX();
+        y = controls.getLeftStickY();
+    }
+
     // Scale to approximately [-1.0, 1.0] in Lua number space
     // Stick range is -127 to +127; divide by 127
     lua.pushNumber(x * kFixedScale / 127);
@@ -2276,19 +2362,38 @@ int LuaAPI::SkinnedAnim_GetClip(lua_State* L) {
 // CONTROLS API IMPLEMENTATION
 // ============================================================================
 
-int LuaAPI::Controls_SetEnabled(lua_State* L) {
+int LuaAPI::Controls_SetEnabledPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     if (s_sceneManager && lua.isBoolean(1)) {
-        s_sceneManager->setControlsEnabled(lua.toBoolean(1));
+        s_sceneManager->setControlsEnabledPlayer1(lua.toBoolean(1));
     }
     return 0;
 }
 
-int LuaAPI::Controls_IsEnabled(lua_State* L) {
+int LuaAPI::Controls_SetEnabledPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_sceneManager && lua.isBoolean(1)) {
+        s_sceneManager->setControlsEnabledPlayer2(lua.toBoolean(1));
+    }
+    return 0;
+}
+
+int LuaAPI::Controls_IsEnabledPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     if (s_sceneManager) {
-        lua.push(s_sceneManager->isControlsEnabled());
+        lua.push(s_sceneManager->isControlsEnabledPlayer1());
     } else {
+        lua.push(false);
+    }
+    return 1;
+}
+
+int LuaAPI::Controls_IsEnabledPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_sceneManager) {
+        lua.push(s_sceneManager->isControlsEnabledPlayer2());
+    }
+    else {
         lua.push(false);
     }
     return 1;
