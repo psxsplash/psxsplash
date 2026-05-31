@@ -136,19 +136,23 @@ private:
     
     // Input.IsPressed(button) -> boolean
     // True only on the frame the button was pressed
-    static int Input_IsPressed(lua_State* L);
+    static int Input_IsPressedPlayer1(lua_State* L);
+    static int Input_IsPressedPlayer2(lua_State* L);
     
     // Input.IsReleased(button) -> boolean
     // True only on the frame the button was released
-    static int Input_IsReleased(lua_State* L);
+    static int Input_IsReleasedPlayer1(lua_State* L);
+    static int Input_IsReleasedPlayer2(lua_State* L);
     
     // Input.IsHeld(button) -> boolean
     // True while the button is held down
-    static int Input_IsHeld(lua_State* L);
+    static int Input_IsHeldPlayer1(lua_State* L);
+    static int Input_IsHeldPlayer2(lua_State* L);
     
     // Input.GetAnalog(stick) -> x, y
     // Returns analog stick values (-128 to 127)
-    static int Input_GetAnalog(lua_State* L);
+    static int Input_GetAnalogPlayer1(lua_State* L);
+    static int Input_GetAnalogPlayer2(lua_State* L);
     
     // Button constants (registered as Input.CROSS, Input.CIRCLE, etc.)
     static void RegisterInputConstants(psyqo::Lua& L);
@@ -382,10 +386,12 @@ private:
     static int SkinnedAnim_GetClip(lua_State* L);
 
     // Controls.SetEnabled(bool) - enable/disable all player input
-    static int Controls_SetEnabled(lua_State* L);
+    static int Controls_SetEnabledPlayer1(lua_State* L);
+    static int Controls_SetEnabledPlayer2(lua_State* L);
 
     // Controls.IsEnabled() -> boolean
-    static int Controls_IsEnabled(lua_State* L);
+    static int Controls_IsEnabledPlayer1(lua_State* L);
+    static int Controls_IsEnabledPlayer2(lua_State* L);
 
     // Interact.SetEnabled(entity, bool) - enable/disable interaction + prompt for an object
     static int Interact_SetEnabled(lua_State* L);
