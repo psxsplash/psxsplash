@@ -71,7 +71,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // If nav regions are loaded, camera follows the player. Otherwise the
     // scene is in "free camera" mode where cutscenes and Lua drive the camera.
     m_cameraFollowsPlayer = m_navRegions.isLoaded();
-    m_controlsEnabled = true;
+    m_controlsEnabled[0] = true;
+    m_controlsEnabled[1] = true;
 
     // Scene type and render path
     m_sceneType = sceneSetup.sceneType;
@@ -92,10 +93,10 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     {
         psxsplash::FogConfig fogCfg;
         fogCfg.enabled = sceneSetup.fogEnabled;
-        fogCfg.color = {.r = sceneSetup.fogR, .g = sceneSetup.fogG, .b = sceneSetup.fogB};
+        fogCfg.color = { .r = sceneSetup.fogR, .g = sceneSetup.fogG, .b = sceneSetup.fogB };
         fogCfg.density = sceneSetup.fogDensity;
         Renderer::GetInstance().SetFog(fogCfg);
-    }    
+    }
     // Copy component arrays
     m_interactables = std::move(sceneSetup.interactables);
 
@@ -119,7 +120,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         &m_audio,
         &m_uiSystem,
         this,
-        &m_controls
+        &m_controls[0]
     );
 
     // Copy animation data into scene manager storage
@@ -134,7 +135,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_animationCount,
         &m_uiSystem,
         this,
-        &m_controls
+        &m_controls[0]
     );
 
     // Copy skinned mesh data from splashpack into scene manager storage
@@ -147,12 +148,13 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         uint16_t goIdx = m_skinAnimSets[i].gameObjectIndex;
         if (goIdx < m_gameObjects.size()) {
             GameObject* go = m_gameObjects[goIdx];
-            m_skinAnimSets[i].polygons  = go->polygons;
+            m_skinAnimSets[i].polygons = go->polygons;
             m_skinAnimSets[i].polyCount = go->polyCount;
             go->polyCount = 0;
             go->flagsAsInt |= 0x10;
-        } else {
-            m_skinAnimSets[i].polygons  = nullptr;
+        }
+        else {
+            m_skinAnimSets[i].polygons = nullptr;
             m_skinAnimSets[i].polyCount = 0;
         }
     }
@@ -166,7 +168,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     if (sceneSetup.uiCanvasCount > 0 && sceneSetup.uiTableOffset != 0 && s_font != nullptr) {
         m_uiSystem.init(*s_font);
         m_uiSystem.loadFromSplashpack(splashpackData, sceneSetup.uiCanvasCount,
-                                      sceneSetup.uiFontCount, sceneSetup.uiTableOffset);
+            sceneSetup.uiFontCount, sceneSetup.uiTableOffset);
         Renderer::GetInstance().SetUISystem(&m_uiSystem);
 
         if (loading && loading->isActive()) loading->updateProgress(gpu, 70);
@@ -186,7 +188,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
                 if (track.trackType == TrackType::UICanvasVisible) {
                     // Name is just the canvas name
                     track.uiHandle = static_cast<int16_t>(m_uiSystem.findCanvas(nameStr));
-                } else {
+                }
+                else {
                     // Name is "canvasName/elementName" — find the '/' separator
                     const char* sep = nameStr;
                     while (*sep && *sep != '/') sep++;
@@ -218,7 +221,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
                 if (track.trackType == TrackType::UICanvasVisible) {
                     track.uiHandle = static_cast<int16_t>(m_uiSystem.findCanvas(nameStr));
-                } else {
+                }
+                else {
                     const char* sep = nameStr;
                     while (*sep && *sep != '/') sep++;
                     if (*sep == '/') {
@@ -234,7 +238,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
                 }
             }
         }
-    } else {
+    }
+    else {
         Renderer::GetInstance().SetUISystem(nullptr);
     }
 
@@ -253,25 +258,27 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     m_playerHeight = sceneSetup.playerHeight;
 
-    m_controls.setMoveSpeed(sceneSetup.moveSpeed);
-    m_controls.setSprintSpeed(sceneSetup.sprintSpeed);
+    m_controls[0].setMoveSpeed(sceneSetup.moveSpeed);
+    m_controls[0].setSprintSpeed(sceneSetup.sprintSpeed);
+    m_controls[1].setMoveSpeed(sceneSetup.moveSpeed);
+    m_controls[1].setSprintSpeed(sceneSetup.sprintSpeed);
     m_playerRadius = (int32_t)sceneSetup.playerRadius.value;
-    if (m_playerRadius == 0) m_playerRadius = PLAYER_RADIUS; 
+    if (m_playerRadius == 0) m_playerRadius = PLAYER_RADIUS;
     m_jumpVelocityRaw = (int32_t)sceneSetup.jumpVelocity.value;
     int32_t gravityRaw = (int32_t)sceneSetup.gravity.value;
-    m_gravityPerFrame = gravityRaw / 30;  
-    if (m_gravityPerFrame == 0 && gravityRaw > 0) m_gravityPerFrame = 1; 
+    m_gravityPerFrame = gravityRaw / 30;
+    if (m_gravityPerFrame == 0 && gravityRaw > 0) m_gravityPerFrame = 1;
     m_velocityY = 0;
     m_isGrounded = true;
     m_lastFrameTime = 0;
     m_dt12 = 4096;  // Default: 1.0 frame
 
     m_collisionSystem.init();
-    
+
     for (size_t i = 0; i < sceneSetup.colliders.size(); i++) {
         SPLASHPACKCollider* collider = sceneSetup.colliders[i];
         if (collider == nullptr) continue;
-        
+
         AABB bounds;
         bounds.min.x.value = collider->minX;
         bounds.min.y.value = collider->minY;
@@ -279,9 +286,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         bounds.max.x.value = collider->maxX;
         bounds.max.y.value = collider->maxY;
         bounds.max.z.value = collider->maxZ;
-        
+
         CollisionType type = static_cast<CollisionType>(collider->collisionType);
-        
+
         m_collisionSystem.registerCollider(
             collider->gameObjectIndex,
             bounds,
@@ -329,8 +336,12 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
             m_gameObjects.size());
     }
 
-    m_controls.forceAnalogMode();
-    m_controls.Init();
+    m_controls[0].forceAnalogMode();
+    m_controls[0].Init();
+
+    m_controls[1].forceAnalogMode();
+    m_controls[1].Init();
+
     Renderer::GetInstance().SetCamera(m_currentCamera);
 
     L.OnSceneCreationEnd();
@@ -343,9 +354,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
 }
 
-void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
+void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     LuaAPI::IncrementFrameCount();
-    
+
     {
         uint32_t now = gpu.now();
         if (m_lastFrameTime != 0) {
@@ -377,7 +388,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     uint32_t animationTime = animationEnd - animationStart;
     psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_ANIMATION, animationTime);
 #endif
-    
+
     uint32_t renderingStart = gpu.now();
     auto& renderer = psxsplash::Renderer::GetInstance();
 
@@ -392,15 +403,17 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
                     uint8_t ri = m_navRegions.getRoomIndex(camRegion);
                     if (ri != 0xFF) camRoom = (int)ri;
                 }
-            } else if (m_playerNavRegion != NAV_NO_REGION) {
+            }
+            else if (m_playerNavRegion != NAV_NO_REGION) {
                 uint8_t ri = m_navRegions.getRoomIndex(m_playerNavRegion);
                 if (ri != 0xFF) camRoom = (int)ri;
             }
         }
         renderer.RenderWithRooms(m_gameObjects, m_rooms, m_roomCount,
-                                  m_portals, m_portalCount, m_roomTriRefs,
-                                  m_roomCells, m_roomPortalRefs, camRoom);
-    } else {
+            m_portals, m_portalCount, m_roomTriRefs,
+            m_roomCells, m_roomPortalRefs, camRoom);
+    }
+    else {
         renderer.RenderWithBVH(m_gameObjects, m_bvh);
     }
     gpu.pumpCallbacks();
@@ -412,7 +425,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 #endif
 
     uint32_t collisionStart = gpu.now();
-    
+
     AABB playerAABB;
     {
         psyqo::FixedPoint<12> r;
@@ -427,13 +440,13 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         // trigger constant collisions (floor contact is handled by nav).
         psyqo::FixedPoint<12> bodyBottom;
         bodyBottom.value = h.value * 3 / 4;  // 75% of height below camera
-        playerAABB.min = psyqo::Vec3{px - r, py, pz - r};
-        playerAABB.max = psyqo::Vec3{px + r, py + bodyBottom, pz + r};
+        playerAABB.min = psyqo::Vec3{ px - r, py, pz - r };
+        playerAABB.max = psyqo::Vec3{ px + r, py + bodyBottom, pz + r };
     }
-    
+
     psyqo::Vec3 pushBack;
     int collisionCount = m_collisionSystem.detectCollisions(playerAABB, pushBack, *this);
-    
+
     {
         psyqo::FixedPoint<12> zero;
         if (pushBack.x != zero || pushBack.z != zero) {
@@ -441,7 +454,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             m_playerPosition.z = m_playerPosition.z + pushBack.z;
         }
     }
-    
+
     // Fire onCollideWithPlayer Lua events on collided objects
     const CollisionResult* results = m_collisionSystem.getResults();
     for (int i = 0; i < collisionCount; i++) {
@@ -451,10 +464,10 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
             L.OnCollideWithPlayer(obj);
         }
     }
-    
+
     // Process trigger boxes (enter/exit)
     m_collisionSystem.detectTriggers(playerAABB, *this);
-    
+
     gpu.pumpCallbacks();
     uint32_t collisionEnd = gpu.now();
     uint32_t collisionTime = collisionEnd - collisionStart;
@@ -462,7 +475,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_COLLISION, collisionTime);
 #endif
-    
+
     uint32_t luaStart = gpu.now();
     // Lua update tick - call onUpdate for all registered objects with onUpdate handler
     for (auto* go : m_gameObjects) {
@@ -476,60 +489,98 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_LUA, luaTime);
 #endif
-    
+
     // Update game systems
     processEnableDisableEvents();
 
-    
+
     uint32_t controlsStart = gpu.now();
-    
+
     // Update button state tracking first
-    m_controls.UpdateButtonStates();
-    
+    m_controls[0].UpdateButtonStatesPlayer1();
+    m_controls[1].UpdateButtonStatesPlayer2();
+
     // Update interaction system (checks for interact button press)
     updateInteractionSystem();
-    
+
     // Dispatch button events to all objects
-    uint16_t pressed = m_controls.getButtonsPressed();
-    uint16_t released = m_controls.getButtonsReleased();
-    
-    if (pressed || released) {
+    uint16_t pressed1 = m_controls[0].getButtonsPressed();
+    uint16_t released1 = m_controls[0].getButtonsReleased();
+
+    uint16_t pressed2 = m_controls[1].getButtonsPressed();
+    uint16_t released2 = m_controls[1].getButtonsReleased();
+
+    if (pressed1 || released1) {
         // Only iterate objects if there are button events
         for (auto* go : m_gameObjects) {
             if (!go || !go->isActive()) continue;
-            
-            if (pressed) {
+
+            if (pressed1) {
                 // Dispatch press events for each pressed button
                 for (int btn = 0; btn < 16; btn++) {
-                    if (pressed & (1 << btn)) {
+                    if (pressed1 & (1 << btn)) {
                         L.OnButtonPress(go, btn);
                     }
                 }
             }
-            if (released) {
+            if (released1) {
                 // Dispatch release events for each released button
                 for (int btn = 0; btn < 16; btn++) {
-                    if (released & (1 << btn)) {
+                    if (released1 & (1 << btn)) {
                         L.OnButtonRelease(go, btn);
                     }
                 }
             }
         }
     }
-    
+
+    if (pressed2 || released2) {
+        // Only iterate objects if there are button events
+        for (auto* go : m_gameObjects) {
+            if (!go || !go->isActive()) continue;
+
+            if (pressed2) {
+                // Dispatch press events for each pressed button
+                for (int btn = 0; btn < 16; btn++) {
+                    if (pressed2 & (1 << btn)) {
+                        L.OnButtonPress(go, btn);
+                    }
+                }
+            }
+            if (released2) {
+                // Dispatch release events for each released button
+                for (int btn = 0; btn < 16; btn++) {
+                    if (released2 & (1 << btn)) {
+                        L.OnButtonRelease(go, btn);
+                    }
+                }
+            }
+        }
+    }
+
     // Save position BEFORE movement for collision detection
     psyqo::Vec3 oldPlayerPosition = m_playerPosition;
 
-    if (m_controlsEnabled) {
-        m_controls.HandleControls(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
+    if (m_controlsEnabled[0]) {
+        m_controls[0].HandleControlsPlayer1(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
 
         // Jump input: Cross button triggers jump when grounded
-        if (m_isGrounded && m_controls.wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
+        if (m_isGrounded && m_controls[0].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
             m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
             m_isGrounded = false;
         }
     }
-    
+
+    if (m_controlsEnabled[1]) {
+        m_controls[1].HandleControlsPlayer2(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
+
+        // Jump input: Cross button triggers jump when grounded
+        if (m_isGrounded && m_controls[1].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
+            m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
+            m_isGrounded = false;
+        }
+    }
+
     gpu.pumpCallbacks();
     uint32_t controlsEnd = gpu.now();
     uint32_t controlsTime = controlsEnd - controlsStart;
@@ -543,9 +594,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         // Apply gravity scaled by dt12 (4096 = 1 frame)
         int32_t gravityDelta = (int32_t)(((int64_t)m_gravityPerFrame * m_dt12) >> 12);
         m_velocityY += gravityDelta;
-        
+
         // Downward velocity cap
-        if(m_velocityY >= m_downwardVelocityCap)
+        if (m_velocityY >= m_downwardVelocityCap)
         {
             m_velocityY = m_downwardVelocityCap;
         }
@@ -558,49 +609,49 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         int32_t py = m_playerPosition.y.value;
         int32_t pz = m_playerPosition.z.value;
 
-        uint16_t newNavRegion = m_navRegions.findRegionClosest(px,py,pz);
+        uint16_t newNavRegion = m_navRegions.findRegionClosest(px, py, pz);
 
         bool isPlatform = m_navRegions.isRegionPlatform(m_playerNavRegion);
         uint8_t walkoffMask = m_navRegions.getWalkoffEdgeMask(m_playerNavRegion);
         bool canWalkOff = isPlatform || (walkoffMask != 0);
-        
+
         // Not in original region
-        if(m_playerNavRegion != newNavRegion){
+        if (m_playerNavRegion != newNavRegion) {
 
             // Valid Region to No Region
-            if(m_playerNavRegion != NAV_NO_REGION && newNavRegion == NAV_NO_REGION){
-                if(canWalkOff){
-                   m_isGrounded = false; 
+            if (m_playerNavRegion != NAV_NO_REGION && newNavRegion == NAV_NO_REGION) {
+                if (canWalkOff) {
+                    m_isGrounded = false;
                 }
             }
-            else{
+            else {
                 m_playerNavRegion = newNavRegion;
                 isPlatform = m_navRegions.isRegionPlatform(m_playerNavRegion);
                 walkoffMask = m_navRegions.getWalkoffEdgeMask(m_playerNavRegion);
                 canWalkOff = isPlatform || (walkoffMask != 0);
-            } 
+            }
         }
 
         // Is there a valid region?
-        if(m_playerNavRegion != NAV_NO_REGION){
-            int32_t floorY = m_navRegions.getFloorY(px,pz,m_playerNavRegion);
+        if (m_playerNavRegion != NAV_NO_REGION) {
+            int32_t floorY = m_navRegions.getFloorY(px, pz, m_playerNavRegion);
             int32_t cameraAtFloor = floorY - m_playerHeight.raw();
-            
+
             // Lock down the Y if grounded
-            if(m_isGrounded){
-                if(m_playerPosition.y.value > cameraAtFloor){
+            if (m_isGrounded) {
+                if (m_playerPosition.y.value > cameraAtFloor) {
                     m_playerPosition.y.value = cameraAtFloor;
                     m_velocityY = 0;
-                } 
+                }
             }
             // Handles falling / jumping on to a region
-            else if(m_playerPosition.y.value > floorY - m_playerHeight.raw()) {
-                
+            else if (m_playerPosition.y.value > floorY - m_playerHeight.raw()) {
+
                 m_isGrounded = true;
             }
 
             // Let the player fall for a bit before disabling jump 
-            if(m_playerPosition.y.value > floorY + m_playerHeight.raw() + m_coyoteTimeDistance)
+            if (m_playerPosition.y.value > floorY + m_playerHeight.raw() + m_coyoteTimeDistance)
             {
                 m_isGrounded = false;
                 m_playerNavRegion = NAV_NO_REGION;
@@ -610,13 +661,15 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
         {
             m_isGrounded = false;
         }
-        
+
         // Clamp movement to region boundaries where walls exist
         if (isPlatform) {
             // Platform regions have no boundary clamping
-        } else if (walkoffMask != 0) {
+        }
+        else if (walkoffMask != 0) {
             m_navRegions.clampToRegionSelective(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
-        } else {
+        }
+        else {
             m_navRegions.clampToRegion(m_playerPosition.x.value, m_playerPosition.z.value, m_playerNavRegion);
         }
     }
@@ -637,8 +690,8 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU &gpu) {
     // camera stays at the last cutscene position.
     if (m_cameraFollowsPlayer && !(m_cutscenePlayer.isPlaying() && m_cutscenePlayer.hasCameraTracks())) {
         m_currentCamera.SetPosition(static_cast<psyqo::FixedPoint<12>>(m_playerPosition.x),
-                                    static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y),
-                                    static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z));
+            static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y),
+            static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z));
         m_currentCamera.SetRotation(playerRotationX, playerRotationY, playerRotationZ);
     }
 
@@ -744,7 +797,7 @@ void psxsplash::SceneManager::updateInteractionSystem() {
     // Check if the correct button for this interactable was pressed
     auto button = static_cast<psyqo::AdvancedPad::Button>(
         static_cast<uint16_t>(inRange->interactButton));
-    if (!m_controls.wasButtonPressed(button)) return;
+    if (!m_controls[0].wasButtonPressed(button)) return;
 
     // Trigger the interaction
     triggerInteraction(getGameObject(inRange->gameObjectIndex));
@@ -762,16 +815,17 @@ void psxsplash::SceneManager::triggerInteraction(GameObject* interactable) {
 
 void psxsplash::SceneManager::setObjectActive(GameObject* go, bool active) {
     if (!go) return;
-    
+
     bool wasActive = go->isActive();
     if (wasActive == active) return;  // No change
-    
+
     go->setActive(active);
-    
+
     // Fire appropriate event
     if (active) {
         L.OnEnable(go);
-    } else {
+    }
+    else {
         L.OnDisable(go);
     }
 }
@@ -808,22 +862,22 @@ void psxsplash::SceneManager::processEnableDisableEvents() {
 // PLAYER
 // ============================================================================
 
-psyqo::Vec3& psxsplash::SceneManager::getPlayerPosition(){
+psyqo::Vec3& psxsplash::SceneManager::getPlayerPosition() {
     return m_playerPosition;
 }
 
-void psxsplash::SceneManager::setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z){
+void psxsplash::SceneManager::setPlayerPosition(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z) {
     m_playerPosition.x = x;
     m_playerPosition.y = y;
     m_playerPosition.z = z;
 
-    if (m_navRegions.isLoaded()) 
+    if (m_navRegions.isLoaded())
     {
         m_playerNavRegion = m_navRegions.findRegionClosest(x.value, y.value, z.value);
     }
 }
 
-psyqo::Vec3 psxsplash::SceneManager::getPlayerRotation(){
+psyqo::Vec3 psxsplash::SceneManager::getPlayerRotation() {
     psyqo::Vec3 playerRot;
 
     playerRot.x = (psyqo::FixedPoint<12>)playerRotationX;
@@ -833,10 +887,10 @@ psyqo::Vec3 psxsplash::SceneManager::getPlayerRotation(){
     return playerRot;
 }
 
-void psxsplash::SceneManager::setPlayerRotation(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z){
-   playerRotationX = (psyqo::FixedPoint<10>)x;
-   playerRotationY = (psyqo::FixedPoint<10>)y;
-   playerRotationZ = (psyqo::FixedPoint<10>)z;
+void psxsplash::SceneManager::setPlayerRotation(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z) {
+    playerRotationX = (psyqo::FixedPoint<10>)x;
+    playerRotationY = (psyqo::FixedPoint<10>)y;
+    playerRotationZ = (psyqo::FixedPoint<10>)z;
 }
 
 // ============================================================================
@@ -863,10 +917,10 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     CDRomHelper::WakeDrive();
 #endif
 
-    psyqo::Prim::FastFill ff(psyqo::Color{.r = 0, .g = 0, .b = 0});
-    ff.rect = psyqo::Rect{0, 0, 320, 240};
+    psyqo::Prim::FastFill ff(psyqo::Color{ .r = 0, .g = 0, .b = 0 });
+    ff.rect = psyqo::Rect{ 0, 0, 320, 240 };
     gpu.sendPrimitive(ff);
-    ff.rect = psyqo::Rect{0, 256, 320, 240};
+    ff.rect = psyqo::Rect{ 0, 256, 320, 240 };
     gpu.sendPrimitive(ff);
     gpu.pumpCallbacks();
 
@@ -932,7 +986,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     if (loading.isActive()) {
         struct Ctx { LoadingScreen* ls; psyqo::GPU* gpu; };
-        Ctx ctx{&loading, &gpu};
+        Ctx ctx{ &loading, &gpu };
         FileLoader::LoadProgressInfo progress{
             [](uint8_t pct, void* ud) {
                 auto* c = static_cast<Ctx*>(ud);
@@ -942,7 +996,8 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         };
         newData = FileLoader::Get().LoadFileSyncWithProgress(
             filename, fileSize, &progress);
-    } else {
+    }
+    else {
         newData = FileLoader::Get().LoadFileSync(filename, fileSize);
     }
 
@@ -987,18 +1042,22 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
     // Skip magic 'V','R'
     ptr += 2;
     uint16_t atlasCount = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-    uint16_t clutCount  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-    uint8_t  fontCount  = *ptr++;
+    uint16_t clutCount = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+    uint8_t  fontCount = *ptr++;
     ptr++; // pad
 
     auto& renderer = Renderer::GetInstance();
 
+    //printf("atlastCount: %d \n", atlasCount);
+
     // Upload texture atlases
     for (uint16_t i = 0; i < atlasCount; i++) {
-        uint16_t vramX  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint16_t vramY  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint16_t width  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t vramX = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t vramY = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t width = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
         uint16_t height = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+
+        //printf("atlas index: %d, x: %d, y: %d, w: %d, h: %d \n", i, vramX, vramY, width, height);
 
         uint32_t pixelBytes = (uint32_t)width * height * 2;
         renderer.VramUpload(reinterpret_cast<uint16_t*>(ptr), vramX, vramY, width, height);
@@ -1013,11 +1072,11 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
     for (uint16_t i = 0; i < clutCount; i++) {
         uint16_t clutPackingX = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
         uint16_t clutPackingY = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint16_t length       = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t length = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
         ptr += 2; // pad
 
         renderer.VramUpload(reinterpret_cast<uint16_t*>(ptr),
-                            clutPackingX * 16, clutPackingY, length, 1);
+            clutPackingX * 16, clutPackingY, length, 1);
         ptr += (uint32_t)length * 2;
 
         // Align to 4 bytes
@@ -1030,22 +1089,22 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
         // uint8_t glyphW = ptr[0]; // not needed for upload
         // uint8_t glyphH = ptr[1]; // not needed for upload
         ptr += 2; // skip glyphW, glyphH
-        uint16_t fontVramX  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint16_t fontVramY  = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint16_t textureH   = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint32_t dataSize   = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
+        uint16_t fontVramX = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t fontVramY = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint16_t textureH = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
+        uint32_t dataSize = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
 
         if (dataSize > 0) {
             // 4bpp 256px wide = 64 VRAM hwords wide
             renderer.VramUpload(reinterpret_cast<const uint16_t*>(ptr),
-                                (int16_t)fontVramX, (int16_t)fontVramY,
-                                64, (int16_t)textureH);
+                (int16_t)fontVramX, (int16_t)fontVramY,
+                64, (int16_t)textureH);
 
             // Upload white CLUT (entry 0=transparent, entry 1=white)
             static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
             renderer.VramUpload(whiteCLUT,
-                                (int16_t)fontVramX, (int16_t)fontVramY,
-                                2, 1);
+                (int16_t)fontVramX, (int16_t)fontVramY,
+                2, 1);
             ptr += dataSize;
         }
 
@@ -1074,7 +1133,7 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
     for (uint16_t i = 0; i < clipCount; i++) {
         uint32_t sizeBytes = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
         uint16_t sampleRate = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
-        uint8_t  loop       = *ptr++;
+        uint8_t  loop = *ptr++;
         ptr++; // pad
 
         if (sizeBytes > 0) {
@@ -1094,11 +1153,11 @@ void psxsplash::SceneManager::clearScene() {
     L.Shutdown();
 
     // 2. Clear all vectors to free their heap storage (game objects, Lua files, names, etc)
-    { eastl::vector<GameObject*>    tmp; tmp.swap(m_gameObjects);    }
-    { eastl::vector<LuaFile*>       tmp; tmp.swap(m_luaFiles);       }
-    { eastl::vector<const char*>    tmp; tmp.swap(m_objectNames);    }
+    { eastl::vector<GameObject*>    tmp; tmp.swap(m_gameObjects); }
+    { eastl::vector<LuaFile*>       tmp; tmp.swap(m_luaFiles); }
+    { eastl::vector<const char*>    tmp; tmp.swap(m_objectNames); }
     { eastl::vector<const char*>    tmp; tmp.swap(m_audioClipNames); }
-    { eastl::vector<Interactable*>  tmp; tmp.swap(m_interactables);  }
+    { eastl::vector<Interactable*>  tmp; tmp.swap(m_interactables); }
 
     // 3. Reset hardware / subsystems
     m_audio.reset();           // Free SPU RAM and stop all voices
@@ -1111,7 +1170,7 @@ void psxsplash::SceneManager::clearScene() {
     m_skinnedMeshCount = 0;
     Renderer::GetInstance().SetSkinData(nullptr, nullptr, 0);
     // BVH and NavRegions will be overwritten by next load
-    
+
     // Reset UI system (disconnect from renderer before splashpack data disappears)
     Renderer::GetInstance().SetUISystem(nullptr);
 
