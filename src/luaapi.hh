@@ -90,6 +90,15 @@ private:
     // Calls callback(object, index) for each active game object
     static int Entity_ForEach(lua_State* L);
     
+    // Entity.SetUVs(object, {x, y})
+    static int Entity_SetUVs(lua_State* L);
+
+    // Entity.SetTPage(object, {x, y})
+    static int Entity_SetTPage(lua_State* L);
+
+    // Entity.SetParent(parent object, child object, Vec3 offset)
+    static int Entity_SetParent(lua_State* L);
+
     // ========================================================================
     // VEC3 API - Vector math
     // ========================================================================
@@ -297,6 +306,9 @@ private:
 
     // Math.Sin(value)
     static int Math_Sin(lua_State* L);
+
+    // Math.Convert3DTo2D(x, y, z)
+    static int Math_Convert3DTo2D(lua_State* L);
 
     // ========================================================================
     // RANDOM API - Get random numbers
