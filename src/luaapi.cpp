@@ -88,6 +88,15 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Entity_ForEach);
     L.setField(-2, "ForEach");
     
+    L.push(Entity_SetUVs);
+    L.setField(-2, "SetUVs");
+
+    L.push(Entity_SetTPage);
+    L.setField(-2, "SetTPage");
+
+    L.push(Entity_SetParent);
+    L.setField(-2, "SetParent");
+
     L.setGlobal("Entity");
     
     // ========================================================================
@@ -320,6 +329,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Math_Sin);
     L.setField(-2, "Sin");
+
+    L.push(Math_Convert3DTo2D);
+    L.setField(-2, "Convert3DTo2D");
 
     L.setGlobal("PSXMath");
     
@@ -827,6 +839,147 @@ int LuaAPI::Entity_ForEach(lua_State* L) {
         }
     }
     
+    return 0;
+}
+
+int LuaAPI::Entity_SetUVs(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1) || !lua.isTable(2))
+    {
+        return 0;
+    }
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    // get index 1 from table 2
+    lua.rawGetI(2, 1);
+    int xVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    // get index 2 from table 2
+    lua.rawGetI(2, 2);
+    int yVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    if (!go) return 0;
+
+    // check if the gameobject has polygons
+    if (go->polyCount > 0)
+    {
+        // alter the uvs of the polygons
+        for (int i = 0; i < go->polyCount; i++)
+        {
+            go->polygons[i].uvA.u = (go->polygons[i].uvA.u + xVal);
+            go->polygons[i].uvA.v = (go->polygons[i].uvA.v + yVal);
+
+            go->polygons[i].uvB.u = (go->polygons[i].uvB.u + xVal);
+            go->polygons[i].uvB.v = (go->polygons[i].uvB.v + yVal);
+
+            go->polygons[i].uvC.u = (go->polygons[i].uvC.u + xVal);
+            go->polygons[i].uvC.v = (go->polygons[i].uvC.v + yVal);
+        }
+    }
+
+    return 0;
+}
+
+int LuaAPI::Entity_SetTPage(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1) || !lua.isTable(2))
+    {
+        return 0;
+    }
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    // get index 1 from table 2
+    lua.rawGetI(2, 1);
+    int xVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    // get index 2 from table 2
+    lua.rawGetI(2, 2);
+    int yVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    if (!go) return 0;
+
+    // check if the gameobject has polygons
+    if (go->polyCount > 0)
+    {
+        // change the texture page of the polygons
+        for (int i = 0; i < go->polyCount; i++)
+        {
+            go->polygons[i].tpage.setPageX(xVal);
+            go->polygons[i].tpage.setPageY(yVal);
+        }
+    }
+
+    return 0;
+}
+
+int LuaAPI::Entity_SetParent(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1) || !lua.isTable(2))
+        return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto goParent = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    lua.getField(2, "__cpp_ptr");
+    auto goChild = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    psyqo::FixedPoint<12> offX, offY, offZ;
+    ReadVec3(lua, 3, offX, offY, offZ);
+
+    if (!goParent || !goChild)
+        return 0;
+
+    psyqo::Vec3 localOffset = {
+        .x = offX,
+        .y = offY,
+        .z = offZ,
+    };
+
+    psyqo::Vec3 worldOffset;
+
+    worldOffset.x =
+        psyqo::FixedPoint<12>(
+            (goParent->rotation.vs[0].x * localOffset.x +
+                goParent->rotation.vs[0].y * localOffset.y +
+                goParent->rotation.vs[0].z * localOffset.z)
+        );
+
+    worldOffset.y =
+        psyqo::FixedPoint<12>(
+            (goParent->rotation.vs[1].x * localOffset.x +
+                goParent->rotation.vs[1].y * localOffset.y +
+                goParent->rotation.vs[1].z * localOffset.z)
+        );
+
+    worldOffset.z =
+        psyqo::FixedPoint<12>(
+            (goParent->rotation.vs[2].x * localOffset.x +
+                goParent->rotation.vs[2].y * localOffset.y +
+                goParent->rotation.vs[2].z * localOffset.z)
+        );
+
+    goChild->position.x = goParent->position.x + worldOffset.x;
+    goChild->position.y = goParent->position.y + worldOffset.y;
+    goChild->position.z = goParent->position.z + worldOffset.z;
+
+    goChild->rotation = goParent->rotation;
+
     return 0;
 }
 
@@ -1927,6 +2080,89 @@ int LuaAPI::Math_Sin(lua_State* L)
     lua.push(result);
 
     return 1;
+}
+
+// Copied directly from renderer.cpp
+static inline void worldToCamera(int32_t wx, int32_t wy, int32_t wz,
+    int32_t camX, int32_t camY, int32_t camZ,
+    const psyqo::Matrix33& camRot,
+    int32_t& outX, int32_t& outY, int32_t& outZ) {
+    int32_t rx = wx - camX, ry = wy - camY, rz = wz - camZ;
+    outX = (int32_t)(((int64_t)camRot.vs[0].x.value * rx + (int64_t)camRot.vs[0].y.value * ry +
+        (int64_t)camRot.vs[0].z.value * rz) >> 12);
+    outY = (int32_t)(((int64_t)camRot.vs[1].x.value * rx + (int64_t)camRot.vs[1].y.value * ry +
+        (int64_t)camRot.vs[1].z.value * rz) >> 12);
+    outZ = (int32_t)(((int64_t)camRot.vs[2].x.value * rx + (int64_t)camRot.vs[2].y.value * ry +
+        (int64_t)camRot.vs[2].z.value * rz) >> 12);
+}
+
+// Copied directly from renderer.cpp
+// (The bit-shifts on rawX and rawY were scrapped to allow for more precision)
+static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
+    int32_t projH, int16_t& sx, int16_t& sy) {
+    if (vz <= 0) return false;
+    int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
+    int32_t rawX = ((vx * projH) / vz) + 160;
+    int32_t rawY = ((vy * projH) / vz) + 120;
+    if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
+    if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
+    sx = (int16_t)rawX;
+    sy = (int16_t)rawY;
+    return true;
+}
+
+static inline bool projectWorldToScreen(
+    int32_t wx, int32_t wy, int32_t wz,
+    const psyqo::Vec3& camPos,
+    const psyqo::Matrix33& camRot,
+    int32_t projH,
+    int16_t& outX, int16_t& outY)
+{
+    int32_t vx, vy, vz;
+    worldToCamera(wx, wy, wz,
+        camPos.x.raw(), camPos.y.raw(), camPos.z.raw(),
+        camRot, vx, vy, vz);
+
+    if (vz <= 0) {
+        outX = 0;
+        outY = 0;
+        return false;
+    }
+
+    return projectToScreen(vx, vy, vz, projH, outX, outY);
+}
+
+int LuaAPI::Math_Convert3DTo2D(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1))
+    {
+        return 0;
+    }
+
+    psyqo::FixedPoint<12> pos_x, pos_y, pos_z;
+    ReadVec3(lua, 1, pos_x, pos_y, pos_z);
+
+    auto& cam = s_sceneManager->getCamera();
+    psyqo::Vec3 camPos = cam.GetPosition();
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+    int32_t projH = cam.GetProjectionH();
+
+    int16_t screenX = 0;
+    int16_t screenY = 0;
+
+    bool visible = projectWorldToScreen(
+        pos_x.raw(), pos_y.raw(), pos_z.raw(),
+        camPos, camRotationMatrix, projH,
+        screenX, screenY);
+
+    lua.pushNumber(screenX);
+    lua.pushNumber(screenY);
+
+    //printf("screenX: %d, screenY: %d \n", screenX, screenY);
+
+    return 2;
 }
 
 // ============================================================================
