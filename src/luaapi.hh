@@ -436,6 +436,12 @@ private:
     static int UI_GetElementCount(lua_State* L);
     static int UI_GetElementByIndex(lua_State* L);
     
+    // Draw directly to the GPU with these functions in Lua scripts.
+    // We should probably add code to add them to an OT,
+    // then have the user call another function to render them all.
+    static int UI_DrawLine(lua_State* L);
+    static int UI_DrawTriangle(lua_State* L);
+    
     // ========================================================================
     // PLAYER API - Controlling the PsxPlayer
     // ========================================================================
