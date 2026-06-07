@@ -8,6 +8,8 @@
 #include "skinmesh.hh"
 #include "uisystem.hh"
 
+#include "renderer.hh"
+
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
@@ -532,6 +534,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(UI_GetElementByIndex);
     L.setField(-2, "GetElementByIndex");
     
+    L.push(UI_DrawLine);
+    L.setField(-2, "DrawLine");
+
+    L.push(UI_DrawTriangle);
+    L.setField(-2, "DrawTriangle");
+
     L.setGlobal("UI");
 
     // ========================================================================
@@ -944,6 +952,10 @@ int LuaAPI::Entity_SetParent(lua_State* L)
 
     if (!goParent || !goChild)
         return 0;
+
+    //offX = psyqo::FixedPoint<12>(0.025_fp);
+    //offY = psyqo::FixedPoint<12>(0.025_fp);
+    //offZ = psyqo::FixedPoint<12>(0.025_fp);
 
     psyqo::Vec3 localOffset = {
         .x = offX,
@@ -2924,6 +2936,183 @@ int LuaAPI::UI_GetElementByIndex(lua_State* L) {
     int handle = s_uiSystem->getCanvasElementHandle(canvasIdx, elemIdx);
     lua.pushNumber(static_cast<lua_Number>(handle));
     return 1;
+}
+
+/*void renderLine(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
+    psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc)
+{
+
+}*/
+
+// parameters: UI_DrawLine({x1, y1}, {x2, y2}, {r, g, b})
+int LuaAPI::UI_DrawLine(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_uiSystem || !lua.isTable(1) || !lua.isTable(2) || !lua.isTable(3)) return 0;
+
+    // lua.rawGetI always goes: (table, index)
+
+    // x1, y1
+    lua.rawGetI(1, 1);
+    uint16_t x1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(1, 2);
+    uint16_t y1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // x2, y2
+    lua.rawGetI(2, 1);
+    uint16_t x2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(2, 2);
+    uint16_t y2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r, g, b
+    lua.rawGetI(3, 1);
+    uint8_t r = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(3, 2);
+    uint8_t g = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(3, 3);
+    uint8_t b = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    /*auto& frag = balloc.allocateFragment<psyqo::Prim::Rectangle>();
+    frag.primitive.setColor(psyqo::Color{ .r = r, .g = g, .b = b });
+    frag.primitive.position = { .x = x1, .y = y1 };
+    frag.primitive.size = { .x = x2, .y = y2 };
+    frag.primitive.setOpaque();
+    ot.insert(frag, 0);*/
+
+    //renderLine(nullptr, nullptr);
+
+    auto& gpu = Renderer::GetInstance().getGPU();
+
+    psyqo::Prim::GouraudLine thisLine;
+
+    thisLine.pointA.x = x1;
+    thisLine.pointA.y = y1;
+
+    thisLine.pointB.x = x2;
+    thisLine.pointB.y = y2;
+
+    thisLine.setColorA(psyqo::Color{ r, g, b });
+    thisLine.setColorB(psyqo::Color{ r, g, b });
+
+    gpu.sendPrimitive(thisLine);
+
+    return 0;
+}
+
+// parameters: UI_DrawTriangle({x1, y1}, {x2, y2}, {x3, y3}, {r1, g1, b1}, {r2, g2, b2}, {r3, g3, b3})
+int LuaAPI::UI_DrawTriangle(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_uiSystem || !lua.isTable(1) || !lua.isTable(2) || !lua.isTable(3)) return 0;
+
+    // lua.rawGetI always goes: (table, index)
+
+    // x1, y1
+    lua.rawGetI(1, 1);
+    uint16_t x1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(1, 2);
+    uint16_t y1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // x2, y2
+    lua.rawGetI(2, 1);
+    uint16_t x2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(2, 2);
+    uint16_t y2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // x3, y3
+    lua.rawGetI(3, 1);
+    uint16_t x3 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(3, 2);
+    uint16_t y3 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r1, g1, b1
+    lua.rawGetI(4, 1);
+    uint8_t r1 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(4, 2);
+    uint8_t g1 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(4, 3);
+    uint8_t b1 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r2, g2, b2
+    lua.rawGetI(5, 1);
+    uint8_t r2 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(5, 2);
+    uint8_t g2 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(5, 3);
+    uint8_t b2 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r3, g3, b3
+    lua.rawGetI(6, 1);
+    uint8_t r3 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(6, 2);
+    uint8_t g3 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(6, 3);
+    uint8_t b3 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    /*auto& frag = balloc.allocateFragment<psyqo::Prim::Rectangle>();
+    frag.primitive.setColor(psyqo::Color{ .r = r, .g = g, .b = b });
+    frag.primitive.position = { .x = x1, .y = y1 };
+    frag.primitive.size = { .x = x2, .y = y2 };
+    frag.primitive.setOpaque();
+    ot.insert(frag, 0);*/
+
+    //renderLine(nullptr, nullptr);
+
+    auto& gpu = Renderer::GetInstance().getGPU();
+
+    psyqo::Prim::GouraudTriangle thisTri;
+
+    thisTri.pointA.x = x1;
+    thisTri.pointA.y = y1;
+
+    thisTri.pointB.x = x2;
+    thisTri.pointB.y = y2;
+
+    thisTri.pointC.x = x3;
+    thisTri.pointC.y = y3;
+
+    thisTri.setColorA(psyqo::Color{ r1, g1, b1 });
+    thisTri.setColorB(psyqo::Color{ r2, g2, b2 });
+    thisTri.setColorC(psyqo::Color{ r3, g3, b3 });
+
+    gpu.sendPrimitive(thisTri);
+
+    return 0;
 }
 
 // ============================================================================
