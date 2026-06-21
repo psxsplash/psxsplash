@@ -6,6 +6,7 @@
 #include <psyqo/primitives/rectangles.hh>
 #include <psyqo/primitives/sprites.hh>
 #include <psyqo/primitives/triangles.hh>
+#include <psyqo/primitives/lines.hh>
 #include "streq.hh"
 
 namespace psxsplash {
@@ -169,6 +170,18 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
                 break;
             case UIElementType::Text:
                 el.textData.fontIndex = typeData[0]; // 0=system, 1+=custom
+                break;
+            case UIElementType::Line:
+                //el.lineData.colorR = typeData[0];
+                //el.lineData.colorG = typeData[1];
+                //el.lineData.colorB = typeData[2];
+
+                el.lineData.x1 = *reinterpret_cast<uint16_t*>(&typeData[0]);
+                el.lineData.y1 = *reinterpret_cast<uint16_t*>(&typeData[2]);
+
+                el.lineData.x2 = *reinterpret_cast<uint16_t*>(&typeData[4]);
+                el.lineData.y2 = *reinterpret_cast<uint16_t*>(&typeData[6]);
+
                 break;
             default:
                 break;
@@ -369,6 +382,20 @@ void UISystem::renderElement(UIElement& el,
         }
         break;
     }
+
+    case UIElementType::Line:
+    {
+        auto& lineEl = balloc.allocateFragment<psyqo::Prim::Line>();
+
+        lineEl.primitive.setColor(psyqo::Color{ .r = el.colorR, .g = el.colorG, .b = el.colorB });
+        lineEl.primitive.pointA = psyqo::Vertex{ .x = el.lineData.x1, .y = el.lineData.y1 };
+        lineEl.primitive.pointB = psyqo::Vertex{ .x = el.lineData.x2, .y = el.lineData.y2 };
+        lineEl.primitive.setOpaque();
+
+        ot.insert(lineEl, 0);
+    }
+    break;
+
     }
 }
 

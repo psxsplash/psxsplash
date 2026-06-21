@@ -8,11 +8,14 @@
 #include "skinmesh.hh"
 #include "uisystem.hh"
 
+#include "renderer.hh"
+
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
 #include "gtemath.hh"
 
+#include <psyqo/xprintf.h>
 
 namespace psxsplash {
 
@@ -87,6 +90,15 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Entity_ForEach);
     L.setField(-2, "ForEach");
     
+    L.push(Entity_SetUVs);
+    L.setField(-2, "SetUVs");
+
+    L.push(Entity_SetTPage);
+    L.setField(-2, "SetTPage");
+
+    L.push(Entity_SetParent);
+    L.setField(-2, "SetParent");
+
     L.setGlobal("Entity");
     
     // ========================================================================
@@ -137,18 +149,30 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     // ========================================================================
     L.newTable();  // Input table
     
-    L.push(Input_IsPressed);
-    L.setField(-2, "IsPressed");
+    L.push(Input_IsPressedPlayer1);
+    L.setField(-2, "IsPressedPlayer1");
     
-    L.push(Input_IsReleased);
-    L.setField(-2, "IsReleased");
+    L.push(Input_IsReleasedPlayer1);
+    L.setField(-2, "IsReleasedPlayer1");
     
-    L.push(Input_IsHeld);
-    L.setField(-2, "IsHeld");
+    L.push(Input_IsHeldPlayer1);
+    L.setField(-2, "IsHeldPlayer1");
     
-    L.push(Input_GetAnalog);
-    L.setField(-2, "GetAnalog");
+    L.push(Input_GetAnalogPlayer1);
+    L.setField(-2, "GetAnalogPlayer1");
     
+    L.push(Input_IsPressedPlayer2);
+    L.setField(-2, "IsPressedPlayer2");
+
+    L.push(Input_IsReleasedPlayer2);
+    L.setField(-2, "IsReleasedPlayer2");
+
+    L.push(Input_IsHeldPlayer2);
+    L.setField(-2, "IsHeldPlayer2");
+
+    L.push(Input_GetAnalogPlayer2);
+    L.setField(-2, "GetAnalogPlayer2");
+
     // Register button constants
     RegisterInputConstants(L);
     
@@ -301,7 +325,16 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Math_Max);
     L.setField(-2, "Max");
+
+    L.push(Math_Cos);
+    L.setField(-2, "Cos");
     
+    L.push(Math_Sin);
+    L.setField(-2, "Sin");
+
+    L.push(Math_Convert3DTo2D);
+    L.setField(-2, "Convert3DTo2D");
+
     L.setGlobal("PSXMath");
     
     // ========================================================================
@@ -409,11 +442,17 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     // ========================================================================
     L.newTable();
 
-    L.push(Controls_SetEnabled);
-    L.setField(-2, "SetEnabled");
+    L.push(Controls_SetEnabledPlayer1);
+    L.setField(-2, "SetEnabledPlayer1");
 
-    L.push(Controls_IsEnabled);
-    L.setField(-2, "IsEnabled");
+    L.push(Controls_IsEnabledPlayer1);
+    L.setField(-2, "IsEnabledPlayer1");
+
+    L.push(Controls_SetEnabledPlayer2);
+    L.setField(-2, "SetEnabledPlayer2");
+
+    L.push(Controls_IsEnabledPlayer2);
+    L.setField(-2, "IsEnabledPlayer2");
 
     L.setGlobal("Controls");
 
@@ -495,6 +534,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(UI_GetElementByIndex);
     L.setField(-2, "GetElementByIndex");
     
+    L.push(UI_DrawLine);
+    L.setField(-2, "DrawLine");
+
+    L.push(UI_DrawTriangle);
+    L.setField(-2, "DrawTriangle");
+
     L.setGlobal("UI");
 
     // ========================================================================
@@ -802,6 +847,151 @@ int LuaAPI::Entity_ForEach(lua_State* L) {
         }
     }
     
+    return 0;
+}
+
+int LuaAPI::Entity_SetUVs(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1) || !lua.isTable(2))
+    {
+        return 0;
+    }
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    // get index 1 from table 2
+    lua.rawGetI(2, 1);
+    int xVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    // get index 2 from table 2
+    lua.rawGetI(2, 2);
+    int yVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    if (!go) return 0;
+
+    // check if the gameobject has polygons
+    if (go->polyCount > 0)
+    {
+        // alter the uvs of the polygons
+        for (int i = 0; i < go->polyCount; i++)
+        {
+            go->polygons[i].uvA.u = (go->polygons[i].uvA.u + xVal);
+            go->polygons[i].uvA.v = (go->polygons[i].uvA.v + yVal);
+
+            go->polygons[i].uvB.u = (go->polygons[i].uvB.u + xVal);
+            go->polygons[i].uvB.v = (go->polygons[i].uvB.v + yVal);
+
+            go->polygons[i].uvC.u = (go->polygons[i].uvC.u + xVal);
+            go->polygons[i].uvC.v = (go->polygons[i].uvC.v + yVal);
+        }
+    }
+
+    return 0;
+}
+
+int LuaAPI::Entity_SetTPage(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1) || !lua.isTable(2))
+    {
+        return 0;
+    }
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    // get index 1 from table 2
+    lua.rawGetI(2, 1);
+    int xVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    // get index 2 from table 2
+    lua.rawGetI(2, 2);
+    int yVal = (int)lua.checkNumber(-1);
+    lua.pop();
+
+    if (!go) return 0;
+
+    // check if the gameobject has polygons
+    if (go->polyCount > 0)
+    {
+        // change the texture page of the polygons
+        for (int i = 0; i < go->polyCount; i++)
+        {
+            go->polygons[i].tpage.setPageX(xVal);
+            go->polygons[i].tpage.setPageY(yVal);
+        }
+    }
+
+    return 0;
+}
+
+int LuaAPI::Entity_SetParent(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1) || !lua.isTable(2))
+        return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto goParent = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    lua.getField(2, "__cpp_ptr");
+    auto goChild = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    psyqo::FixedPoint<12> offX, offY, offZ;
+    ReadVec3(lua, 3, offX, offY, offZ);
+
+    if (!goParent || !goChild)
+        return 0;
+
+    //offX = psyqo::FixedPoint<12>(0.025_fp);
+    //offY = psyqo::FixedPoint<12>(0.025_fp);
+    //offZ = psyqo::FixedPoint<12>(0.025_fp);
+
+    psyqo::Vec3 localOffset = {
+        .x = offX,
+        .y = offY,
+        .z = offZ,
+    };
+
+    psyqo::Vec3 worldOffset;
+
+    worldOffset.x =
+        psyqo::FixedPoint<12>(
+            (goParent->rotation.vs[0].x * localOffset.x +
+                goParent->rotation.vs[0].y * localOffset.y +
+                goParent->rotation.vs[0].z * localOffset.z)
+        );
+
+    worldOffset.y =
+        psyqo::FixedPoint<12>(
+            (goParent->rotation.vs[1].x * localOffset.x +
+                goParent->rotation.vs[1].y * localOffset.y +
+                goParent->rotation.vs[1].z * localOffset.z)
+        );
+
+    worldOffset.z =
+        psyqo::FixedPoint<12>(
+            (goParent->rotation.vs[2].x * localOffset.x +
+                goParent->rotation.vs[2].y * localOffset.y +
+                goParent->rotation.vs[2].z * localOffset.z)
+        );
+
+    goChild->position.x = goParent->position.x + worldOffset.x;
+    goChild->position.y = goParent->position.y + worldOffset.y;
+    goChild->position.z = goParent->position.z + worldOffset.z;
+
+    goChild->rotation = goParent->rotation;
+
     return 0;
 }
 
@@ -1179,7 +1369,7 @@ void LuaAPI::RegisterInputConstants(psyqo::Lua& L) {
     L.setField(-2, "R3");
 }
 
-int LuaAPI::Input_IsPressed(lua_State* L) {
+int LuaAPI::Input_IsPressedPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager || !lua.isNumber(1)) {
@@ -1188,11 +1378,24 @@ int LuaAPI::Input_IsPressed(lua_State* L) {
     }
     
     auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
-    lua.push(s_sceneManager->getControls().wasButtonPressed(button));
+    lua.push(s_sceneManager->getControlsPlayer1().wasButtonPressed(button));
     return 1;
 }
 
-int LuaAPI::Input_IsReleased(lua_State* L) {
+int LuaAPI::Input_IsPressedPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
+    lua.push(s_sceneManager->getControlsPlayer2().wasButtonPressed(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsReleasedPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager || !lua.isNumber(1)) {
@@ -1201,11 +1404,24 @@ int LuaAPI::Input_IsReleased(lua_State* L) {
     }
     
     auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
-    lua.push(s_sceneManager->getControls().wasButtonReleased(button));
+    lua.push(s_sceneManager->getControlsPlayer1().wasButtonReleased(button));
     return 1;
 }
 
-int LuaAPI::Input_IsHeld(lua_State* L) {
+int LuaAPI::Input_IsReleasedPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
+    lua.push(s_sceneManager->getControlsPlayer2().wasButtonReleased(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsHeldPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager || !lua.isNumber(1)) {
@@ -1214,11 +1430,24 @@ int LuaAPI::Input_IsHeld(lua_State* L) {
     }
     
     auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
-    lua.push(s_sceneManager->getControls().isButtonHeld(button));
+    lua.push(s_sceneManager->getControlsPlayer1().isButtonHeld(button));
     return 1;
 }
 
-int LuaAPI::Input_GetAnalog(lua_State* L) {
+int LuaAPI::Input_IsHeldPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push(false);
+        return 1;
+    }
+
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(1)));
+    lua.push(s_sceneManager->getControlsPlayer2().isButtonHeld(button));
+    return 1;
+}
+
+int LuaAPI::Input_GetAnalogPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     
     if (!s_sceneManager) {
@@ -1228,7 +1457,7 @@ int LuaAPI::Input_GetAnalog(lua_State* L) {
     }
     
     int stick = lua.isNumber(1) ? static_cast<int>(lua.toNumber(1)) : 0;
-    auto& controls = s_sceneManager->getControls();
+    auto& controls = s_sceneManager->getControlsPlayer1();
     
     int16_t x, y;
     if (stick == 1) {
@@ -1239,6 +1468,35 @@ int LuaAPI::Input_GetAnalog(lua_State* L) {
         y = controls.getLeftStickY();
     }
     
+    // Scale to approximately [-1.0, 1.0] in Lua number space
+    // Stick range is -127 to +127; divide by 127
+    lua.pushNumber(x * kFixedScale / 127);
+    lua.pushNumber(y * kFixedScale / 127);
+    return 2;
+}
+
+int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 2;
+    }
+
+    int stick = lua.isNumber(1) ? static_cast<int>(lua.toNumber(1)) : 0;
+    auto& controls = s_sceneManager->getControlsPlayer2();
+
+    int16_t x, y;
+    if (stick == 1) {
+        x = controls.getRightStickX();
+        y = controls.getRightStickY();
+    }
+    else {
+        x = controls.getLeftStickX();
+        y = controls.getLeftStickY();
+    }
+
     // Scale to approximately [-1.0, 1.0] in Lua number space
     // Stick range is -127 to +127; divide by 127
     lua.pushNumber(x * kFixedScale / 127);
@@ -1798,6 +2056,127 @@ int LuaAPI::Math_Max(lua_State* L) {
     return 1;
 }
 
+int LuaAPI::Math_Cos(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isNumber(1))
+    {
+        return 0;
+    }
+
+    int value = (int)lua.toNumber(1);
+    psyqo::Angle angle = ((uint32_t)value * (2.0_pi)) / 360;
+
+    auto result = s_trig.cos(angle);
+
+    lua.push(result);
+
+    return 1;
+}
+
+int LuaAPI::Math_Sin(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isNumber(1))
+    {
+        return 0;
+    }
+
+    int value = (int)lua.toNumber(1);
+    psyqo::Angle angle = ((uint32_t)value * (2.0_pi)) / 360;
+
+    auto result = s_trig.sin(angle);
+
+    lua.push(result);
+
+    return 1;
+}
+
+// Copied directly from renderer.cpp
+static inline void worldToCamera(int32_t wx, int32_t wy, int32_t wz,
+    int32_t camX, int32_t camY, int32_t camZ,
+    const psyqo::Matrix33& camRot,
+    int32_t& outX, int32_t& outY, int32_t& outZ) {
+    int32_t rx = wx - camX, ry = wy - camY, rz = wz - camZ;
+    outX = (int32_t)(((int64_t)camRot.vs[0].x.value * rx + (int64_t)camRot.vs[0].y.value * ry +
+        (int64_t)camRot.vs[0].z.value * rz) >> 12);
+    outY = (int32_t)(((int64_t)camRot.vs[1].x.value * rx + (int64_t)camRot.vs[1].y.value * ry +
+        (int64_t)camRot.vs[1].z.value * rz) >> 12);
+    outZ = (int32_t)(((int64_t)camRot.vs[2].x.value * rx + (int64_t)camRot.vs[2].y.value * ry +
+        (int64_t)camRot.vs[2].z.value * rz) >> 12);
+}
+
+// Copied directly from renderer.cpp
+// (The bit-shifts on rawX and rawY were scrapped to allow for more precision)
+static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
+    int32_t projH, int16_t& sx, int16_t& sy) {
+    if (vz <= 0) return false;
+    int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
+    int32_t rawX = ((vx * projH) / vz) + 160;
+    int32_t rawY = ((vy * projH) / vz) + 120;
+    if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
+    if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
+    sx = (int16_t)rawX;
+    sy = (int16_t)rawY;
+    return true;
+}
+
+static inline bool projectWorldToScreen(
+    int32_t wx, int32_t wy, int32_t wz,
+    const psyqo::Vec3& camPos,
+    const psyqo::Matrix33& camRot,
+    int32_t projH,
+    int16_t& outX, int16_t& outY)
+{
+    int32_t vx, vy, vz;
+    worldToCamera(wx, wy, wz,
+        camPos.x.raw(), camPos.y.raw(), camPos.z.raw(),
+        camRot, vx, vy, vz);
+
+    if (vz <= 0) {
+        outX = 0;
+        outY = 0;
+        return false;
+    }
+
+    return projectToScreen(vx, vy, vz, projH, outX, outY);
+}
+
+int LuaAPI::Math_Convert3DTo2D(lua_State* L)
+{
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1))
+    {
+        return 0;
+    }
+
+    psyqo::FixedPoint<12> pos_x, pos_y, pos_z;
+    ReadVec3(lua, 1, pos_x, pos_y, pos_z);
+
+    auto& cam = s_sceneManager->getCamera();
+    psyqo::Vec3 camPos = cam.GetPosition();
+    psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
+    int32_t projH = cam.GetProjectionH();
+
+    int16_t screenX = 0;
+    int16_t screenY = 0;
+
+    bool visible = projectWorldToScreen(
+        pos_x.raw(), pos_y.raw(), pos_z.raw(),
+        camPos, camRotationMatrix, projH,
+        screenX, screenY);
+
+    lua.pushNumber(screenX);
+    lua.pushNumber(screenY);
+
+    //printf("screenX: %d, screenY: %d \n", screenX, screenY);
+
+    return 2;
+}
+
 // ============================================================================
 // RANDOM API IMPLEMENTATION
 // ============================================================================
@@ -2231,19 +2610,38 @@ int LuaAPI::SkinnedAnim_GetClip(lua_State* L) {
 // CONTROLS API IMPLEMENTATION
 // ============================================================================
 
-int LuaAPI::Controls_SetEnabled(lua_State* L) {
+int LuaAPI::Controls_SetEnabledPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     if (s_sceneManager && lua.isBoolean(1)) {
-        s_sceneManager->setControlsEnabled(lua.toBoolean(1));
+        s_sceneManager->setControlsEnabledPlayer1(lua.toBoolean(1));
     }
     return 0;
 }
 
-int LuaAPI::Controls_IsEnabled(lua_State* L) {
+int LuaAPI::Controls_SetEnabledPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_sceneManager && lua.isBoolean(1)) {
+        s_sceneManager->setControlsEnabledPlayer2(lua.toBoolean(1));
+    }
+    return 0;
+}
+
+int LuaAPI::Controls_IsEnabledPlayer1(lua_State* L) {
     psyqo::Lua lua(L);
     if (s_sceneManager) {
-        lua.push(s_sceneManager->isControlsEnabled());
+        lua.push(s_sceneManager->isControlsEnabledPlayer1());
     } else {
+        lua.push(false);
+    }
+    return 1;
+}
+
+int LuaAPI::Controls_IsEnabledPlayer2(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_sceneManager) {
+        lua.push(s_sceneManager->isControlsEnabledPlayer2());
+    }
+    else {
         lua.push(false);
     }
     return 1;
@@ -2538,6 +2936,183 @@ int LuaAPI::UI_GetElementByIndex(lua_State* L) {
     int handle = s_uiSystem->getCanvasElementHandle(canvasIdx, elemIdx);
     lua.pushNumber(static_cast<lua_Number>(handle));
     return 1;
+}
+
+/*void renderLine(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
+    psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc)
+{
+
+}*/
+
+// parameters: UI_DrawLine({x1, y1}, {x2, y2}, {r, g, b})
+int LuaAPI::UI_DrawLine(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_uiSystem || !lua.isTable(1) || !lua.isTable(2) || !lua.isTable(3)) return 0;
+
+    // lua.rawGetI always goes: (table, index)
+
+    // x1, y1
+    lua.rawGetI(1, 1);
+    uint16_t x1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(1, 2);
+    uint16_t y1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // x2, y2
+    lua.rawGetI(2, 1);
+    uint16_t x2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(2, 2);
+    uint16_t y2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r, g, b
+    lua.rawGetI(3, 1);
+    uint8_t r = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(3, 2);
+    uint8_t g = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(3, 3);
+    uint8_t b = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    /*auto& frag = balloc.allocateFragment<psyqo::Prim::Rectangle>();
+    frag.primitive.setColor(psyqo::Color{ .r = r, .g = g, .b = b });
+    frag.primitive.position = { .x = x1, .y = y1 };
+    frag.primitive.size = { .x = x2, .y = y2 };
+    frag.primitive.setOpaque();
+    ot.insert(frag, 0);*/
+
+    //renderLine(nullptr, nullptr);
+
+    auto& gpu = Renderer::GetInstance().getGPU();
+
+    psyqo::Prim::GouraudLine thisLine;
+
+    thisLine.pointA.x = x1;
+    thisLine.pointA.y = y1;
+
+    thisLine.pointB.x = x2;
+    thisLine.pointB.y = y2;
+
+    thisLine.setColorA(psyqo::Color{ r, g, b });
+    thisLine.setColorB(psyqo::Color{ r, g, b });
+
+    gpu.sendPrimitive(thisLine);
+
+    return 0;
+}
+
+// parameters: UI_DrawTriangle({x1, y1}, {x2, y2}, {x3, y3}, {r1, g1, b1}, {r2, g2, b2}, {r3, g3, b3})
+int LuaAPI::UI_DrawTriangle(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_uiSystem || !lua.isTable(1) || !lua.isTable(2) || !lua.isTable(3)) return 0;
+
+    // lua.rawGetI always goes: (table, index)
+
+    // x1, y1
+    lua.rawGetI(1, 1);
+    uint16_t x1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(1, 2);
+    uint16_t y1 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // x2, y2
+    lua.rawGetI(2, 1);
+    uint16_t x2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(2, 2);
+    uint16_t y2 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // x3, y3
+    lua.rawGetI(3, 1);
+    uint16_t x3 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(3, 2);
+    uint16_t y3 = (uint16_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r1, g1, b1
+    lua.rawGetI(4, 1);
+    uint8_t r1 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(4, 2);
+    uint8_t g1 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(4, 3);
+    uint8_t b1 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r2, g2, b2
+    lua.rawGetI(5, 1);
+    uint8_t r2 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(5, 2);
+    uint8_t g2 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(5, 3);
+    uint8_t b2 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    // r3, g3, b3
+    lua.rawGetI(6, 1);
+    uint8_t r3 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(6, 2);
+    uint8_t g3 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    lua.rawGetI(6, 3);
+    uint8_t b3 = (uint8_t)lua.checkNumber(-1);
+    lua.pop();
+
+    /*auto& frag = balloc.allocateFragment<psyqo::Prim::Rectangle>();
+    frag.primitive.setColor(psyqo::Color{ .r = r, .g = g, .b = b });
+    frag.primitive.position = { .x = x1, .y = y1 };
+    frag.primitive.size = { .x = x2, .y = y2 };
+    frag.primitive.setOpaque();
+    ot.insert(frag, 0);*/
+
+    //renderLine(nullptr, nullptr);
+
+    auto& gpu = Renderer::GetInstance().getGPU();
+
+    psyqo::Prim::GouraudTriangle thisTri;
+
+    thisTri.pointA.x = x1;
+    thisTri.pointA.y = y1;
+
+    thisTri.pointB.x = x2;
+    thisTri.pointB.y = y2;
+
+    thisTri.pointC.x = x3;
+    thisTri.pointC.y = y3;
+
+    thisTri.setColorA(psyqo::Color{ r1, g1, b1 });
+    thisTri.setColorB(psyqo::Color{ r2, g2, b2 });
+    thisTri.setColorC(psyqo::Color{ r3, g3, b3 });
+
+    gpu.sendPrimitive(thisTri);
+
+    return 0;
 }
 
 // ============================================================================

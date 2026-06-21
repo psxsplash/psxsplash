@@ -9,6 +9,7 @@
 #include <psyqo/primitives/misc.hh>
 #include <psyqo/primitives/rectangles.hh>
 #include <psyqo/primitives/triangles.hh>
+#include <psyqo/primitives/lines.hh>
 
 namespace psxsplash {
 
@@ -21,7 +22,8 @@ enum class UIElementType : uint8_t {
     Image    = 0,
     Box      = 1,
     Text     = 2,
-    Progress = 3
+    Progress = 3,
+    Line     = 4,
 };
 
 struct UIImageData {
@@ -40,6 +42,12 @@ struct UITextData {
     uint8_t fontIndex; // 0 = system font, 1+ = custom font
 };
 
+struct UILineData {
+    uint16_t x1, y1;
+    uint16_t x2, y2;
+    uint8_t colorR, colorG, colorB;
+};
+
 struct UIElement {
     UIElementType type;
     bool          visible;
@@ -47,7 +55,7 @@ struct UIElement {
     int16_t x, y, w, h;       // pixel rect / offset in PS1 screen space
     uint8_t anchorMinX, anchorMinY, anchorMaxX, anchorMaxY; // 8.8 fixed
     uint8_t colorR, colorG, colorB;
-    union { UIImageData image; UIProgressData progress; UITextData textData; };
+    union { UIImageData image; UIProgressData progress; UITextData textData; UILineData lineData;  };
     char textBuf[UI_TEXT_BUF]; // UIText: mutable, starts with default
 };
 
