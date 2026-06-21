@@ -83,6 +83,13 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                             track.initialValues[0] = track.target->isActive() ? 1 : 0;
                         }
                         break;
+                    case TrackType::ObjectUVOffset: {
+                        if (track.target) {
+                            track.initialValues[0] = track.target->uvOffset.u;
+                            track.initialValues[1] = track.target->uvOffset.v;
+                        }
+                        break;
+                    }
                     case TrackType::UICanvasVisible:
                         if (m_uiSystem) {
                             track.initialValues[0] = m_uiSystem->isCanvasVisible(track.uiHandle) ? 1 : 0;
@@ -314,6 +321,16 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
                 }
             }
             track.target->setActive(activeVal != 0);
+            break;
+        }
+
+        case TrackType::ObjectUVOffset: {
+            if (!track.target) return;
+            psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
+            uint8_t u = (out[0] < 0) ? 0 : ((out[0] > 255) ? 255 : (uint8_t)out[0]);
+            uint8_t v = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
+
+            track.target->uvOffset = { u, v };
             break;
         }
 

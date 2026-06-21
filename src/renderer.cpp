@@ -129,7 +129,12 @@ void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
     psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
     psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
-    int depth) {
+    int depth,
+    psyqo::PrimPieces::UVCoords uvOffset) {
+
+    if (!(tri.flags & ANIM_FLAG)) {
+        uvOffset = { 0,0 };
+    }
 
     writeSafe<PseudoRegister::V0>(tri.v0);
     writeSafe<PseudoRegister::V1>(tri.v1);
@@ -219,8 +224,8 @@ void psxsplash::Renderer::processTriangle(
             childB.v2 = m; childB.uvC.u = mu; childB.uvC.v = mv; childB.colorC = mc;
         }
 
-        processTriangle(childA, fogFarSZ, ot, balloc, depth + 1);
-        processTriangle(childB, fogFarSZ, ot, balloc, depth + 1);
+        processTriangle(childA, fogFarSZ, ot, balloc, depth + 1, uvOffset);
+        processTriangle(childB, fogFarSZ, ot, balloc, depth + 1, uvOffset);
         return;
     }
 
@@ -289,9 +294,9 @@ void psxsplash::Renderer::processTriangle(
 
         auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
         texP.primitive.pointA = projected[0]; texP.primitive.pointB = projected[1]; texP.primitive.pointC = projected[2];
-        texP.primitive.uvA = tri.uvA;
-        texP.primitive.uvB = tri.uvB;
-        texP.primitive.uvC.u = tri.uvC.u; texP.primitive.uvC.v = tri.uvC.v;
+        texP.primitive.uvA.u = tri.uvA.u + uvOffset.u; texP.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+        texP.primitive.uvB.u = tri.uvB.u + uvOffset.u; texP.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+        texP.primitive.uvC.u = tri.uvC.u + uvOffset.u; texP.primitive.uvC.v = tri.uvC.v + uvOffset.v;
         texP.primitive.tpage = tri.tpage;
         texP.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
         psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
@@ -303,9 +308,9 @@ void psxsplash::Renderer::processTriangle(
 
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
         p.primitive.pointA = projected[0]; p.primitive.pointB = projected[1]; p.primitive.pointC = projected[2];
-        p.primitive.uvA = tri.uvA;
-        p.primitive.uvB = tri.uvB;
-        p.primitive.uvC.u = tri.uvC.u; p.primitive.uvC.v = tri.uvC.v;
+        p.primitive.uvA.u = tri.uvA.u + uvOffset.u; p.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+        p.primitive.uvB.u = tri.uvB.u + uvOffset.u; p.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+        p.primitive.uvC.u = tri.uvC.u + uvOffset.u; p.primitive.uvC.v = tri.uvC.v + uvOffset.v;
         p.primitive.tpage = tri.tpage;
         p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
         psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
@@ -339,7 +344,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
         if (obj->isSkinned()) continue;
         setupObjectTransform(obj, cameraPosition);
         for (int i = 0; i < obj->polyCount; i++)
-            processTriangle(obj->polygons[i], fogFarSZ, ot, balloc);
+            processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
@@ -402,7 +407,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
             setupObjectTransform(obj, cameraPosition);
         }
         if (lastObjCulled) continue;
-        processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc);
+        processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
 
     // Second pass: render dynamically-moved objects (their BVH references are stale).
@@ -417,7 +422,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
         for (int t = 0; t < obj->polyCount; t++) {
-            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc);
+            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
     }
 
@@ -734,7 +739,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 setupObjectTransform(obj, cameraPosition);
             }
             if (lastObjCulled) continue;
-            processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc);
+            processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
     };
 
@@ -1107,7 +1112,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
         for (int t = 0; t < obj->polyCount; t++) {
-            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc);
+            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
     }
 
@@ -1346,6 +1351,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
                 hasFog = (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
             }
 
+            psyqo::PrimPieces::UVCoords uvOffset = obj->uvOffset;
+
             // Emit GPU primitives
             if (tri.isUntextured()) {
                 if (hasFog) {
@@ -1374,8 +1381,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
 
                 auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
                 texP.primitive.pointA = projected0; texP.primitive.pointB = projected1; texP.primitive.pointC = projected2;
-                texP.primitive.uvA = tri.uvA; texP.primitive.uvB = tri.uvB;
-                texP.primitive.uvC.u = tri.uvC.u; texP.primitive.uvC.v = tri.uvC.v;
+                texP.primitive.uvA.u = tri.uvA.u + uvOffset.u; texP.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+                texP.primitive.uvB.u = tri.uvB.u + uvOffset.u; texP.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+                texP.primitive.uvC.u = tri.uvC.u + uvOffset.u; texP.primitive.uvC.v = tri.uvC.v + uvOffset.v;
                 texP.primitive.tpage = tri.tpage;
                 texP.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
                 psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
@@ -1386,8 +1394,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
             } else {
                 auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
                 p.primitive.pointA = projected0; p.primitive.pointB = projected1; p.primitive.pointC = projected2;
-                p.primitive.uvA = tri.uvA; p.primitive.uvB = tri.uvB;
-                p.primitive.uvC.u = tri.uvC.u; p.primitive.uvC.v = tri.uvC.v;
+                p.primitive.uvA.u = tri.uvA.u + uvOffset.u; p.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+                p.primitive.uvB.u = tri.uvB.u + uvOffset.u; p.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+                p.primitive.uvC.u = tri.uvC.u + uvOffset.u; p.primitive.uvC.v = tri.uvC.v + uvOffset.v;
                 p.primitive.tpage = tri.tpage;
                 p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
                 psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);

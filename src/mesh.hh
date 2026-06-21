@@ -8,6 +8,9 @@ namespace psxsplash {
   // Sentinel value for untextured (vertex-color-only) triangles
   static constexpr uint16_t UNTEXTURED_TPAGE = 0xFFFF;
 
+  // Flags for tris, was going to use Utilities::BitField but I couldn't get it to be in 2 bytes
+  static constexpr uint16_t ANIM_FLAG = 0x1;
+
   class Tri final {
     public:
       psyqo::GTE::PackedVec3 v0, v1, v2;  
@@ -21,7 +24,7 @@ namespace psxsplash {
       psyqo::PrimPieces::TPageAttr tpage; 
       uint16_t clutX;
       uint16_t clutY;
-      uint16_t padding;
+      uint16_t flags;
 
       /// Returns true if this triangle has no texture (vertex-color only).
       bool isUntextured() const {

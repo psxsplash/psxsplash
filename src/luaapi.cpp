@@ -120,6 +120,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Entity_ForEach);
     L.setField(-2, "ForEach");
+
+    L.push(Entity_SetUVOffset);
+    L.setField(-2, "SetUVOffset");
     
     L.push(Entity_SetUVs);
     L.setField(-2, "SetUVs");
