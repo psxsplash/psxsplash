@@ -85,7 +85,37 @@ private:
     
     // Entity.SetRotationY(object, angle) -> nil
     static int Entity_SetRotationY(lua_State* L);
+
+    // Entity.SetRotation(object, {x, y, z})
+    static int Entity_SetRotation(lua_State* L);
     
+    // Entity.GetForward(object) -> {x, y, z}
+    static int Entity_GetForward(lua_State* L);
+
+    // Entity.GetRight(object) -> {x, y, z}
+    static int Entity_GetRight(lua_State* L);
+
+    // Entity.GetUp(object) -> {x, y, z}
+    static int Entity_GetUp(lua_State* L);
+
+    // Entity.MoveForward(object,step) 
+    static int Entity_MoveForward(lua_State* L);
+
+    // Entity.MoveBackward(object,step) 
+    static int Entity_MoveBackward(lua_State* L);
+
+    // Entity.MoveLeft(object,step) 
+    static int Entity_MoveLeft(lua_State* L);
+
+    // Entity.MoveRight(object,step) 
+    static int Entity_MoveRight(lua_State* L);
+
+    // Entity.MoveUp(object,step) 
+    static int Entity_MoveUp(lua_State* L);
+
+    // Entity.MoveDown(object,step) 
+    static int Entity_MoveDown(lua_State* L);
+
     // Entity.ForEach(callback) -> nil
     // Calls callback(object, index) for each active game object
     static int Entity_ForEach(lua_State* L);
@@ -93,6 +123,15 @@ private:
     // Entity.SetUVOffset(object, u, v)
     static int Entity_SetUVOffset(lua_State* L);
     
+    // Entity.SetUVs(object, {x, y})
+    static int Entity_SetUVs(lua_State* L);
+
+    // Entity.SetTPage(object, {x, y})
+    static int Entity_SetTPage(lua_State* L);
+
+    // Entity.SetParent(parent object, child object, Vec3 offset)
+    static int Entity_SetParent(lua_State* L);
+
     // ========================================================================
     // VEC3 API - Vector math
     // ========================================================================
@@ -139,19 +178,23 @@ private:
     
     // Input.IsPressed(button) -> boolean
     // True only on the frame the button was pressed
-    static int Input_IsPressed(lua_State* L);
+    static int Input_IsPressedPlayer1(lua_State* L);
+    static int Input_IsPressedPlayer2(lua_State* L);
     
     // Input.IsReleased(button) -> boolean
     // True only on the frame the button was released
-    static int Input_IsReleased(lua_State* L);
+    static int Input_IsReleasedPlayer1(lua_State* L);
+    static int Input_IsReleasedPlayer2(lua_State* L);
     
     // Input.IsHeld(button) -> boolean
     // True while the button is held down
-    static int Input_IsHeld(lua_State* L);
+    static int Input_IsHeldPlayer1(lua_State* L);
+    static int Input_IsHeldPlayer2(lua_State* L);
     
     // Input.GetAnalog(stick) -> x, y
     // Returns analog stick values (-128 to 127)
-    static int Input_GetAnalog(lua_State* L);
+    static int Input_GetAnalogPlayer1(lua_State* L);
+    static int Input_GetAnalogPlayer2(lua_State* L);
     
     // Button constants (registered as Input.CROSS, Input.CIRCLE, etc.)
     static void RegisterInputConstants(psyqo::Lua& L);
@@ -291,6 +334,15 @@ private:
     // Math.Max(a, b)  
     static int Math_Max(lua_State* L);
     
+    // Math.Cos(value)
+    static int Math_Cos(lua_State* L);
+
+    // Math.Sin(value)
+    static int Math_Sin(lua_State* L);
+
+    // Math.Convert3DTo2D(x, y, z)
+    static int Math_Convert3DTo2D(lua_State* L);
+
     // ========================================================================
     // RANDOM API - Get random numbers
     // ========================================================================
@@ -379,10 +431,12 @@ private:
     static int SkinnedAnim_GetClip(lua_State* L);
 
     // Controls.SetEnabled(bool) - enable/disable all player input
-    static int Controls_SetEnabled(lua_State* L);
+    static int Controls_SetEnabledPlayer1(lua_State* L);
+    static int Controls_SetEnabledPlayer2(lua_State* L);
 
     // Controls.IsEnabled() -> boolean
-    static int Controls_IsEnabled(lua_State* L);
+    static int Controls_IsEnabledPlayer1(lua_State* L);
+    static int Controls_IsEnabledPlayer2(lua_State* L);
 
     // Interact.SetEnabled(entity, bool) - enable/disable interaction + prompt for an object
     static int Interact_SetEnabled(lua_State* L);
@@ -414,6 +468,12 @@ private:
     static int UI_GetElementType(lua_State* L);
     static int UI_GetElementCount(lua_State* L);
     static int UI_GetElementByIndex(lua_State* L);
+    
+    // Draw directly to the GPU with these functions in Lua scripts.
+    // We should probably add code to add them to an OT,
+    // then have the user call another function to render them all.
+    static int UI_DrawLine(lua_State* L);
+    static int UI_DrawTriangle(lua_State* L);
     
     // ========================================================================
     // PLAYER API - Controlling the PsxPlayer
