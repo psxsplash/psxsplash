@@ -34,6 +34,6 @@ Build options:
 
 ## Contributing
 
-Pull requests are welcome. See the [contributing guide](https://psxsplash.github.io/docs/reference/contributing/) for areas where help is needed.
+Pull requests are welcome. See the [contributing guide](https://psxsplash.github.io/docs/latest/reference/contributing/) for areas where help is needed.
 
 
