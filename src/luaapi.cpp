@@ -1104,6 +1104,29 @@ int LuaAPI::Entity_ForEach(lua_State* L) {
     return 0;
 }
 
+int LuaAPI::Entity_SetUVOffset(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!lua.isTable(1)) return 0;
+
+    lua.getField(1, "__cpp_ptr");
+    auto go = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+
+    if (!go) return 0;
+
+    // Absolute UV offset applied non-destructively at render time (also the
+    // field animated by TrackType::ObjectUVOffset). Unlike SetUVs, this leaves
+    // the source polygon UVs untouched.
+    int u = (int)lua.checkNumber(2);
+    int v = (int)lua.checkNumber(3);
+
+    go->uvOffset.u = (uint8_t)u;
+    go->uvOffset.v = (uint8_t)v;
+
+    return 0;
+}
+
 int LuaAPI::Entity_SetUVs(lua_State* L) {
     psyqo::Lua lua(L);
 

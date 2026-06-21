@@ -35,6 +35,15 @@ bool LoadingScreen::load(psyqo::GPU& gpu, psyqo::Font<>& systemFont, int sceneIn
         return false;
     }
 
+    // Reject any pack whose layout this build can't parse. A stale .loading
+    // file from an older format passes the magic check but has a different
+    // struct layout, so parsing it would read garbage offsets and corrupt
+    // memory. Treat an unrecognised version as "no loading screen".
+    if (header->version != kLoaderPackVersion) {
+        FileLoader::Get().FreeFile(data);
+        return false;
+    }
+
     m_data = data;
     m_dataSize = fileSize;
     m_font = &systemFont;

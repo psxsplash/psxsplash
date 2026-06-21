@@ -76,27 +76,31 @@ void psxsplash::Controls::forceAnalogMode() {
     // 4) Exit config mode
     static const uint8_t exitConfig[] = {0x01, 0x43, 0x00, 0x00, 0x00};
 
-    configurePort(0);
-    sendCommand(enterConfig, sizeof(enterConfig));
-    SIO::Ctrl = 0;
+    // Configure both ports: a controller in port 1 (player 1) and/or port 2
+    // (player 2). A missing controller simply loses ACK and is skipped harmlessly.
+    for (uint8_t port = 0; port < 2; ++port) {
+        configurePort(port);
+        sendCommand(enterConfig, sizeof(enterConfig));
+        SIO::Ctrl = 0;
 
-    configurePort(0);
-    sendCommand(setAnalog, sizeof(setAnalog));
-    SIO::Ctrl = 0;
+        configurePort(port);
+        sendCommand(setAnalog, sizeof(setAnalog));
+        SIO::Ctrl = 0;
 
-    configurePort(0);
-    sendCommand(mapMotors, sizeof(mapMotors));
-    SIO::Ctrl = 0;
+        configurePort(port);
+        sendCommand(mapMotors, sizeof(mapMotors));
+        SIO::Ctrl = 0;
 
-    configurePort(0);
-    sendCommand(exitConfig, sizeof(exitConfig));
-    SIO::Ctrl = 0;
+        configurePort(port);
+        sendCommand(exitConfig, sizeof(exitConfig));
+        SIO::Ctrl = 0;
+    }
 }
 
 void psxsplash::Controls::Init() { m_input.initialize(); }
 
 bool psxsplash::Controls::isDigitalPad() const {
-    uint8_t padType = m_input.getPadType(psyqo::AdvancedPad::Pad::Pad1a);
+    uint8_t padType = m_input.getPadType(m_pad);
     // Digital pad (0x41) has no analog sticks
     // Also treat disconnected pads as digital (D-pad still works through button API)
     return padType == psyqo::AdvancedPad::PadType::DigitalPad ||
@@ -107,17 +111,29 @@ void psxsplash::Controls::getDpadAxes(int16_t &outX, int16_t &outY) const {
     outX = 0;
     outY = 0;
     // D-pad produces full-magnitude values (like pushing the stick to the edge)
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Up))
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Up))
         outY = -127;
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Down))
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Down))
         outY = 127;
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Left))
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Left))
         outX = -127;
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Right))
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Right))
         outX = 127;
 }
 
-void psxsplash::Controls::UpdateButtonStates() {
+void psxsplash::Controls::UpdateButtonStatesPlayer1() {
+    m_pad = psyqo::AdvancedPad::Pad::Pad1a;
+    m_port = 0;
+    updateButtonStates();
+}
+
+void psxsplash::Controls::UpdateButtonStatesPlayer2() {
+    m_pad = psyqo::AdvancedPad::Pad::Pad2a;
+    m_port = 1;
+    updateButtonStates();
+}
+
+void psxsplash::Controls::updateButtonStates() {
     m_previousButtons = m_currentButtons;
 
     // Send motor values via raw SIO (after AdvancedPad's VSync poll has completed)
@@ -125,29 +141,45 @@ void psxsplash::Controls::UpdateButtonStates() {
     
     // Read all button states into a single bitmask
     m_currentButtons = 0;
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Cross))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Cross);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Circle))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Circle);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Square))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Square);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Triangle)) m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Triangle);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L1))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L1);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L2))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L2);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L3))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L3);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R1))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R1);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R2))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R2);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R3))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R3);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Start))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Start);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Select))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Select);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Up))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Up);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Down))     m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Down);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Left))     m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Left);
-    if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Right))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Right);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Cross))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Cross);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Circle))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Circle);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Square))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Square);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Triangle)) m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Triangle);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L1))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L1);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L2))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L2);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L3))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L3);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R1))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R1);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R2))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R2);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R3))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R3);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Start))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Start);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Select))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Select);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Up))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Up);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Down))     m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Down);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Left))     m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Left);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Right))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Right);
     
     // Calculate pressed and released buttons
     m_buttonsPressed = m_currentButtons & ~m_previousButtons;
     m_buttonsReleased = m_previousButtons & ~m_currentButtons;
 }
 
-void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX,
+void psxsplash::Controls::HandleControlsPlayer1(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX,
+                                                psyqo::Angle &playerRotationY, psyqo::Angle &playerRotationZ,
+                                                bool freecam, int32_t dt12) {
+    m_pad = psyqo::AdvancedPad::Pad::Pad1a;
+    m_port = 0;
+    handleControls(playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, dt12);
+}
+
+void psxsplash::Controls::HandleControlsPlayer2(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX,
+                                                psyqo::Angle &playerRotationY, psyqo::Angle &playerRotationZ,
+                                                bool freecam, int32_t dt12) {
+    m_pad = psyqo::AdvancedPad::Pad::Pad2a;
+    m_port = 1;
+    handleControls(playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, dt12);
+}
+
+void psxsplash::Controls::handleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX,
                                          psyqo::Angle &playerRotationY, psyqo::Angle &playerRotationZ, bool freecam,
                                          int32_t dt12) {
     bool digital = isDigitalPad();
@@ -160,16 +192,16 @@ void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
         // L1/R1 for horizontal look rotation (no vertical on digital)
         rightXOffset = 0;
         rightYOffset = 0;
-        if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R1))
+        if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R1))
             rightXOffset = 90;
-        if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L1))
+        if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L1))
             rightXOffset = -90;
     } else {
         // Analog pad: read stick ADC values
-        uint8_t rightX = m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 0);
-        uint8_t rightY = m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 1);
-        uint8_t leftX = m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 2);
-        uint8_t leftY = m_input.getAdc(psyqo::AdvancedPad::Pad::Pad1a, 3);
+        uint8_t rightX = m_input.getAdc(m_pad, 0);
+        uint8_t rightY = m_input.getAdc(m_pad, 1);
+        uint8_t leftX = m_input.getAdc(m_pad, 2);
+        uint8_t leftY = m_input.getAdc(m_pad, 3);
 
         rightXOffset = (int16_t)rightX - 0x80;
         rightYOffset = (int16_t)rightY - 0x80;
@@ -199,11 +231,11 @@ void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
     m_rightStickY = rightYOffset;
 
     if (digital) {
-        if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::Square)) {
+        if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Square)) {
             m_sprinting = true;
         }
     } else {
-        if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L3)) {
+        if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L3)) {
             m_sprinting = true;
         }
     }
@@ -243,10 +275,10 @@ void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
     if (freecam) {
         psyqo::FixedPoint<12> dtSpeed;
         dtSpeed.value = (int32_t)(((int64_t)speed.value * dt12) >> 12);
-        if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::L1)) {
+        if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L1)) {
             playerPosition.y += dtSpeed;
         }
-        if (m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, psyqo::AdvancedPad::Button::R1)) {
+        if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R1)) {
             playerPosition.y -= dtSpeed;
         }
     }
@@ -262,7 +294,7 @@ void psxsplash::Controls::sendMotorValues() {
     // AdvancedPad's VSync poll sends 0x00 for the motor bytes, so we
     // re-send the desired values here during the game tick.  Motor inertia
     // bridges the brief gap where AdvancedPad zeroes them.
-    configurePort(0);
+    configurePort(m_port);
 
     transceive(0x01);         // byte 0: device select
     if (!waitForAck()) { SIO::Ctrl = 0; return; }

@@ -8,6 +8,10 @@
 
 namespace psxsplash {
 
+// Loader pack binary layout version this build understands. Must match
+// PSXLoaderPackWriter.LOADER_PACK_VERSION on the toolchain side.
+static constexpr uint16_t kLoaderPackVersion = 2;
+
 struct LoaderPackHeader {
     char magic[2];       // "LP"
     uint16_t version;    // 2

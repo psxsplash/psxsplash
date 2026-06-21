@@ -17,11 +17,17 @@ class Controls {
     void forceAnalogMode();
 
     void Init();
-    void HandleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
-                        psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
 
-    /// Update button state tracking - call before HandleControls
-    void UpdateButtonStates();
+    /// Per-player movement/look handling.
+    /// Player 1 reads the controller in port 1 (Pad1a); player 2 reads port 2 (Pad2a).
+    void HandleControlsPlayer1(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
+                               psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
+    void HandleControlsPlayer2(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
+                               psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
+
+    /// Update button state tracking - call before HandleControls* each frame. One per player.
+    void UpdateButtonStatesPlayer1();
+    void UpdateButtonStatesPlayer2();
     
     /// Set movement speeds from splashpack data (call once after scene load)
     void setMoveSpeed(psyqo::FixedPoint<12, uint16_t> speed) { m_moveSpeed.value = speed.value; }
@@ -41,7 +47,7 @@ class Controls {
     
     /// Check if a button is currently held
     bool isButtonHeld(psyqo::AdvancedPad::Button button) const {
-        return m_input.isButtonPressed(psyqo::AdvancedPad::Pad::Pad1a, button);
+        return m_input.isButtonPressed(m_pad, button);
     }
     
     /// Get bitmask of buttons pressed this frame
@@ -83,6 +89,17 @@ class Controls {
   private:
     psyqo::AdvancedPad m_input;
     psyqo::Trig<> m_trig;
+
+    // Which physical controller this instance drives. Set by the PlayerN entry
+    // points; defaults to player 1 (controller in port 1).
+    psyqo::AdvancedPad::Pad m_pad = psyqo::AdvancedPad::Pad::Pad1a;
+    uint8_t m_port = 0;
+
+    // Shared cores, operating on m_pad / m_port. The public PlayerN methods set
+    // the identity and then delegate here.
+    void updateButtonStates();
+    void handleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
+                        psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
 
     bool m_sprinting = false;
     static constexpr uint8_t m_stickDeadzone = 0x30;
