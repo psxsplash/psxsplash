@@ -4,7 +4,6 @@
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
 #include "gtemath.hh"
-#include <math.h>
 
 namespace psxsplash {
 
