@@ -1,4 +1,5 @@
 #include "luaapi.hh"
+#include "memorycardmanager.hh"
 #include "scenemanager.hh"
 #include "gameobject.hh"
 #include "controls.hh"
@@ -419,7 +420,35 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "Set");
     
     L.setGlobal("Persist");
-    
+
+    // ========================================================================
+    // MEMCARD API
+    // ========================================================================
+    L.newTable();  // MemCard table
+
+    L.push(MemCard_IsPresent);
+    L.setField(-2, "IsPresent");
+
+    L.push(MemCard_Format);
+    L.setField(-2, "Format");
+
+    L.push(MemCard_Save);
+    L.setField(-2, "Save");
+
+    L.push(MemCard_Load);
+    L.setField(-2, "Load");
+
+    L.push(MemCard_Delete);
+    L.setField(-2, "Delete");
+
+    L.push(MemCard_List);
+    L.setField(-2, "List");
+
+    L.push(MemCard_FreeBlocks);
+    L.setField(-2, "FreeBlocks");
+
+    L.setGlobal("MemCard");
+
     // ========================================================================
     // CUTSCENE API
     // ========================================================================
@@ -2640,6 +2669,174 @@ void LuaAPI::PersistClear() {
     for (int i = 0; i < 16; i++) {
         s_persistData[i].used = false;
     }
+}
+
+// ============================================================================
+// MEMCARD API IMPLEMENTATION
+// ============================================================================
+
+// Reads the port argument (0 or 1) at stack index 1. On an invalid port, pushes
+// the standard (failValue, errString) pair and returns false.
+static bool memcardReadPort(psyqo::Lua& lua, MemoryCardManager::Port& outPort, bool failIsBool) {
+    int index = static_cast<int>(lua.toNumber(1));
+    if (MemoryCardManager::portFromIndex(index, &outPort)) return true;
+    if (failIsBool) {
+        lua.push(false);
+    } else {
+        lua.push();  // nil
+    }
+    lua.push("invalid memory card port (use 0 or 1)");
+    return false;
+}
+
+int LuaAPI::MemCard_IsPresent(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/true)) return 2;
+
+    bool present = false;
+    const char* err = MemoryCardManager::Get().isPresent(port, &present);
+    if (err) {
+        lua.push(false);
+        lua.push(err);
+        return 2;
+    }
+    lua.push(present);
+    lua.push();
+    return 2;
+}
+
+int LuaAPI::MemCard_Format(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/true)) return 2;
+
+    const char* err = MemoryCardManager::Get().format(port);
+    if (err) {
+        lua.push(false);
+        lua.push(err);
+        return 2;
+    }
+    lua.push(true);
+    lua.push();
+    return 2;
+}
+
+int LuaAPI::MemCard_Save(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/true)) return 2;
+
+    const char* key = lua.toString(2);
+    if (!key) {
+        lua.push(false);
+        lua.push("MemCard.Save: missing save key");
+        return 2;
+    }
+    if (!lua.isTable(3)) {
+        lua.push(false);
+        lua.push("MemCard.Save: third argument must be a table");
+        return 2;
+    }
+    const char* title = lua.isString(4) ? lua.toString(4) : nullptr;
+
+    const char* err = MemoryCardManager::Get().save(port, key, title, lua, 3);
+    if (err) {
+        lua.push(false);
+        lua.push(err);
+        return 2;
+    }
+    lua.push(true);
+    lua.push();
+    return 2;
+}
+
+int LuaAPI::MemCard_Load(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/false)) return 2;
+
+    const char* key = lua.toString(2);
+    if (!key) {
+        lua.push();
+        lua.push("MemCard.Load: missing save key");
+        return 2;
+    }
+
+    int top = lua.getTop();
+    const char* err = MemoryCardManager::Get().load(port, key, lua);
+    if (err) {
+        lua.setTop(top);  // discard any partially-pushed values
+        lua.push();
+        lua.push(err);
+        return 2;
+    }
+    // On success the loaded value sits on top of the stack.
+    lua.push();  // nil error
+    return 2;
+}
+
+int LuaAPI::MemCard_Delete(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/true)) return 2;
+
+    const char* key = lua.toString(2);
+    if (!key) {
+        lua.push(false);
+        lua.push("MemCard.Delete: missing save key");
+        return 2;
+    }
+    const char* err = MemoryCardManager::Get().remove(port, key);
+    if (err) {
+        lua.push(false);
+        lua.push(err);
+        return 2;
+    }
+    lua.push(true);
+    lua.push();
+    return 2;
+}
+
+int LuaAPI::MemCard_List(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/false)) return 2;
+
+    psyqo::MemoryCardFileSystem::FileEntry entries[15];
+    uint32_t count = 0;
+    const char* err = MemoryCardManager::Get().listFiles(port, entries, 15, &count);
+    if (err) {
+        lua.push();
+        lua.push(err);
+        return 2;
+    }
+    lua.newTable();
+    int table = lua.getTop();
+    uint32_t shown = count < 15 ? count : 15;
+    for (uint32_t i = 0; i < shown; i++) {
+        lua.push(entries[i].name);
+        lua.rawSetI(table, static_cast<int>(i + 1));
+    }
+    lua.push();  // nil error
+    return 2;
+}
+
+int LuaAPI::MemCard_FreeBlocks(lua_State* L) {
+    psyqo::Lua lua(L);
+    MemoryCardManager::Port port;
+    if (!memcardReadPort(lua, port, /*failIsBool=*/false)) return 2;
+
+    uint32_t blocks = 0;
+    const char* err = MemoryCardManager::Get().freeBlocks(port, &blocks);
+    if (err) {
+        lua.push();
+        lua.push(err);
+        return 2;
+    }
+    lua.pushNumber(static_cast<lua_Number>(blocks));
+    lua.push();
+    return 2;
 }
 
 // ============================================================================

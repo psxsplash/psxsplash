@@ -387,7 +387,32 @@ private:
     
     // Reset all persistent data
     static void PersistClear();
-    
+
+    // ========================================================================
+    // MEMCARD API - Persistent saves on a physical memory card
+    // ========================================================================
+
+    // MemCard.IsPresent(port) -> present(bool), err(string|nil)
+    static int MemCard_IsPresent(lua_State* L);
+
+    // MemCard.Format(port) -> ok(bool), err(string|nil)
+    static int MemCard_Format(lua_State* L);
+
+    // MemCard.Save(port, key, table[, title]) -> ok(bool), err(string|nil)
+    static int MemCard_Save(lua_State* L);
+
+    // MemCard.Load(port, key) -> table|nil, err(string|nil)
+    static int MemCard_Load(lua_State* L);
+
+    // MemCard.Delete(port, key) -> ok(bool), err(string|nil)
+    static int MemCard_Delete(lua_State* L);
+
+    // MemCard.List(port) -> {names...}|nil, err(string|nil)
+    static int MemCard_List(lua_State* L);
+
+    // MemCard.FreeBlocks(port) -> n|nil, err(string|nil)
+    static int MemCard_FreeBlocks(lua_State* L);
+
     // ========================================================================
     // CUTSCENE API - Cutscene playback control
     // ========================================================================

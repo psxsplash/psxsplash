@@ -15,6 +15,7 @@
 #include "skinmesh.hh"
 #include "streq.hh"
 #include "navregion.hh"
+#include "memorycardmanager.hh"
 
 namespace psxsplash {
 
@@ -70,8 +71,30 @@ struct SPLASHPACKFileHeader {
     uint16_t skinnedMeshCount;
     uint16_t pad_skin;
     uint32_t skinTableOffset;
+    // --- v21 additions (appended; existing fields above are unchanged) ---
+    uint32_t memcardTableOffset;  // offset to SPLASHPACKMemcard, or 0 if none
+    uint32_t reservedMemcard;     // reserved / future use
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == 120, "SPLASHPACKFileHeader must be 120 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == 128, "SPLASHPACKFileHeader must be 128 bytes");
+
+// Size of the v20 header, used to keep parsing v20 packs after the v21 growth.
+static constexpr uint32_t kSplashpackHeaderSizeV20 = 120;
+
+// Memory card save configuration (v21+). Fixed-size so the binary layout is
+// trivial to match exactly on both the C# writer and the C++ reader. Region
+// and product code build the Sony filename; the title is shown by the BIOS;
+// the CLUT + icon frames are the BIOS save icon.
+struct SPLASHPACKMemcard {
+    char region[2];               // 0x00 e.g. "BA"/"BE"/"BI"
+    char product[10];             // 0x02 e.g. "SLUS-00000"
+    char title[32];               // 0x0C ASCII, zero-padded
+    uint8_t iconFrameCount;       // 0x2C 1..3
+    uint8_t mcPad0;               // 0x2D
+    uint16_t mcPad1;              // 0x2E alignment
+    uint16_t clut[16];            // 0x30 16-colour palette, BGR555
+    uint8_t iconPixels[3][128];   // 0x50 up to 3 frames of 16x16 4bpp
+};
+static_assert(sizeof(SPLASHPACKMemcard) == 464, "SPLASHPACKMemcard must be 464 bytes");
 
 struct SPLASHPACKTextureAtlas {
     uint32_t polygonsOffset;
@@ -108,7 +131,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.colliders.reserve(header->colliderCount);
     setup.interactables.reserve(header->interactableCount);
 
-    uint8_t *cursor = data + sizeof(SPLASHPACKFileHeader);
+    // v21 grew the header by 8 bytes; v20 packs still have a 120-byte header.
+    uint8_t *cursor = data + (header->version >= 21 ? sizeof(SPLASHPACKFileHeader) : kSplashpackHeaderSizeV20);
 
     for (uint16_t i = 0; i < header->luaFileCount; i++) {
         psxsplash::LuaFile *luaHeader = reinterpret_cast<psxsplash::LuaFile *>(cursor);
@@ -532,6 +556,34 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 
             setup.skinnedMeshCount++;
         }
+    }
+
+    // Memory card save configuration (v21+).
+    if (header->version >= 21 && header->memcardTableOffset != 0) {
+        const SPLASHPACKMemcard *mc =
+            reinterpret_cast<const SPLASHPACKMemcard *>(data + header->memcardTableOffset);
+
+        MemoryCardConfig cfg;
+        cfg.valid = true;
+
+        for (int i = 0; i < 2; i++) cfg.region[i] = mc->region[i];
+        cfg.region[2] = '\0';
+        for (int i = 0; i < 10; i++) cfg.product[i] = mc->product[i];
+        cfg.product[10] = '\0';
+        cfg.product[11] = '\0';
+        for (int i = 0; i < 32; i++) cfg.titlePrefix[i] = mc->title[i];
+        cfg.titlePrefix[32] = '\0';
+
+        uint8_t frames = mc->iconFrameCount;
+        if (frames < 1) frames = 1;
+        if (frames > 3) frames = 3;
+        cfg.icon.frameCount = frames;
+        for (int i = 0; i < 16; i++) cfg.icon.clut[i] = mc->clut[i];
+        for (int f = 0; f < 3; f++) {
+            __builtin_memcpy(cfg.icon.pixels[f], mc->iconPixels[f], 128);
+        }
+
+        MemoryCardManager::Get().setConfig(cfg);
     }
 
 }

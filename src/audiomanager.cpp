@@ -136,8 +136,8 @@ int AudioManager::play(int clipIndex, int volume, int pan) {
   SPU_VOICES[ch].volumeRight = config.volumeRight;
   SPU_VOICES[ch].sampleRate = config.sampleRate.value;
   SPU_VOICES[ch].sampleStartAddr = static_cast<uint16_t>(clip.spuAddr / 8);
-  SPU_VOICES[ch].ad = config.adsr & 0xFFFF;
-  SPU_VOICES[ch].sr = (config.adsr >> 16) & 0xFFFF;
+  SPU_VOICES[ch].adsrLo = config.adsr & 0xFFFF;
+  SPU_VOICES[ch].adsrHi = (config.adsr >> 16) & 0xFFFF;
 
   if (ch > 15) {
     SPU_KEY_ON_HIGH = 1 << (ch - 16);

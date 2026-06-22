@@ -10,6 +10,7 @@
 #include "renderer.hh"
 #include "scenemanager.hh"
 #include "fileloader.hh"
+#include "memorycardmanager.hh"
 
 #if defined(LOADER_CDROM)
 #include "fileloader_cdrom.hh"
@@ -66,6 +67,9 @@ void PSXSplash::prepare() {
     // Let the active file-loader backend do any early setup.
     // CDRom: CDRomDevice::prepare() must happen here.
     psxsplash::FileLoader::Get().prepare();
+
+    // Bring up the SIO0 bus for memory card access.
+    psxsplash::MemoryCardManager::Get().prepare();
 
 #if defined(LOADER_CDROM)
     // The CD-ROM backend needs a GPU pointer for LoadFileSync's spin loop.
