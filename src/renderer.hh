@@ -22,6 +22,7 @@
 namespace psxsplash {
 
 class UISystem; // Forward declaration
+class SpriteSystem; // Forward declaration
 #ifdef PSXSPLASH_MEMOVERLAY
 class MemOverlay; // Forward declaration
 #endif
@@ -48,6 +49,28 @@ class Renderer final {
     static constexpr size_t BUMP_ALLOCATOR_SIZE = BUMP_SIZE;
     static constexpr size_t MAX_VISIBLE_TRIANGLES = 4096;
 
+    // Ordering-table depth bands.
+    //
+    // Depth 0 is drawn LAST, i.e. frontmost; larger depths sit further back.
+    // Within a single depth the OT inserts at the head, so the last primitive
+    // inserted is the first one drawn.
+    //
+    // The 2D overlays get slots that 3D geometry can never occupy. Without that,
+    // a polygon right in front of the camera lands on the same depth as a sprite
+    // and which one survives depends on insertion order — the UI only gets away
+    // with sharing depth 0/1 today because it happens to be inserted last.
+    //
+    //   0 .. UI_DEPTH_MAX                  UI
+    //   SPRITE_DEPTH_BASE .. +LAYERS-1     screen-space sprites, layer 0 in front
+    //   WORLD_DEPTH_MIN .. OT_SIZE-1       3D geometry
+    //
+    // Cost: 9 of 16384 OT slots, and near-camera polygons clamp to
+    // WORLD_DEPTH_MIN instead of 1 — which is what stops them fighting the HUD.
+    static constexpr int UI_DEPTH_MAX = 1;
+    static constexpr int SPRITE_DEPTH_BASE = UI_DEPTH_MAX + 1;
+    static constexpr int SPRITE_LAYERS = 8;
+    static constexpr int WORLD_DEPTH_MIN = SPRITE_DEPTH_BASE + SPRITE_LAYERS;
+
     static constexpr int32_t PROJ_H = 120;
     static constexpr int32_t SCREEN_CX = 160;
     static constexpr int32_t SCREEN_CY = 120;
@@ -70,6 +93,7 @@ class Renderer final {
                     int16_t width, int16_t height);
 
     void SetUISystem(UISystem* ui) { m_uiSystem = ui; }
+    void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
 #ifdef PSXSPLASH_MEMOVERLAY
     void SetMemOverlay(MemOverlay* overlay) { m_memOverlay = overlay; }
 #endif
@@ -103,6 +127,7 @@ class Renderer final {
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
     UISystem* m_uiSystem = nullptr;
+    SpriteSystem* m_spriteSystem = nullptr;
 #ifdef PSXSPLASH_MEMOVERLAY
     MemOverlay* m_memOverlay = nullptr;
 #endif

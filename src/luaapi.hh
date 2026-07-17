@@ -31,6 +31,7 @@ class SceneManager;  // Forward declaration
 class CutscenePlayer;  // Forward declaration
 class AnimationPlayer;  // Forward declaration
 class UISystem;  // Forward declaration
+class SpriteSystem;  // Forward declaration
 
 /**
  * Lua API - Provides game scripting functionality
@@ -47,7 +48,7 @@ class UISystem;  // Forward declaration
 class LuaAPI {
 public:
     // Initialize all API modules
-    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr);
+    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr, SpriteSystem* spriteSystem = nullptr);
     
     // Called once per frame to advance the Lua frame counter
     static void IncrementFrameCount();
@@ -67,7 +68,133 @@ private:
     
     // UI system pointer (set during RegisterAll)
     static UISystem* s_uiSystem;
-    
+
+    // Sprite system pointer (set during RegisterAll)
+    static SpriteSystem* s_spriteSystem;
+
+    // ========================================================================
+    // SPRITE API - 2D sprites (screen-space), authored sheets + animations
+    // ========================================================================
+
+    static int Sprite_SheetIndex(lua_State* L);
+    static int Sprite_AnimIndex(lua_State* L);
+    static int Sprite_Create(lua_State* L);
+    static int Sprite_Destroy(lua_State* L);
+    static int Sprite_SetPos(lua_State* L);
+    static int Sprite_SetWorldPos(lua_State* L);
+    static int Sprite_BindToActor(lua_State* L);
+    static int Sprite_SetFrame(lua_State* L);
+    static int Sprite_PlayAnim(lua_State* L);
+    static int Sprite_StopAnim(lua_State* L);
+    static int Sprite_SetFacingFromYaw(lua_State* L);
+    static int Sprite_SetVisible(lua_State* L);
+    static int Sprite_IsVisible(lua_State* L);
+    static int Sprite_SetFlip(lua_State* L);
+    static int Sprite_SetColor(lua_State* L);
+    static int Sprite_SetLayer(lua_State* L);
+    static int Sprite_SetSize(lua_State* L);
+    static int Sprite_SetIgnoreViewOffset(lua_State* L);
+    static int Sprite_SetViewOffset(lua_State* L);
+    static int Sprite_GetViewOffset(lua_State* L);
+    static int Sprite_Count(lua_State* L);
+
+
+    // ========================================================================
+    // ACTOR API - Player + object-backed actor handles
+    // ========================================================================
+
+    // Actor.GetPlayer() -> actor
+    static int Actor_GetPlayer(lua_State* L);
+
+    // Actor.Find(name|index) -> actor or nil
+    static int Actor_Find(lua_State* L);
+
+    // Actor.FindByIndex(index) -> actor or nil
+    static int Actor_FindByIndex(lua_State* L);
+
+    // Actor.GetCount() -> number
+    static int Actor_GetCount(lua_State* L);
+
+    // Actor.IsPlayer(actor) -> boolean
+    static int Actor_IsPlayer(lua_State* L);
+
+    // Actor.GetName(actor) -> string or nil
+    static int Actor_GetName(lua_State* L);
+
+    // Actor.GetPosition(actor) -> {x,y,z}
+    static int Actor_GetPosition(lua_State* L);
+
+    // Actor.SetPosition(actor, {x,y,z})
+    static int Actor_SetPosition(lua_State* L);
+
+    // Actor.GetRotation(actor) -> {x,y,z}
+    static int Actor_GetRotation(lua_State* L);
+
+    // Actor.SetRotation(actor, {x,y,z})
+    static int Actor_SetRotation(lua_State* L);
+
+    // Actor.GetEntity(actor) -> entity or nil
+    static int Actor_GetEntity(lua_State* L);
+
+    // Actor.GetNavRegion(actor) -> number or nil
+    static int Actor_GetNavRegion(lua_State* L);
+
+    // Actor.FindPath(actor, targetActor|targetPos) -> {vec3, ...} or nil
+    static int Actor_FindPath(lua_State* L);
+
+    // ========================================================================
+    // AGENT API - Native path-following on top of actors
+    // ========================================================================
+
+    static int Agent_IsAgent(lua_State* L);
+    static int Agent_SetEnabled(lua_State* L);
+    static int Agent_IsEnabled(lua_State* L);
+    static int Agent_MoveTo(lua_State* L);
+    static int Agent_SetTarget(lua_State* L);
+    static int Agent_Stop(lua_State* L);
+    static int Agent_IsMoving(lua_State* L);
+    static int Agent_GetTarget(lua_State* L);
+    static int Agent_SetSpeed(lua_State* L);
+    static int Agent_GetSpeed(lua_State* L);
+    // State machine
+    static int Agent_GetState(lua_State* L);
+    static int Agent_SetState(lua_State* L);
+    // Vision / hearing
+    static int Agent_CanSee(lua_State* L);
+    static int Agent_CanHear(lua_State* L);
+    static int Agent_SetVisionRange(lua_State* L);
+    static int Agent_GetVisionRange(lua_State* L);
+    static int Agent_SetVisionAngle(lua_State* L);
+    static int Agent_SetHearingRange(lua_State* L);
+    static int Agent_GetHearingRange(lua_State* L);
+    static int Agent_SetAlertTimeout(lua_State* L);
+    static int Agent_GetLastKnownPos(lua_State* L);
+    // Patrol waypoints
+    static int Agent_AddWaypoint(lua_State* L);
+    static int Agent_ClearWaypoints(lua_State* L);
+    static int Agent_SetPatrolEnabled(lua_State* L);
+
+    // ========================================================================
+    // NET API (serial multiplayer)
+    // ========================================================================
+    static int Net_Connect(lua_State* L);
+    static int Net_Disconnect(lua_State* L);
+    static int Net_IsConnected(lua_State* L);
+    static int Net_IsHost(lua_State* L);
+    static int Net_State(lua_State* L);
+    static int Net_LocalSlot(lua_State* L);
+    static int Net_PlayerCount(lua_State* L);
+    static int Net_SetLocalAvatar(lua_State* L);
+    static int Net_SetRemoteAvatar(lua_State* L);
+    static int Net_RegisterActor(lua_State* L);
+    static int Net_UnregisterActor(lua_State* L);
+    static int Net_Send(lua_State* L);
+    static int Net_SyncActor(lua_State* L);
+    static int Net_SendData(lua_State* L);
+    static int Net_ReliableQueueDepth(lua_State* L);
+    static int Net_SetPersistent(lua_State* L);
+    static int Net_IsPersistent(lua_State* L);
+
     // ========================================================================
     // ENTITY API
     // ========================================================================
@@ -216,6 +343,8 @@ private:
     // Returns analog stick values (-128 to 127)
     static int Input_GetAnalogPlayer1(lua_State* L);
     static int Input_GetAnalogPlayer2(lua_State* L);
+    static int Input_BindToActor(lua_State* L);
+    static int Input_GetBoundActor(lua_State* L);
     
     // Button constants (registered as Input.CROSS, Input.CIRCLE, etc.)
     static void RegisterInputConstants(psyqo::Lua& L);
@@ -261,6 +390,15 @@ private:
 
     // Camera.FollowPsxPlayer 
     static int Camera_FollowPsxPlayer(lua_State* L);
+
+    // Camera.SetFollowTarget(actor)
+    static int Camera_SetFollowTarget(lua_State* L);
+
+    // Camera.GetFollowTarget() -> actor or nil
+    static int Camera_GetFollowTarget(lua_State* L);
+
+    // Camera.ClearFollowTarget()
+    static int Camera_ClearFollowTarget(lua_State* L);
 
     // Camera.LookAt(target) or Camera.LookAt(x, y, z)
     static int Camera_LookAt(lua_State* L);
@@ -537,6 +675,12 @@ private:
     // Push a Vec3 table onto the stack
     static void PushVec3(psyqo::Lua& L, psyqo::FixedPoint<12> x, 
                          psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
+
+    // Push an actor handle table onto the stack
+    static void PushActor(psyqo::Lua& L, uint16_t actorId);
+
+    // Read an actor id from a handle table. Returns 0xFFFF if invalid.
+    static uint16_t ReadActorId(psyqo::Lua& L, int idx);
     
     // Read a Vec3 table from the stack
     static void ReadVec3(psyqo::Lua& L, int idx, 

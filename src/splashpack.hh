@@ -42,12 +42,49 @@ struct SPLASHPACKTriggerBox {
 };
 static_assert(sizeof(SPLASHPACKTriggerBox) == 32, "SPLASHPACKTriggerBox must be 32 bytes");
 
+/**
+ * Agent configuration stored in the splashpack binary.  Replaces the old
+ * 8-byte stub with a complete description of movement, vision, hearing,
+ * patrol behaviour and per-state animation mappings.
+ *
+ * Binary layout (28 bytes) is immediately followed by waypointCount × 12-byte
+ * Vec3 patrol waypoints stored in fixed-point 20.12 XYZ order.
+ *
+ * flags bits:
+ *   bit 0  – start enabled
+ *   bit 1  – vision enabled
+ *   bit 2  – hearing enabled
+ *   bit 3  – patrol enabled (loops through waypoints when idle)
+ */
+struct SPLASHPACKAgentV2 {
+    uint16_t gameObjectIndex;   ///< Index into game-object array
+    uint8_t  flags;             ///< Behaviour flags (see above)
+    uint8_t  waypointCount;     ///< Number of 12-byte Vec3 waypoints that follow
+    uint16_t moveSpeed;         ///< Per-frame movement speed (fp12)
+    uint16_t stopDistance;      ///< Stop-distance to target (fp12)
+    uint16_t visionRange;       ///< Vision range (fp12); 0 = no vision
+    int16_t  visionCosAngle;    ///< Half-FOV cosine threshold (fp12, -4096..4096)
+    uint16_t hearingRange;      ///< Hearing range (fp12); 0 = no hearing
+    uint16_t alertTimeout;      ///< Frames before "target lost" fires after LOS break
+    uint8_t  stateAnimClip[8];  ///< Skinned-mesh clip index per AgentState (0xFF = none)
+    uint8_t  visionRegionDepth; ///< Max nav-region hops for LOS check (0 = same region only)
+    uint8_t  reserved[3];
+};
+static_assert(sizeof(SPLASHPACKAgentV2) == 28, "SPLASHPACKAgentV2 must be 28 bytes");
+
+// Legacy alias kept so any old code that still uses SPLASHPACKAgent compiles.
+using SPLASHPACKAgent = SPLASHPACKAgentV2;
+
 struct SplashpackSceneSetup {
     int sceneLuaFileIndex;
     eastl::vector<LuaFile *> luaFiles;
     eastl::vector<GameObject *> objects;
     eastl::vector<SPLASHPACKCollider *> colliders;
     eastl::vector<SPLASHPACKTriggerBox *> triggerBoxes;
+    eastl::vector<SPLASHPACKAgentV2 *> agents;
+    /// Packed fp12 XYZ waypoints for all agents: agent[0]'s waypoints first,
+    /// then agent[1]'s, etc.  Points into splashpack data; may be nullptr.
+    const int32_t* agentWaypointData = nullptr;
 
     // New component arrays
     eastl::vector<Interactable *> interactables;
@@ -109,6 +146,14 @@ struct SplashpackSceneSetup {
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
     uint32_t uiTableOffset = 0;
+
+    // --- v22 ---
+    uint16_t spriteSheetCount = 0;
+    uint16_t spriteAnimCount = 0;
+    uint32_t spriteTableOffset = 0;
+    /// Authored network scene id. 0 means "not authored" — the caller falls back
+    /// to the derived hash, which is why older packs keep working.
+    uint32_t sceneHash = 0;
 };
 
 class SplashPackLoader {

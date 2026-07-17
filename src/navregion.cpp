@@ -178,11 +178,46 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
             }
         }
     }
-    if(best >= m_header.regionCount || shortestDistance > NAV_ATTACH_DISTANCE)
+    if(best < m_header.regionCount && shortestDistance <= NAV_ATTACH_DISTANCE)
     {
-        return NAV_NO_REGION;
+        return best;
     }
-    return best;
+
+    // Fallback: actor is outside all region polygons (e.g. spawned at edge).
+    // Return the nearest region by centroid XZ distance so agents can still path.
+    uint16_t nearest = NAV_NO_REGION;
+    int32_t nearestDist = 0x7FFFFFFF;
+    for (uint16_t i = 0; i < m_header.regionCount; i++) {
+        int32_t cx = 0, cy = 0, cz = 0;
+        if (!getRegionCenter(i, cx, cy, cz)) continue;
+        int32_t dx = cx - x; if (dx < 0) dx = -dx;
+        int32_t dz = cz - z; if (dz < 0) dz = -dz;
+        int32_t dist = dx > dz ? dx : dz;
+        if (dist < nearestDist) {
+            nearestDist = dist;
+            nearest = i;
+        }
+    }
+    return nearest;
+}
+
+bool NavRegionSystem::getRegionCenter(uint16_t regionIndex, int32_t& outX, int32_t& outY, int32_t& outZ) const {
+    if (regionIndex >= m_header.regionCount || m_regions == nullptr) return false;
+
+    const auto& reg = m_regions[regionIndex];
+    if (reg.vertCount < 3) return false;
+
+    int32_t sumX = 0;
+    int32_t sumZ = 0;
+    for (int i = 0; i < reg.vertCount; ++i) {
+        sumX += reg.vertsX[i];
+        sumZ += reg.vertsZ[i];
+    }
+
+    outX = sumX / reg.vertCount;
+    outZ = sumZ / reg.vertCount;
+    outY = getFloorY(outX, outZ, regionIndex);
+    return true;
 }
 
 bool NavRegionSystem::isOffNavRegion(int32_t x, int32_t y, int32_t z) const {
@@ -358,9 +393,123 @@ int32_t NavRegionSystem::resolvePosition(int32_t& newX, int32_t& newY, int32_t& 
 bool NavRegionSystem::findPath(uint16_t startRegion, uint16_t endRegion,
                                 NavPath& path) const {
     path.stepCount = 0;
-    (void)startRegion;
-    (void)endRegion;
-    return false;
+    if (!isLoaded() || m_regions == nullptr) return false;
+    if (startRegion >= m_header.regionCount || endRegion >= m_header.regionCount) return false;
+
+    if (startRegion == endRegion) {
+        path.regions[0] = startRegion;
+        path.stepCount = 1;
+        return true;
+    }
+
+    if (m_header.regionCount > NAV_MAX_SEARCH_REGIONS) {
+        return false;
+    }
+
+    static constexpr int32_t kInfiniteCost = 0x3FFFFFFF;
+
+    uint8_t openSet[NAV_MAX_SEARCH_REGIONS] = {};
+    uint8_t closedSet[NAV_MAX_SEARCH_REGIONS] = {};
+    uint16_t cameFrom[NAV_MAX_SEARCH_REGIONS];
+    int32_t gScore[NAV_MAX_SEARCH_REGIONS];
+    int32_t fScore[NAV_MAX_SEARCH_REGIONS];
+
+    for (uint16_t i = 0; i < m_header.regionCount; ++i) {
+        cameFrom[i] = NAV_NO_REGION;
+        gScore[i] = kInfiniteCost;
+        fScore[i] = kInfiniteCost;
+    }
+
+    auto regionHeuristic = [this](uint16_t fromRegion, uint16_t toRegion) -> int32_t {
+        int32_t fromX, fromY, fromZ;
+        int32_t toX, toY, toZ;
+        if (!getRegionCenter(fromRegion, fromX, fromY, fromZ)) return 0;
+        if (!getRegionCenter(toRegion, toX, toY, toZ)) return 0;
+
+        int32_t dx = fromX - toX;
+        int32_t dz = fromZ - toZ;
+        if (dx < 0) dx = -dx;
+        if (dz < 0) dz = -dz;
+        return dx + dz;
+    };
+
+    auto edgeCost = [this](uint16_t fromRegion, uint16_t toRegion) -> int32_t {
+        int32_t fromX, fromY, fromZ;
+        int32_t toX, toY, toZ;
+        if (!getRegionCenter(fromRegion, fromX, fromY, fromZ)) return 1;
+        if (!getRegionCenter(toRegion, toX, toY, toZ)) return 1;
+
+        int32_t dx = fromX - toX;
+        int32_t dz = fromZ - toZ;
+        if (dx < 0) dx = -dx;
+        if (dz < 0) dz = -dz;
+        int32_t cost = dx + dz;
+        return cost > 0 ? cost : 1;
+    };
+
+    openSet[startRegion] = 1;
+    gScore[startRegion] = 0;
+    fScore[startRegion] = regionHeuristic(startRegion, endRegion);
+
+    while (true) {
+        uint16_t current = NAV_NO_REGION;
+        int32_t bestScore = kInfiniteCost;
+
+        for (uint16_t i = 0; i < m_header.regionCount; ++i) {
+            if (!openSet[i]) continue;
+            if (fScore[i] < bestScore) {
+                bestScore = fScore[i];
+                current = i;
+            }
+        }
+
+        if (current == NAV_NO_REGION) {
+            return false;
+        }
+
+        if (current == endRegion) {
+            uint16_t reversePath[NAV_MAX_PATH_STEPS];
+            int count = 0;
+            uint16_t walk = endRegion;
+            while (walk != NAV_NO_REGION && count < NAV_MAX_PATH_STEPS) {
+                reversePath[count++] = walk;
+                if (walk == startRegion) break;
+                walk = cameFrom[walk];
+            }
+
+            if (count == 0 || reversePath[count - 1] != startRegion) {
+                path.stepCount = 0;
+                return false;
+            }
+
+            path.stepCount = count;
+            for (int i = 0; i < count; ++i) {
+                path.regions[i] = reversePath[count - 1 - i];
+            }
+            return true;
+        }
+
+        openSet[current] = 0;
+        closedSet[current] = 1;
+
+        const auto& reg = m_regions[current];
+        for (int i = 0; i < reg.portalCount; ++i) {
+            uint16_t portalIdx = reg.portalStart + i;
+            if (portalIdx >= m_header.portalCount) break;
+
+            uint16_t neighbor = m_portals[portalIdx].neighborRegion;
+            if (neighbor >= m_header.regionCount) continue;
+            if (closedSet[neighbor]) continue;
+
+            int32_t tentativeG = gScore[current] + edgeCost(current, neighbor);
+            if (!openSet[neighbor] || tentativeG < gScore[neighbor]) {
+                cameFrom[neighbor] = current;
+                gScore[neighbor] = tentativeG;
+                fScore[neighbor] = tentativeG + regionHeuristic(neighbor, endRegion);
+                openSet[neighbor] = 1;
+            }
+        }
+    }
 }
 
 // ============================================================================

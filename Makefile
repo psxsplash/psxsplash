@@ -24,13 +24,19 @@ src/cutscene.cpp \
 src/interpolation.cpp \
 src/animation.cpp \
 src/uisystem.cpp \
+src/spritesystem.cpp \
+src/spritemath.cpp \
 src/loadingscreen.cpp \
 src/memoverlay.cpp \
 src/musicmanager.cpp \
 src/skinmesh.cpp \
 src/loadbuffer_patch.cpp \
 src/memorycardmanager.cpp \
-src/luatableserializer.cpp
+src/luatableserializer.cpp \
+src/sio1.cpp \
+src/netlink.cpp \
+src/nettest.cpp \
+src/networkmanager.cpp
 
 # LOADER=cdrom  → CD-ROM backend (for ISO builds on real hardware)
 # LOADER=pcdrv  → PCdrv backend (default, emulator + SIO1)
@@ -58,6 +64,19 @@ endif
 # PROFILER=1  → Enable per-frame profiler overlay + PCSX variable export
 ifeq ($(PROFILER),1)
 CPPFLAGS += -DPSXSPLASH_PROFILER
+endif
+
+# SIO1ECHO=1  → Build the raw SIO1 link self-test in place of the game loop.
+#               Run two instances linked over SIO1 (emulator: one as the SIO1
+#               TCP server, the other as client) and watch RX/TX counters climb.
+ifeq ($(SIO1ECHO),1)
+CPPFLAGS += -DPSXSPLASH_SIO1_ECHO
+endif
+
+# NETTEST=1   → Build the in-RAM NetLink protocol self-test in place of the game
+#               loop. Runs on a single instance (no link needed); shows PASS/FAIL.
+ifeq ($(NETTEST),1)
+CPPFLAGS += -DPSXSPLASH_NETTEST
 endif
 
 ifdef OT_SIZE

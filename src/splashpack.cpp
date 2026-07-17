@@ -69,16 +69,33 @@ struct SPLASHPACKFileHeader {
     uint16_t roomPortalRefCount;
     uint32_t animationTableOffset;
     uint16_t skinnedMeshCount;
-    uint16_t pad_skin;
+    uint16_t agentCount;
     uint32_t skinTableOffset;
     // --- v21 additions (appended; existing fields above are unchanged) ---
     uint32_t memcardTableOffset;  // offset to SPLASHPACKMemcard, or 0 if none
     uint32_t reservedMemcard;     // reserved / future use
+    // --- v22 additions (appended; existing fields above are unchanged) ---
+    uint32_t spriteTableOffset;   // offset to the sheet+anim tables, or 0 if none
+    uint16_t spriteSheetCount;
+    uint16_t spriteAnimCount;
+    // Authored network scene id (FNV-1a32 of the exporter's SceneNetworkId).
+    // 0 means "not authored": the runtime falls back to the derived hash, which
+    // is what keeps pre-v22 packs on the network.
+    uint32_t sceneHash;
+    uint32_t reservedV22;         // reserved / future use
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == 128, "SPLASHPACKFileHeader must be 128 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == 144, "SPLASHPACKFileHeader must be 144 bytes");
 
-// Size of the v20 header, used to keep parsing v20 packs after the v21 growth.
+// Historical header sizes. The header has only ever grown by appending, so an
+// older pack is parsed by starting the cursor at the size it had back then.
 static constexpr uint32_t kSplashpackHeaderSizeV20 = 120;
+static constexpr uint32_t kSplashpackHeaderSizeV21 = 128;
+
+static uint32_t splashpackHeaderSize(uint16_t version) {
+    if (version >= 22) return sizeof(SPLASHPACKFileHeader);
+    if (version >= 21) return kSplashpackHeaderSizeV21;
+    return kSplashpackHeaderSizeV20;
+}
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
 // trivial to match exactly on both the C# writer and the C++ reader. Region
@@ -130,9 +147,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.objects.reserve(header->gameObjectCount);
     setup.colliders.reserve(header->colliderCount);
     setup.interactables.reserve(header->interactableCount);
+    setup.agents.reserve(header->agentCount);
 
-    // v21 grew the header by 8 bytes; v20 packs still have a 120-byte header.
-    uint8_t *cursor = data + (header->version >= 21 ? sizeof(SPLASHPACKFileHeader) : kSplashpackHeaderSizeV20);
+    uint8_t *cursor = data + splashpackHeaderSize(header->version);
 
     for (uint16_t i = 0; i < header->luaFileCount; i++) {
         psxsplash::LuaFile *luaHeader = reinterpret_cast<psxsplash::LuaFile *>(cursor);
@@ -178,6 +195,20 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         psxsplash::Interactable *interactable = reinterpret_cast<psxsplash::Interactable *>(cursor);
         setup.interactables.push_back(interactable);
         cursor += sizeof(psxsplash::Interactable);
+    }
+
+    for (uint16_t i = 0; i < header->agentCount; i++) {
+        psxsplash::SPLASHPACKAgentV2* agent = reinterpret_cast<psxsplash::SPLASHPACKAgentV2*>(cursor);
+        setup.agents.push_back(agent);
+        cursor += sizeof(psxsplash::SPLASHPACKAgentV2);
+    }
+    // Patrol waypoints (all agents, packed): waypointCount * 3 * 4 bytes per agent
+    setup.agentWaypointData = reinterpret_cast<const int32_t*>(cursor);
+    {
+        uint32_t totalWaypoints = 0;
+        for (auto* ag : setup.agents)
+            totalWaypoints += ag ? ag->waypointCount : 0;
+        cursor += totalWaypoints * 3 * sizeof(int32_t);
     }
 
     // Skip over legacy world collision data if present in older binaries
@@ -586,6 +617,15 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         MemoryCardManager::Get().setConfig(cfg);
     }
 
+    // Sprites and the authored scene hash (v22+). Older packs leave these zero,
+    // which the SpriteSystem reads as "no sheets" and NetworkManager reads as
+    // "derive the hash the old way".
+    if (header->version >= 22) {
+        setup.spriteSheetCount = header->spriteSheetCount;
+        setup.spriteAnimCount = header->spriteAnimCount;
+        setup.spriteTableOffset = header->spriteTableOffset;
+        setup.sceneHash = header->sceneHash;
+    }
 }
 
 }  // namespace psxsplash
