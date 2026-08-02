@@ -139,6 +139,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     );
 
     // Copy skinned mesh data from splashpack into scene manager storage
+    SkinMesh_ClearBindPositionCache(); // scene reload reuses these addresses with new content — must invalidate first
+
     m_skinnedMeshCount = sceneSetup.skinnedMeshCount;
     for (int i = 0; i < m_skinnedMeshCount; i++) {
         m_skinAnimSets[i] = sceneSetup.loadedSkinAnimSets[i];
@@ -158,6 +160,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
             m_skinAnimSets[i].polyCount = 0;
         }
     }
+
+    for (int i = 0; i < m_skinnedMeshCount; i++) {
+        SkinMesh_PrecomputeApproxBindPositions(m_skinAnimSets[i]);
+    }
+
     Renderer::GetInstance().SetSkinData(
         m_skinnedMeshCount > 0 ? m_skinAnimSets : nullptr,
         m_skinnedMeshCount > 0 ? m_skinAnimStates : nullptr,
@@ -1257,6 +1264,16 @@ int psxsplash::SceneManager::findSkinAnimByObjectName(const char* name) const {
                 if (m_skinAnimSets[si].gameObjectIndex == (uint16_t)i) return si;
             }
             return -1;  // Object found but not skinned
+        }
+    }
+    return -1;
+}
+
+int SceneManager::findSkinIndexForObject(const GameObject* obj) const {
+    for (int i = 0; i < m_skinnedMeshCount; ++i) {
+        if (m_skinAnimSets[i].gameObjectIndex < m_gameObjects.size() &&
+            m_gameObjects[m_skinAnimSets[i].gameObjectIndex] == obj) {
+            return i;
         }
     }
     return -1;
