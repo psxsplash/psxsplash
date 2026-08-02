@@ -6,557 +6,560 @@
 
 namespace psxsplash {
 
-/**
- * Stack-safe replacement for psyqo::Lua::isFixedPoint().
- *
- * psyqo-lua's isFixedPoint() probes the value's metatable with
- * lua_getmetatable, which pushes nothing when the value has no metatable, yet
- * it unconditionally pop(2)s afterwards. Called on a table that has no
- * metatable (e.g. an ordinary nested save table) it therefore underflows the
- * Lua stack and discards the value being examined -- the following lua_type()
- * then reads past the top and reports the value as unsupported userdata.
- *
- * A FixedPoint is always a table carrying the psyqo.FixedPoint metatable, so we
- * only delegate to isFixedPoint() once a metatable is known to be present,
- * which is the case where it is stack-balanced.
- */
-inline bool IsFixedPointSafe(psyqo::Lua& lua, int idx) {
-    if (!lua.isTable(idx)) return false;
-    if (lua.getMetatable(idx) == 0) return false;  // no metatable -> not a FixedPoint
-    lua.pop(1);                                     // drop the metatable pushed by the probe
-    return lua.isFixedPoint(idx);
-}
-
-class SceneManager;  // Forward declaration
-class CutscenePlayer;  // Forward declaration
-class AnimationPlayer;  // Forward declaration
-class UISystem;  // Forward declaration
-
-/**
- * Lua API - Provides game scripting functionality
- * 
- * Available namespaces:
- * - Entity: Object finding, spawning, destruction
- * - Vec3: Vector math operations  
- * - Input: Controller state queries
- * - Timer: Timer control
- * - Camera: Camera manipulation
- * - Audio: Sound playback (future)
- * - Scene: Scene management
- */
-class LuaAPI {
-public:
-    // Initialize all API modules
-    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr);
-    
-    // Called once per frame to advance the Lua frame counter
-    static void IncrementFrameCount();
-    
-    // Reset frame counter (called on scene load)
-    static void ResetFrameCount();
-    
-private:
-    // Store scene manager for API access
-    static SceneManager* s_sceneManager;
-    
-    // Cutscene player pointer (set during RegisterAll)
-    static CutscenePlayer* s_cutscenePlayer;
-
-    // Animation player pointer (set during RegisterAll)
-    static AnimationPlayer* s_animationPlayer;
-    
-    // UI system pointer (set during RegisterAll)
-    static UISystem* s_uiSystem;
-    
-    // ========================================================================
-    // ENTITY API
-    // ========================================================================
-    
-    // Entity.FindByScriptIndex(index) -> object or nil
-    // Finds first object with matching Lua script file index
-    static int Entity_FindByScriptIndex(lua_State* L);
-    
-    // Entity.FindByIndex(index) -> object or nil
-    // Gets object by its array index
-    static int Entity_FindByIndex(lua_State* L);
-    
-    // Entity.Find(name) -> object or nil
-    // Finds first object with matching name (user-friendly)
-    static int Entity_Find(lua_State* L);
-    
-    // Entity.GetCount() -> number
-    // Returns total number of game objects
-    static int Entity_GetCount(lua_State* L);
-    
-    // Entity.SetActive(object, active)
-    // Sets object active state (fires onEnable/onDisable)
-    static int Entity_SetActive(lua_State* L);
-    
-    // Entity.IsActive(object) -> boolean
-    static int Entity_IsActive(lua_State* L);
-    
-    // Entity.GetPosition(object) -> {x, y, z}
-    static int Entity_GetPosition(lua_State* L);
-    
-    // Entity.SetPosition(object, {x, y, z})
-    static int Entity_SetPosition(lua_State* L);
-    
-    // Entity.GetRotationY(object) -> number (radians)
-    static int Entity_GetRotationY(lua_State* L);
-
-    // Entity.SetRotationY(object, angle) -> nil
-    static int Entity_SetRotationY(lua_State* L);
-
-    // Entity.SetRotation(object, {x, y, z})
-    static int Entity_SetRotation(lua_State* L);
-    
-    // Entity.GetForward(object) -> {x, y, z}
-    static int Entity_GetForward(lua_State* L);
-
-    // Entity.GetRight(object) -> {x, y, z}
-    static int Entity_GetRight(lua_State* L);
-
-    // Entity.GetUp(object) -> {x, y, z}
-    static int Entity_GetUp(lua_State* L);
-
-    // Entity.MoveForward(object,step) 
-    static int Entity_MoveForward(lua_State* L);
-
-    // Entity.MoveBackward(object,step) 
-    static int Entity_MoveBackward(lua_State* L);
-
-    // Entity.MoveLeft(object,step) 
-    static int Entity_MoveLeft(lua_State* L);
-
-    // Entity.MoveRight(object,step) 
-    static int Entity_MoveRight(lua_State* L);
-
-    // Entity.MoveUp(object,step) 
-    static int Entity_MoveUp(lua_State* L);
-
-    // Entity.MoveDown(object,step) 
-    static int Entity_MoveDown(lua_State* L);
-
-    // Entity.ForEach(callback) -> nil
-    // Calls callback(object, index) for each active game object
-    static int Entity_ForEach(lua_State* L);
-
-    // Entity.SetUVOffset(object, u, v)
-    static int Entity_SetUVOffset(lua_State* L);
-    
-    // Entity.SetUVs(object, {x, y})
-    static int Entity_SetUVs(lua_State* L);
-
-    // Entity.SetTPage(object, {x, y})
-    static int Entity_SetTPage(lua_State* L);
-
-    // Entity.SetParent(parent object, child object, Vec3 offset)
-    static int Entity_SetParent(lua_State* L);
-
-    // Entity.GetPolyCount(object)
-    static int Entity_GetPolyCount(lua_State* L);
-
-    // Entity.GetPolyVertex(object, poly index, vertex index)
-    static int Entity_GetPolyVertex(lua_State* L);
-
-    // ========================================================================
-    // VEC3 API - Vector math
-    // ========================================================================
-    
-    // Vec3.new(x, y, z) -> {x, y, z}
-    static int Vec3_New(lua_State* L);
-    
-    // Vec3.add(a, b) -> {x, y, z}
-    static int Vec3_Add(lua_State* L);
-    
-    // Vec3.sub(a, b) -> {x, y, z}
-    static int Vec3_Sub(lua_State* L);
-    
-    // Vec3.mul(v, scalar) -> {x, y, z}
-    static int Vec3_Mul(lua_State* L);
-    
-    // Vec3.dot(a, b) -> number
-    static int Vec3_Dot(lua_State* L);
-    
-    // Vec3.cross(a, b) -> {x, y, z}
-    static int Vec3_Cross(lua_State* L);
-    
-    // Vec3.length(v) -> number  
-    static int Vec3_Length(lua_State* L);
-    
-    // Vec3.lengthSq(v) -> number (faster, no sqrt)
-    static int Vec3_LengthSq(lua_State* L);
-    
-    // Vec3.normalize(v) -> {x, y, z}
-    static int Vec3_Normalize(lua_State* L);
-    
-    // Vec3.distance(a, b) -> number
-    static int Vec3_Distance(lua_State* L);
-    
-    // Vec3.distanceSq(a, b) -> number (faster)
-    static int Vec3_DistanceSq(lua_State* L);
-    
-    // Vec3.lerp(a, b, t) -> {x, y, z}
-    static int Vec3_Lerp(lua_State* L);
-    
-    // ========================================================================
-    // INPUT API - Controller state
-    // ========================================================================
-    
-    // Input.IsPressed(button) -> boolean
-    // True only on the frame the button was pressed
-    static int Input_IsPressedPlayer1(lua_State* L);
-    static int Input_IsPressedPlayer2(lua_State* L);
-    
-    // Input.IsReleased(button) -> boolean
-    // True only on the frame the button was released
-    static int Input_IsReleasedPlayer1(lua_State* L);
-    static int Input_IsReleasedPlayer2(lua_State* L);
-    
-    // Input.IsHeld(button) -> boolean
-    // True while the button is held down
-    static int Input_IsHeldPlayer1(lua_State* L);
-    static int Input_IsHeldPlayer2(lua_State* L);
-    
-    // Input.GetAnalog(stick) -> x, y
-    // Returns analog stick values (-128 to 127)
-    static int Input_GetAnalogPlayer1(lua_State* L);
-    static int Input_GetAnalogPlayer2(lua_State* L);
-    
-    // Button constants (registered as Input.CROSS, Input.CIRCLE, etc.)
-    static void RegisterInputConstants(psyqo::Lua& L);
-    
-    // ========================================================================
-    // TIMER API - Frame counter
-    // ========================================================================
-    
-    // Timer.GetFrameCount() -> number
-    // Returns total frames since scene start
-    static int Timer_GetFrameCount(lua_State* L);
-    
-    // ========================================================================
-    // CAMERA API - Camera control
-    // ========================================================================
-    
-    // Camera.GetPosition() -> {x, y, z}
-    static int Camera_GetPosition(lua_State* L);
-    
-    // Camera.SetPosition(x, y, z)
-    static int Camera_SetPosition(lua_State* L);
-    
-    // Camera.GetRotation() -> {x, y, z}
-    static int Camera_GetRotation(lua_State* L);
-    
-    // Camera.SetRotation(x, y, z)
-    static int Camera_SetRotation(lua_State* L);
-    
-    // Camera.GetForward() 
-    static int Camera_GetForward(lua_State* L);
-
-    // Camera.MoveForward(step) 
-    static int Camera_MoveForward(lua_State* L);
-
-    // Camera.MoveBackward(step) 
-    static int Camera_MoveBackward(lua_State* L);
-
-    // Camera.MoveLeft(step) 
-    static int Camera_MoveLeft(lua_State* L);
-
-    // Camera.MoveRight(step) 
-    static int Camera_MoveRight(lua_State* L);
-
-    // Camera.FollowPsxPlayer 
-    static int Camera_FollowPsxPlayer(lua_State* L);
-
-    // Camera.LookAt(target) or Camera.LookAt(x, y, z)
-    static int Camera_LookAt(lua_State* L);
-
-    // Camera.GetH() -> number (current projection H register value)
-    static int Camera_GetH(lua_State* L);
-
-    // Camera.SetH(h) -> nil (set projection H register, clamped 1-1024)
-    static int Camera_SetH(lua_State* L);
-    
-    // ========================================================================
-    // AUDIO API - Sound playback (placeholder for SPU)
-    // ========================================================================
-    
-    // Audio.Play(soundId, volume, pan) -> channelId
-    // soundId can be a number (clip index) or string (clip name)
-    static int Audio_Play(lua_State* L);
-    
-    // Audio.Find(name) -> clipIndex or nil
-    // Finds audio clip by name, returns its index for use with Play/Stop/etc.
-    static int Audio_Find(lua_State* L);
-    
-    // Audio.Stop(channelId)
-    static int Audio_Stop(lua_State* L);
-    
-    // Audio.SetVolume(channelId, volume)
-    static int Audio_SetVolume(lua_State* L);
-    
-    // Audio.StopAll()
-    static int Audio_StopAll(lua_State* L);
-
-    // Audio.PlayCDDA(trackNo)
-    static int Audio_PlayCDDA(lua_State* L);
-
-    // Audio.ResumeCDDA()
-    static int Audio_ResumeCDDA(lua_State* L);
-
-    // Audio.PauseCDDA()
-    static int Audio_PauseCDDA(lua_State* L);
-
-    // Audio.StopCDDA()
-    static int Audio_StopCDDA(lua_State* L);
-
-    // Audio.TellCDDA()
-    static int Audio_TellCDDA(lua_State* L);
-
-    // Audio.SetCDDAVolume()
-    static int Audio_SetCDDAVolume(lua_State* L);
-    
-    // ========================================================================
-    // DEBUG API - Development helpers
-    // ========================================================================
-    
-    // Debug.Log(message)
-    static int Debug_Log(lua_State* L);
-    
-    // Debug.DrawLine(start, end, color) - draws debug line next frame
-    static int Debug_DrawLine(lua_State* L);
-    
-    // Debug.DrawBox(center, size, color)
-    static int Debug_DrawBox(lua_State* L);
-    
-    // ========================================================================
-    // CONVERT API - Extra functions for working with fixed point numbers 
-    // ========================================================================
-
-    // Convert.IntToFp(intValue) - Returns fp value
-    static int Convert_IntToFp(lua_State* L);
-
-    // Convert.FpToInt(fpValue) - Returns int value
-    static int Convert_FpToInt(lua_State* L);
-
-    // ========================================================================
-    // MATH API - Additional math functions
-    // ========================================================================
-    
-    // Math.Clamp(value, min, max)
-    static int Math_Clamp(lua_State* L);
-    
-    // Math.Lerp(a, b, t)
-    static int Math_Lerp(lua_State* L);
-    
-    // Math.Sign(value)
-    static int Math_Sign(lua_State* L);
-    
-    // Math.Abs(value)
-    static int Math_Abs(lua_State* L);
-    
-    // Math.Min(a, b)
-    static int Math_Min(lua_State* L);
-    
-    // Math.Max(a, b)  
-    static int Math_Max(lua_State* L);
-    
-    // Math.Cos(value)
-    static int Math_Cos(lua_State* L);
-
-    // Math.Sin(value)
-    static int Math_Sin(lua_State* L);
-
-    // Math.Convert3DTo2D(x, y, z)
-    static int Math_Convert3DTo2D(lua_State* L);
-
-    // ========================================================================
-    // RANDOM API - Get random numbers
-    // ========================================================================
-
-    // Random.Number(max) returns from 1 to max inclusive
-    static int Random_Number(lua_State* L);
-
-    // Random.GeneratorNumber(max) returns from 1 to max inclusive
-    static int Random_GeneratorNumber(lua_State* L);
-
-    // Random.Range(min,max) returns from min inclusive to max inclusive 
-    static int Random_Range(lua_State* L);
-
-    // Random.GeneratorRange(min,max) returns from min inclusive to max inclusive
-    static int Random_GeneratorRange(lua_State* L);
-
-    // Random.Seed(newSeed) sets the seed for the random number generator 
-    static int Random_GeneratorSeed(lua_State* L);
-
-    // ========================================================================
-    // SCENE API - Scene management
-    // ========================================================================
-    
-    // Scene.Load(sceneIndex)
-    // Requests a scene transition to the given index (0-based).
-    // The actual load happens at the end of the current frame.
-    static int Scene_Load(lua_State* L);
-    
-    // Scene.GetIndex() -> number
-    // Returns the index of the currently loaded scene.
-    static int Scene_GetIndex(lua_State* L);
-    
-    // ========================================================================
-    // PERSIST API - Data that survives scene loads
-    // ========================================================================
-    
-    // Persist.Get(key) -> number or nil
-    static int Persist_Get(lua_State* L);
-    
-    // Persist.Set(key, value)
-    static int Persist_Set(lua_State* L);
-    
-    // Reset all persistent data
-    static void PersistClear();
-
-    // ========================================================================
-    // MEMCARD API - Persistent saves on a physical memory card
-    // ========================================================================
-
-    // MemCard.IsPresent(port) -> present(bool), err(string|nil)
-    static int MemCard_IsPresent(lua_State* L);
-
-    // MemCard.Format(port) -> ok(bool), err(string|nil)
-    static int MemCard_Format(lua_State* L);
-
-    // MemCard.Save(port, key, table[, title]) -> ok(bool), err(string|nil)
-    static int MemCard_Save(lua_State* L);
-
-    // MemCard.Load(port, key) -> table|nil, err(string|nil)
-    static int MemCard_Load(lua_State* L);
-
-    // MemCard.Delete(port, key) -> ok(bool), err(string|nil)
-    static int MemCard_Delete(lua_State* L);
-
-    // MemCard.List(port) -> {names...}|nil, err(string|nil)
-    static int MemCard_List(lua_State* L);
-
-    // MemCard.FreeBlocks(port) -> n|nil, err(string|nil)
-    static int MemCard_FreeBlocks(lua_State* L);
-
-    // ========================================================================
-    // CUTSCENE API - Cutscene playback control
-    // ========================================================================
-    
-    // Cutscene.Play(name) or Cutscene.Play(name, {loop=bool, onComplete=fn})
-    static int Cutscene_Play(lua_State* L);
-
-    // Cutscene.Stop() -> nil
-    static int Cutscene_Stop(lua_State* L);
-
-    // Cutscene.IsPlaying() -> boolean
-    static int Cutscene_IsPlaying(lua_State* L);
-
-    // ========================================================================
-    // ANIMATION API - Multi-instance animation playback
-    // ========================================================================
-
-    // Animation.Play(name) or Animation.Play(name, {loop=bool, onComplete=fn})
-    static int Animation_Play(lua_State* L);
-
-    // Animation.Stop(name) -> nil
-    static int Animation_Stop(lua_State* L);
-
-    // Animation.IsPlaying(name) -> boolean
-    static int Animation_IsPlaying(lua_State* L);
-
-    // ========================================================================
-    // SKINNED ANIMATION API - Bone-based mesh animation
-    // ========================================================================
-
-    // SkinnedAnim.Play(objectName, clipName) or (objectName, clipName, {loop, onComplete})
-    static int SkinnedAnim_Play(lua_State* L);
-
-    // SkinnedAnim.Stop(objectName) -> nil
-    static int SkinnedAnim_Stop(lua_State* L);
-
-    // SkinnedAnim.IsPlaying(objectName) -> boolean
-    static int SkinnedAnim_IsPlaying(lua_State* L);
-
-    // SkinnedAnim.GetClip(objectName) -> string or nil
-    static int SkinnedAnim_GetClip(lua_State* L);
-
-    // Controls.SetEnabled(bool) - enable/disable all player input
-    static int Controls_SetEnabledPlayer1(lua_State* L);
-    static int Controls_SetEnabledPlayer2(lua_State* L);
-
-    // Controls.IsEnabled() -> boolean
-    static int Controls_IsEnabledPlayer1(lua_State* L);
-    static int Controls_IsEnabledPlayer2(lua_State* L);
-
-    // Interact.SetEnabled(entity, bool) - enable/disable interaction + prompt for an object
-    static int Interact_SetEnabled(lua_State* L);
-
-    // Interact.IsEnabled(entity) -> boolean
-    static int Interact_IsEnabled(lua_State* L);
-
-    // ========================================================================
-    // UI API - Canvas and element control
-    // ========================================================================
-    
-    static int UI_FindCanvas(lua_State* L);
-    static int UI_SetCanvasVisible(lua_State* L);
-    static int UI_IsCanvasVisible(lua_State* L);
-    static int UI_FindElement(lua_State* L);
-    static int UI_SetVisible(lua_State* L);
-    static int UI_IsVisible(lua_State* L);
-    static int UI_SetText(lua_State* L);
-    static int UI_GetText(lua_State* L);
-    static int UI_SetProgress(lua_State* L);
-    static int UI_GetProgress(lua_State* L);
-    static int UI_SetColor(lua_State* L);
-    static int UI_GetColor(lua_State* L);
-    static int UI_SetPosition(lua_State* L);
-    static int UI_GetPosition(lua_State* L);
-    static int UI_SetSize(lua_State* L);
-    static int UI_GetSize(lua_State* L);
-    static int UI_SetImageUVs(lua_State* L);
-    static int UI_GetImageUVs(lua_State* L);
-    static int UI_SetImageTexpage(lua_State* L);
-    static int UI_GetImageTexpage(lua_State* L);
-    static int UI_SetImageClut(lua_State* L);
-    static int UI_GetImageClut(lua_State* L);
-    static int UI_SetProgressColors(lua_State* L);
-    static int UI_GetElementType(lua_State* L);
-    static int UI_GetElementCount(lua_State* L);
-    static int UI_GetElementByIndex(lua_State* L);
-    
-    // Draw directly to the GPU with these functions in Lua scripts.
-    // We should probably add code to add them to an OT,
-    // then have the user call another function to render them all.
-    static int UI_DrawLine(lua_State* L);
-    static int UI_DrawTriangle(lua_State* L);
-    
-    static int UI_DrawPixel(lua_State* L);
-
-    // ========================================================================
-    // PLAYER API - Controlling the PsxPlayer
-    // ========================================================================
-    
-    static int Player_SetPosition(lua_State* L);
-    static int Player_GetPosition(lua_State* L);
-    static int Player_SetRotation(lua_State* L);
-    static int Player_GetRotation(lua_State* L);
-    
-    // ========================================================================
-    // HELPERS
-    // ========================================================================
-    
-    // Push a Vec3 table onto the stack
-    static void PushVec3(psyqo::Lua& L, psyqo::FixedPoint<12> x, 
-                         psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
-    
-    // Read a Vec3 table from the stack
-    static void ReadVec3(psyqo::Lua& L, int idx, 
-                         psyqo::FixedPoint<12>& x, 
-                         psyqo::FixedPoint<12>& y, 
-                         psyqo::FixedPoint<12>& z);
-};
+    /**
+     * Stack-safe replacement for psyqo::Lua::isFixedPoint().
+     *
+     * psyqo-lua's isFixedPoint() probes the value's metatable with
+     * lua_getmetatable, which pushes nothing when the value has no metatable, yet
+     * it unconditionally pop(2)s afterwards. Called on a table that has no
+     * metatable (e.g. an ordinary nested save table) it therefore underflows the
+     * Lua stack and discards the value being examined -- the following lua_type()
+     * then reads past the top and reports the value as unsupported userdata.
+     *
+     * A FixedPoint is always a table carrying the psyqo.FixedPoint metatable, so we
+     * only delegate to isFixedPoint() once a metatable is known to be present,
+     * which is the case where it is stack-balanced.
+     */
+    inline bool IsFixedPointSafe(psyqo::Lua& lua, int idx) {
+        if (!lua.isTable(idx)) return false;
+        if (lua.getMetatable(idx) == 0) return false;  // no metatable -> not a FixedPoint
+        lua.pop(1);                                     // drop the metatable pushed by the probe
+        return lua.isFixedPoint(idx);
+    }
+
+    class SceneManager;  // Forward declaration
+    class CutscenePlayer;  // Forward declaration
+    class AnimationPlayer;  // Forward declaration
+    class UISystem;  // Forward declaration
+
+    /**
+     * Lua API - Provides game scripting functionality
+     *
+     * Available namespaces:
+     * - Entity: Object finding, spawning, destruction
+     * - Vec3: Vector math operations
+     * - Input: Controller state queries
+     * - Timer: Timer control
+     * - Camera: Camera manipulation
+     * - Audio: Sound playback (future)
+     * - Scene: Scene management
+     */
+    class LuaAPI {
+    public:
+        // Initialize all API modules
+        static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr);
+
+        // Called once per frame to advance the Lua frame counter
+        static void IncrementFrameCount();
+
+        // Reset frame counter (called on scene load)
+        static void ResetFrameCount();
+
+    private:
+        // Store scene manager for API access
+        static SceneManager* s_sceneManager;
+
+        // Cutscene player pointer (set during RegisterAll)
+        static CutscenePlayer* s_cutscenePlayer;
+
+        // Animation player pointer (set during RegisterAll)
+        static AnimationPlayer* s_animationPlayer;
+
+        // UI system pointer (set during RegisterAll)
+        static UISystem* s_uiSystem;
+
+        // ========================================================================
+        // ENTITY API
+        // ========================================================================
+
+        // Entity.FindByScriptIndex(index) -> object or nil
+        // Finds first object with matching Lua script file index
+        static int Entity_FindByScriptIndex(lua_State* L);
+
+        // Entity.FindByIndex(index) -> object or nil
+        // Gets object by its array index
+        static int Entity_FindByIndex(lua_State* L);
+
+        // Entity.Find(name) -> object or nil
+        // Finds first object with matching name (user-friendly)
+        static int Entity_Find(lua_State* L);
+
+        // Entity.GetCount() -> number
+        // Returns total number of game objects
+        static int Entity_GetCount(lua_State* L);
+
+        // Entity.SetActive(object, active)
+        // Sets object active state (fires onEnable/onDisable)
+        static int Entity_SetActive(lua_State* L);
+
+        // Entity.IsActive(object) -> boolean
+        static int Entity_IsActive(lua_State* L);
+
+        // Entity.GetPosition(object) -> {x, y, z}
+        static int Entity_GetPosition(lua_State* L);
+
+        // Entity.SetPosition(object, {x, y, z})
+        static int Entity_SetPosition(lua_State* L);
+
+        // Entity.GetRotationY(object) -> number (radians)
+        static int Entity_GetRotationY(lua_State* L);
+
+        // Entity.SetRotationY(object, angle) -> nil
+        static int Entity_SetRotationY(lua_State* L);
+
+        // Entity.SetRotation(object, {x, y, z})
+        static int Entity_SetRotation(lua_State* L);
+
+        // Entity.GetForward(object) -> {x, y, z}
+        static int Entity_GetForward(lua_State* L);
+
+        // Entity.GetRight(object) -> {x, y, z}
+        static int Entity_GetRight(lua_State* L);
+
+        // Entity.GetUp(object) -> {x, y, z}
+        static int Entity_GetUp(lua_State* L);
+
+        // Entity.MoveForward(object,step) 
+        static int Entity_MoveForward(lua_State* L);
+
+        // Entity.MoveBackward(object,step) 
+        static int Entity_MoveBackward(lua_State* L);
+
+        // Entity.MoveLeft(object,step) 
+        static int Entity_MoveLeft(lua_State* L);
+
+        // Entity.MoveRight(object,step) 
+        static int Entity_MoveRight(lua_State* L);
+
+        // Entity.MoveUp(object,step) 
+        static int Entity_MoveUp(lua_State* L);
+
+        // Entity.MoveDown(object,step) 
+        static int Entity_MoveDown(lua_State* L);
+
+        // Entity.ForEach(callback) -> nil
+        // Calls callback(object, index) for each active game object
+        static int Entity_ForEach(lua_State* L);
+
+        // Entity.SetUVOffset(object, u, v)
+        static int Entity_SetUVOffset(lua_State* L);
+
+        // Entity.SetUVs(object, {x, y})
+        static int Entity_SetUVs(lua_State* L);
+
+        // Entity.SetTPage(object, {x, y})
+        static int Entity_SetTPage(lua_State* L);
+
+        // Entity.SetParent(parent object, child object, Vec3 offset)
+        static int Entity_SetParent(lua_State* L);
+
+        // Entity.GetBonePosition(object, boneIndex) -> {x, y, z} or nil
+        static int Entity_GetBonePosition(lua_State* L);
+
+        // Entity.GetPolyCount(object)
+        static int Entity_GetPolyCount(lua_State* L);
+
+        // Entity.GetPolyVertex(object, poly index, vertex index)
+        static int Entity_GetPolyVertex(lua_State* L);
+
+        // ========================================================================
+        // VEC3 API - Vector math
+        // ========================================================================
+
+        // Vec3.new(x, y, z) -> {x, y, z}
+        static int Vec3_New(lua_State* L);
+
+        // Vec3.add(a, b) -> {x, y, z}
+        static int Vec3_Add(lua_State* L);
+
+        // Vec3.sub(a, b) -> {x, y, z}
+        static int Vec3_Sub(lua_State* L);
+
+        // Vec3.mul(v, scalar) -> {x, y, z}
+        static int Vec3_Mul(lua_State* L);
+
+        // Vec3.dot(a, b) -> number
+        static int Vec3_Dot(lua_State* L);
+
+        // Vec3.cross(a, b) -> {x, y, z}
+        static int Vec3_Cross(lua_State* L);
+
+        // Vec3.length(v) -> number  
+        static int Vec3_Length(lua_State* L);
+
+        // Vec3.lengthSq(v) -> number (faster, no sqrt)
+        static int Vec3_LengthSq(lua_State* L);
+
+        // Vec3.normalize(v) -> {x, y, z}
+        static int Vec3_Normalize(lua_State* L);
+
+        // Vec3.distance(a, b) -> number
+        static int Vec3_Distance(lua_State* L);
+
+        // Vec3.distanceSq(a, b) -> number (faster)
+        static int Vec3_DistanceSq(lua_State* L);
+
+        // Vec3.lerp(a, b, t) -> {x, y, z}
+        static int Vec3_Lerp(lua_State* L);
+
+        // ========================================================================
+        // INPUT API - Controller state
+        // ========================================================================
+
+        // Input.IsPressed(button) -> boolean
+        // True only on the frame the button was pressed
+        static int Input_IsPressedPlayer1(lua_State* L);
+        static int Input_IsPressedPlayer2(lua_State* L);
+
+        // Input.IsReleased(button) -> boolean
+        // True only on the frame the button was released
+        static int Input_IsReleasedPlayer1(lua_State* L);
+        static int Input_IsReleasedPlayer2(lua_State* L);
+
+        // Input.IsHeld(button) -> boolean
+        // True while the button is held down
+        static int Input_IsHeldPlayer1(lua_State* L);
+        static int Input_IsHeldPlayer2(lua_State* L);
+
+        // Input.GetAnalog(stick) -> x, y
+        // Returns analog stick values (-128 to 127)
+        static int Input_GetAnalogPlayer1(lua_State* L);
+        static int Input_GetAnalogPlayer2(lua_State* L);
+
+        // Button constants (registered as Input.CROSS, Input.CIRCLE, etc.)
+        static void RegisterInputConstants(psyqo::Lua& L);
+
+        // ========================================================================
+        // TIMER API - Frame counter
+        // ========================================================================
+
+        // Timer.GetFrameCount() -> number
+        // Returns total frames since scene start
+        static int Timer_GetFrameCount(lua_State* L);
+
+        // ========================================================================
+        // CAMERA API - Camera control
+        // ========================================================================
+
+        // Camera.GetPosition() -> {x, y, z}
+        static int Camera_GetPosition(lua_State* L);
+
+        // Camera.SetPosition(x, y, z)
+        static int Camera_SetPosition(lua_State* L);
+
+        // Camera.GetRotation() -> {x, y, z}
+        static int Camera_GetRotation(lua_State* L);
+
+        // Camera.SetRotation(x, y, z)
+        static int Camera_SetRotation(lua_State* L);
+
+        // Camera.GetForward() 
+        static int Camera_GetForward(lua_State* L);
+
+        // Camera.MoveForward(step) 
+        static int Camera_MoveForward(lua_State* L);
+
+        // Camera.MoveBackward(step) 
+        static int Camera_MoveBackward(lua_State* L);
+
+        // Camera.MoveLeft(step) 
+        static int Camera_MoveLeft(lua_State* L);
+
+        // Camera.MoveRight(step) 
+        static int Camera_MoveRight(lua_State* L);
+
+        // Camera.FollowPsxPlayer 
+        static int Camera_FollowPsxPlayer(lua_State* L);
+
+        // Camera.LookAt(target) or Camera.LookAt(x, y, z)
+        static int Camera_LookAt(lua_State* L);
+
+        // Camera.GetH() -> number (current projection H register value)
+        static int Camera_GetH(lua_State* L);
+
+        // Camera.SetH(h) -> nil (set projection H register, clamped 1-1024)
+        static int Camera_SetH(lua_State* L);
+
+        // ========================================================================
+        // AUDIO API - Sound playback (placeholder for SPU)
+        // ========================================================================
+
+        // Audio.Play(soundId, volume, pan) -> channelId
+        // soundId can be a number (clip index) or string (clip name)
+        static int Audio_Play(lua_State* L);
+
+        // Audio.Find(name) -> clipIndex or nil
+        // Finds audio clip by name, returns its index for use with Play/Stop/etc.
+        static int Audio_Find(lua_State* L);
+
+        // Audio.Stop(channelId)
+        static int Audio_Stop(lua_State* L);
+
+        // Audio.SetVolume(channelId, volume)
+        static int Audio_SetVolume(lua_State* L);
+
+        // Audio.StopAll()
+        static int Audio_StopAll(lua_State* L);
+
+        // Audio.PlayCDDA(trackNo)
+        static int Audio_PlayCDDA(lua_State* L);
+
+        // Audio.ResumeCDDA()
+        static int Audio_ResumeCDDA(lua_State* L);
+
+        // Audio.PauseCDDA()
+        static int Audio_PauseCDDA(lua_State* L);
+
+        // Audio.StopCDDA()
+        static int Audio_StopCDDA(lua_State* L);
+
+        // Audio.TellCDDA()
+        static int Audio_TellCDDA(lua_State* L);
+
+        // Audio.SetCDDAVolume()
+        static int Audio_SetCDDAVolume(lua_State* L);
+
+        // ========================================================================
+        // DEBUG API - Development helpers
+        // ========================================================================
+
+        // Debug.Log(message)
+        static int Debug_Log(lua_State* L);
+
+        // Debug.DrawLine(start, end, color) - draws debug line next frame
+        static int Debug_DrawLine(lua_State* L);
+
+        // Debug.DrawBox(center, size, color)
+        static int Debug_DrawBox(lua_State* L);
+
+        // ========================================================================
+        // CONVERT API - Extra functions for working with fixed point numbers 
+        // ========================================================================
+
+        // Convert.IntToFp(intValue) - Returns fp value
+        static int Convert_IntToFp(lua_State* L);
+
+        // Convert.FpToInt(fpValue) - Returns int value
+        static int Convert_FpToInt(lua_State* L);
+
+        // ========================================================================
+        // MATH API - Additional math functions
+        // ========================================================================
+
+        // Math.Clamp(value, min, max)
+        static int Math_Clamp(lua_State* L);
+
+        // Math.Lerp(a, b, t)
+        static int Math_Lerp(lua_State* L);
+
+        // Math.Sign(value)
+        static int Math_Sign(lua_State* L);
+
+        // Math.Abs(value)
+        static int Math_Abs(lua_State* L);
+
+        // Math.Min(a, b)
+        static int Math_Min(lua_State* L);
+
+        // Math.Max(a, b)  
+        static int Math_Max(lua_State* L);
+
+        // Math.Cos(value)
+        static int Math_Cos(lua_State* L);
+
+        // Math.Sin(value)
+        static int Math_Sin(lua_State* L);
+
+        // Math.Convert3DTo2D(x, y, z)
+        static int Math_Convert3DTo2D(lua_State* L);
+
+        // ========================================================================
+        // RANDOM API - Get random numbers
+        // ========================================================================
+
+        // Random.Number(max) returns from 1 to max inclusive
+        static int Random_Number(lua_State* L);
+
+        // Random.GeneratorNumber(max) returns from 1 to max inclusive
+        static int Random_GeneratorNumber(lua_State* L);
+
+        // Random.Range(min,max) returns from min inclusive to max inclusive 
+        static int Random_Range(lua_State* L);
+
+        // Random.GeneratorRange(min,max) returns from min inclusive to max inclusive
+        static int Random_GeneratorRange(lua_State* L);
+
+        // Random.Seed(newSeed) sets the seed for the random number generator 
+        static int Random_GeneratorSeed(lua_State* L);
+
+        // ========================================================================
+        // SCENE API - Scene management
+        // ========================================================================
+
+        // Scene.Load(sceneIndex)
+        // Requests a scene transition to the given index (0-based).
+        // The actual load happens at the end of the current frame.
+        static int Scene_Load(lua_State* L);
+
+        // Scene.GetIndex() -> number
+        // Returns the index of the currently loaded scene.
+        static int Scene_GetIndex(lua_State* L);
+
+        // ========================================================================
+        // PERSIST API - Data that survives scene loads
+        // ========================================================================
+
+        // Persist.Get(key) -> number or nil
+        static int Persist_Get(lua_State* L);
+
+        // Persist.Set(key, value)
+        static int Persist_Set(lua_State* L);
+
+        // Reset all persistent data
+        static void PersistClear();
+
+        // ========================================================================
+        // MEMCARD API - Persistent saves on a physical memory card
+        // ========================================================================
+
+        // MemCard.IsPresent(port) -> present(bool), err(string|nil)
+        static int MemCard_IsPresent(lua_State* L);
+
+        // MemCard.Format(port) -> ok(bool), err(string|nil)
+        static int MemCard_Format(lua_State* L);
+
+        // MemCard.Save(port, key, table[, title]) -> ok(bool), err(string|nil)
+        static int MemCard_Save(lua_State* L);
+
+        // MemCard.Load(port, key) -> table|nil, err(string|nil)
+        static int MemCard_Load(lua_State* L);
+
+        // MemCard.Delete(port, key) -> ok(bool), err(string|nil)
+        static int MemCard_Delete(lua_State* L);
+
+        // MemCard.List(port) -> {names...}|nil, err(string|nil)
+        static int MemCard_List(lua_State* L);
+
+        // MemCard.FreeBlocks(port) -> n|nil, err(string|nil)
+        static int MemCard_FreeBlocks(lua_State* L);
+
+        // ========================================================================
+        // CUTSCENE API - Cutscene playback control
+        // ========================================================================
+
+        // Cutscene.Play(name) or Cutscene.Play(name, {loop=bool, onComplete=fn})
+        static int Cutscene_Play(lua_State* L);
+
+        // Cutscene.Stop() -> nil
+        static int Cutscene_Stop(lua_State* L);
+
+        // Cutscene.IsPlaying() -> boolean
+        static int Cutscene_IsPlaying(lua_State* L);
+
+        // ========================================================================
+        // ANIMATION API - Multi-instance animation playback
+        // ========================================================================
+
+        // Animation.Play(name) or Animation.Play(name, {loop=bool, onComplete=fn})
+        static int Animation_Play(lua_State* L);
+
+        // Animation.Stop(name) -> nil
+        static int Animation_Stop(lua_State* L);
+
+        // Animation.IsPlaying(name) -> boolean
+        static int Animation_IsPlaying(lua_State* L);
+
+        // ========================================================================
+        // SKINNED ANIMATION API - Bone-based mesh animation
+        // ========================================================================
+
+        // SkinnedAnim.Play(objectName, clipName) or (objectName, clipName, {loop, onComplete})
+        static int SkinnedAnim_Play(lua_State* L);
+
+        // SkinnedAnim.Stop(objectName) -> nil
+        static int SkinnedAnim_Stop(lua_State* L);
+
+        // SkinnedAnim.IsPlaying(objectName) -> boolean
+        static int SkinnedAnim_IsPlaying(lua_State* L);
+
+        // SkinnedAnim.GetClip(objectName) -> string or nil
+        static int SkinnedAnim_GetClip(lua_State* L);
+
+        // Controls.SetEnabled(bool) - enable/disable all player input
+        static int Controls_SetEnabledPlayer1(lua_State* L);
+        static int Controls_SetEnabledPlayer2(lua_State* L);
+
+        // Controls.IsEnabled() -> boolean
+        static int Controls_IsEnabledPlayer1(lua_State* L);
+        static int Controls_IsEnabledPlayer2(lua_State* L);
+
+        // Interact.SetEnabled(entity, bool) - enable/disable interaction + prompt for an object
+        static int Interact_SetEnabled(lua_State* L);
+
+        // Interact.IsEnabled(entity) -> boolean
+        static int Interact_IsEnabled(lua_State* L);
+
+        // ========================================================================
+        // UI API - Canvas and element control
+        // ========================================================================
+
+        static int UI_FindCanvas(lua_State* L);
+        static int UI_SetCanvasVisible(lua_State* L);
+        static int UI_IsCanvasVisible(lua_State* L);
+        static int UI_FindElement(lua_State* L);
+        static int UI_SetVisible(lua_State* L);
+        static int UI_IsVisible(lua_State* L);
+        static int UI_SetText(lua_State* L);
+        static int UI_GetText(lua_State* L);
+        static int UI_SetProgress(lua_State* L);
+        static int UI_GetProgress(lua_State* L);
+        static int UI_SetColor(lua_State* L);
+        static int UI_GetColor(lua_State* L);
+        static int UI_SetPosition(lua_State* L);
+        static int UI_GetPosition(lua_State* L);
+        static int UI_SetSize(lua_State* L);
+        static int UI_GetSize(lua_State* L);
+        static int UI_SetImageUVs(lua_State* L);
+        static int UI_GetImageUVs(lua_State* L);
+        static int UI_SetImageTexpage(lua_State* L);
+        static int UI_GetImageTexpage(lua_State* L);
+        static int UI_SetImageClut(lua_State* L);
+        static int UI_GetImageClut(lua_State* L);
+        static int UI_SetProgressColors(lua_State* L);
+        static int UI_GetElementType(lua_State* L);
+        static int UI_GetElementCount(lua_State* L);
+        static int UI_GetElementByIndex(lua_State* L);
+
+        // Draw directly to the GPU with these functions in Lua scripts.
+        // We should probably add code to add them to an OT,
+        // then have the user call another function to render them all.
+        static int UI_DrawLine(lua_State* L);
+        static int UI_DrawTriangle(lua_State* L);
+
+        static int UI_DrawPixel(lua_State* L);
+
+        // ========================================================================
+        // PLAYER API - Controlling the PsxPlayer
+        // ========================================================================
+
+        static int Player_SetPosition(lua_State* L);
+        static int Player_GetPosition(lua_State* L);
+        static int Player_SetRotation(lua_State* L);
+        static int Player_GetRotation(lua_State* L);
+
+        // ========================================================================
+        // HELPERS
+        // ========================================================================
+
+        // Push a Vec3 table onto the stack
+        static void PushVec3(psyqo::Lua& L, psyqo::FixedPoint<12> x,
+            psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
+
+        // Read a Vec3 table from the stack
+        static void ReadVec3(psyqo::Lua& L, int idx,
+            psyqo::FixedPoint<12>& x,
+            psyqo::FixedPoint<12>& y,
+            psyqo::FixedPoint<12>& z);
+    };
 
 }  // namespace psxsplash
