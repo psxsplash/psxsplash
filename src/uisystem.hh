@@ -120,6 +120,12 @@ public:
     void getPosition(int handle, int16_t& x, int16_t& y) const;
     void setSize(int handle, int16_t w, int16_t h);
     void getSize(int handle, int16_t& w, int16_t& h) const;
+    void setImageUVs(int handle, uint8_t u0, uint8_t v0, uint8_t u1, uint8_t v1);
+    void getImageUVs(int handle, uint8_t& u0, uint8_t& v0, uint8_t& u1, uint8_t& v1) const;
+    void setImageTexpage(int handle, uint8_t texpageX, uint8_t texpageY);
+    void getImageTexpage(int handle, uint8_t& texpageX, uint8_t& texpageY) const;
+    void setImageClut(int handle, uint16_t clutX, uint16_t clutY);
+    void getImageClut(int handle, uint16_t& clutX, uint16_t& clutY) const;
     void setProgressColors(int handle, uint8_t bgR, uint8_t bgG, uint8_t bgB,
                            uint8_t fillR, uint8_t fillG, uint8_t fillB);
     uint8_t getProgress(int handle) const;

@@ -666,6 +666,64 @@ void UISystem::getSize(int handle, int16_t& w, int16_t& h) const {
     h = rh;
 }
 
+void UISystem::setImageUVs(int handle, uint8_t u0, uint8_t v0, uint8_t u1, uint8_t v1) {
+    if (handle < 0 || handle >= m_elementCount) return;
+    const UIElement& el = m_elements[handle];
+    if (el.type != UIElementType::Image) return;
+    m_elements[handle].image.u0 = u0;
+    m_elements[handle].image.v0 = v0;
+    m_elements[handle].image.u1 = u1;
+    m_elements[handle].image.v1 = v1;
+
+    // Clear stretch anchors so size is explicit
+    //m_elements[handle].anchorMaxX = m_elements[handle].anchorMinX;
+    //m_elements[handle].anchorMaxY = m_elements[handle].anchorMinY;
+}
+
+void UISystem::getImageUVs(int handle, uint8_t& u0, uint8_t& v0, uint8_t& u1, uint8_t& v1) const {
+    if (handle < 0 || handle >= m_elementCount) { u0 = v0 = u1 = v1 = 0; return; }
+    u0 = m_elements[handle].image.u0;
+    v0 = m_elements[handle].image.v0;
+    u1 = m_elements[handle].image.u1;
+    v1 = m_elements[handle].image.v1;
+}
+
+void UISystem::setImageTexpage(int handle, uint8_t texpageX, uint8_t texpageY) {
+    if (handle < 0 || handle >= m_elementCount) return;
+    const UIElement& el = m_elements[handle];
+    if (el.type != UIElementType::Image) return;
+    m_elements[handle].image.texpageX = texpageX;
+    m_elements[handle].image.texpageY = texpageY;
+
+    // Clear stretch anchors so size is explicit
+    //m_elements[handle].anchorMaxX = m_elements[handle].anchorMinX;
+    //m_elements[handle].anchorMaxY = m_elements[handle].anchorMinY;
+}
+
+void UISystem::getImageTexpage(int handle, uint8_t& texpageX, uint8_t& texpageY) const {
+    if (handle < 0 || handle >= m_elementCount) { texpageX = texpageY = 0; return; }
+    texpageX = m_elements[handle].image.texpageX;
+    texpageY = m_elements[handle].image.texpageY;
+}
+
+void UISystem::setImageClut(int handle, uint16_t clutX, uint16_t clutY) {
+    if (handle < 0 || handle >= m_elementCount) return;
+    const UIElement& el = m_elements[handle];
+    if (el.type != UIElementType::Image) return;
+    m_elements[handle].image.clutX = clutX;
+    m_elements[handle].image.clutY = clutY;
+
+    // Clear stretch anchors so size is explicit
+    //m_elements[handle].anchorMaxX = m_elements[handle].anchorMinX;
+    //m_elements[handle].anchorMaxY = m_elements[handle].anchorMinY;
+}
+
+void UISystem::getImageClut(int handle, uint16_t& clutX, uint16_t& clutY) const {
+    if (handle < 0 || handle >= m_elementCount) { clutX = clutY = 0; return; }
+    clutX = m_elements[handle].image.clutX;
+    clutY = m_elements[handle].image.clutY;
+}
+
 void UISystem::setProgressColors(int handle, uint8_t bgR, uint8_t bgG, uint8_t bgB,
                                   uint8_t fillR, uint8_t fillG, uint8_t fillB) {
     if (handle < 0 || handle >= m_elementCount) return;
