@@ -11,6 +11,7 @@
 #include <psyqo/primitives/common.hh>
 #include <psyqo/primitives/control.hh>
 #include <psyqo/primitives/triangles.hh>
+#include <psyqo/gte-math.hh>
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/vector.hh>
@@ -85,7 +86,11 @@ void psxsplash::Renderer::setupObjectTransform(
     objectPosition.y += cameraPosition.y;
     objectPosition.z += cameraPosition.z;
     psyqo::Matrix33 finalMatrix;
-    MatrixMultiplyGTE(m_currentCamera->GetRotation(), obj->rotation, &finalMatrix);
+    // Arguments are reversed against the old MatrixMultiplyGTE: that one loaded
+    // its FIRST argument into RT and so computed matA * matB, while GteMath
+    // computes out = m2 * m1. Same clobber set (RT, V0, IR1-3, MAC1-3), and RT
+    // is rewritten immediately below either way.
+    psyqo::GteMath::multiplyMatrix33(obj->rotation, m_currentCamera->GetRotation(), &finalMatrix);
     writeSafe<PseudoRegister::Translation>(objectPosition);
     writeSafe<PseudoRegister::Rotation>(finalMatrix);
 }
@@ -1221,9 +1226,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
             boneMatrices = lerpedBones;
         }
 
-        // Compose camera × object rotation
+        // Compose camera x object rotation. Reversed arguments, see setupObjectTransform.
         psyqo::Matrix33 camObjRot;
-        MatrixMultiplyGTE(m_currentCamera->GetRotation(), obj->rotation, &camObjRot);
+        psyqo::GteMath::multiplyMatrix33(obj->rotation, m_currentCamera->GetRotation(), &camObjRot);
 
         // Compute camera-space object position
         ::clear<Register::TRX, Safe>();
@@ -1246,8 +1251,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
             boneRot.vs[1].x.value = bm.r[3]; boneRot.vs[1].y.value = bm.r[4]; boneRot.vs[1].z.value = bm.r[5];
             boneRot.vs[2].x.value = bm.r[6]; boneRot.vs[2].y.value = bm.r[7]; boneRot.vs[2].z.value = bm.r[8];
 
-            // composedRots[bi] = camObjRot × boneRot
-            MatrixMultiplyGTE(camObjRot, boneRot, &composedRots[bi]);
+            // composedRots[bi] = camObjRot x boneRot. Reversed arguments, see above.
+            psyqo::GteMath::multiplyMatrix33(boneRot, camObjRot, &composedRots[bi]);
 
             // composedTrans[bi] = objCamPos + camObjRot × boneTrans
             psyqo::Vec3 boneTrans;

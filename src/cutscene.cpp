@@ -2,6 +2,7 @@
 #include "interpolation.hh"
 
 #include <psyqo/fixed-point.hh>
+#include <psyqo/gte-math.hh>
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include "gtemath.hh"
@@ -300,9 +301,11 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             auto matY = psyqo::SoftMath::generateRotationMatrix33(ry, psyqo::SoftMath::Axis::Y, m_trig);
             auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, m_trig);
             auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, m_trig);
-            auto temp = psyqo::SoftMath::multiplyMatrix33(matY, matX);
-            track.target->rotation = psxsplash::transposeMatrix33(
-                psyqo::SoftMath::multiplyMatrix33(temp, matZ));
+            psyqo::Matrix33 temp;
+            psyqo::GteMath::multiplyMatrix33(matY, matX, &temp);
+            // Aliasing out onto an input is explicitly supported.
+            psyqo::GteMath::multiplyMatrix33(temp, matZ, &temp);
+            track.target->rotation = psxsplash::transposeMatrix33(temp);
             break;
         }
 

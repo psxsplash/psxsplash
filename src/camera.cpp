@@ -2,6 +2,7 @@
 
 #include <psyqo/fixed-point.hh>
 #include <psyqo/matrix.hh>
+#include <psyqo/gte-math.hh>
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 
@@ -30,8 +31,8 @@ void psxsplash::Camera::SetRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle
     auto rotY = psyqo::SoftMath::generateRotationMatrix33(y, psyqo::SoftMath::Axis::Y, m_trig);
     auto rotZ = psyqo::SoftMath::generateRotationMatrix33(z, psyqo::SoftMath::Axis::Z, m_trig);
 
-    psyqo::SoftMath::multiplyMatrix33(rotY, rotX, &rotY);
-    psyqo::SoftMath::multiplyMatrix33(rotY, rotZ, &rotY);
+    psyqo::GteMath::multiplyMatrix33(rotY, rotX, &rotY);
+    psyqo::GteMath::multiplyMatrix33(rotY, rotZ, &rotY);
 
     m_rotationMatrix = rotY;
 }
