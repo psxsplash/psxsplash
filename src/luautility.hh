@@ -22,9 +22,9 @@ class LuaUtility {
     static void SetPosition(GameObject* go, psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y, psyqo::FixedPoint<12> z);
     static void SetPosition(GameObject* go, psyqo::Vec3 newPos);
 
-    static psyqo::Angle FastAtan2(int32_t sinVal, int32_t cosVal);
+    // Angle is FixedPoint<10>, the Lua boundary is FixedPoint<12>; both are in
+    // pi-fractions, so this is a precision rescale and not a change of units.
     static psyqo::FixedPoint<12> ToFp12(psyqo::Angle a);
-    static psyqo::Vec3 MatrixToEuler(psyqo::Matrix33 m);
 
   private:
 };
