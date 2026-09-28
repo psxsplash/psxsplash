@@ -18,6 +18,7 @@
 #include "gtemath.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
+#include "tilesystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -149,9 +150,9 @@ void psxsplash::Renderer::processTriangle(
     read<Register::SZ3>(&u2);
     int32_t sz0 = (int32_t)u0, sz1 = (int32_t)u1, sz2 = (int32_t)u2;
 
-    // Entirely behind camera → invisible.
+    // Entirely behind camera -> invisible.
     if (sz0 <= 0 && sz1 <= 0 && sz2 <= 0) return;
-    // Entirely beyond fog wall → invisible.
+    // Entirely beyond fog wall -> invisible.
     if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) return;
 
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
@@ -165,7 +166,7 @@ void psxsplash::Renderer::processTriangle(
     read<Register::SXY1>(&projected[1].packed);
     read<Register::SXY2>(&projected[2].packed);
 
-    // SZ below this threshold → GTE SXY output is garbage (near-zero Z division).
+    // SZ below this threshold -> GTE SXY output is garbage (near-zero Z division).
     static constexpr int32_t NEAR_SZ_THRESHOLD = 4;
     bool hasNearPlane = (sz0 < NEAR_SZ_THRESHOLD || sz1 < NEAR_SZ_THRESHOLD ||
                          sz2 < NEAR_SZ_THRESHOLD);
@@ -181,7 +182,7 @@ void psxsplash::Renderer::processTriangle(
         Tri childA = tri, childB = tri;
 
         if (score01 >= score12 && score01 >= score20) {
-            // Split edge v0–v1 → midpoint M.  childA = {v0, M, v2}, childB = {M, v1, v2}.
+            // Split edge v0-v1 -> midpoint M.  childA = {v0, M, v2}, childB = {M, v1, v2}.
             psyqo::GTE::PackedVec3 m;
             m.x.value = (int16_t)(((int32_t)tri.v0.x.value + (int32_t)tri.v1.x.value) >> 1);
             m.y.value = (int16_t)(((int32_t)tri.v0.y.value + (int32_t)tri.v1.y.value) >> 1);
@@ -196,7 +197,7 @@ void psxsplash::Renderer::processTriangle(
             childA.v1 = m; childA.uvB.u = mu; childA.uvB.v = mv; childA.colorB = mc;
             childB.v0 = m; childB.uvA.u = mu; childB.uvA.v = mv; childB.colorA = mc;
         } else if (score12 >= score20) {
-            // Split edge v1–v2 → midpoint M.  childA = {v0, v1, M}, childB = {v0, M, v2}.
+            // Split edge v1-v2 -> midpoint M.  childA = {v0, v1, M}, childB = {v0, M, v2}.
             psyqo::GTE::PackedVec3 m;
             m.x.value = (int16_t)(((int32_t)tri.v1.x.value + (int32_t)tri.v2.x.value) >> 1);
             m.y.value = (int16_t)(((int32_t)tri.v1.y.value + (int32_t)tri.v2.y.value) >> 1);
@@ -211,7 +212,7 @@ void psxsplash::Renderer::processTriangle(
             childA.v2 = m; childA.uvC.u = mu; childA.uvC.v = mv; childA.colorC = mc;
             childB.v1 = m; childB.uvB.u = mu; childB.uvB.v = mv; childB.colorB = mc;
         } else {
-            // Split edge v2–v0 → midpoint M.  childA = {M, v1, v2}, childB = {v0, v1, M}.
+            // Split edge v2-v0 -> midpoint M.  childA = {M, v1, v2}, childB = {v0, v1, M}.
             psyqo::GTE::PackedVec3 m;
             m.x.value = (int16_t)(((int32_t)tri.v2.x.value + (int32_t)tri.v0.x.value) >> 1);
             m.y.value = (int16_t)(((int32_t)tri.v2.y.value + (int32_t)tri.v0.y.value) >> 1);
@@ -242,7 +243,7 @@ void psxsplash::Renderer::processTriangle(
         if (mac0 <= 0) return;
     }
 
-    // Clamp to safe rasterizer range (1023×511 max delta).
+    // Clamp to safe rasterizer range (1023x511 max delta).
     clampForRasterizer(projected[0]);
     clampForRasterizer(projected[1]);
     clampForRasterizer(projected[2]);
@@ -352,6 +353,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+    if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -396,8 +398,8 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         if (ref.objectIndex >= objects.size()) continue;
         GameObject* obj = objects[ref.objectIndex];
         if (!obj->isActive()) continue;
-        if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass — rendered below
-        if (obj->isSkinned()) continue;  // Skip skinned objects — rendered in skinned pass
+        if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass - rendered below
+        if (obj->isSkinned()) continue;  // Skip skinned objects - rendered in skinned pass
         if (ref.triangleIndex >= obj->polyCount) continue;
         if (ref.objectIndex != lastObjectIndex) {
             lastObjectIndex = ref.objectIndex;
@@ -417,7 +419,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     }
 
     // Second pass: render dynamically-moved objects (their BVH references are stale).
-    // Uses per-object AABB frustum test then renders all triangles — like the non-BVH path.
+    // Uses per-object AABB frustum test then renders all triangles - like the non-BVH path.
     for (size_t oi = 0; oi < objects.size(); oi++) {
         GameObject* obj = objects[oi];
         if (!obj->isActive() || !obj->isDynamicMoved()) continue;
@@ -436,6 +438,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+    if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -534,7 +537,7 @@ static bool projectPortalRect(const psxsplash::PortalData& portal,
         if (cv[i].z <= 0) behindCount++;
     }
 
-    // Any corner behind camera → conservative fullscreen rect (unless portal center is far behind).
+    // Any corner behind camera -> conservative fullscreen rect (unless portal center is far behind).
     if (behindCount > 0) {
         int32_t vx, vy, vz;
         worldToCamera(cx, cy, cz, camX, camY, camZ, camRot, vx, vy, vz);
@@ -1129,6 +1132,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+    if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -1215,7 +1219,7 @@ void psxsplash::Renderer::renderSkinnedObjects(
             }
             boneMatrices = lerpedBones;
         } else if (sf > 0 && (animState.loop || (clip.flags & 0x01)) && clip.frameCount > 1) {
-            // Looping: interpolate last frame → first frame
+            // Looping: interpolate last frame -> first frame
             const BakedBoneMatrix* boneMatricesB = &clip.frames[0];
             for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
                 const BakedBoneMatrix& bA = boneMatricesA[bi];
@@ -1233,7 +1237,7 @@ void psxsplash::Renderer::renderSkinnedObjects(
             boneMatrices = lerpedBones;
         }
 
-        // Compose camera × object rotation
+        // Compose camera x object rotation
         psyqo::Matrix33 camObjRot;
         MatrixMultiplyGTE(m_currentCamera->GetRotation(), obj->rotation, &camObjRot);
 
@@ -1258,10 +1262,10 @@ void psxsplash::Renderer::renderSkinnedObjects(
             boneRot.vs[1].x.value = bm.r[3]; boneRot.vs[1].y.value = bm.r[4]; boneRot.vs[1].z.value = bm.r[5];
             boneRot.vs[2].x.value = bm.r[6]; boneRot.vs[2].y.value = bm.r[7]; boneRot.vs[2].z.value = bm.r[8];
 
-            // composedRots[bi] = camObjRot × boneRot
+            // composedRots[bi] = camObjRot x boneRot
             MatrixMultiplyGTE(camObjRot, boneRot, &composedRots[bi]);
 
-            // composedTrans[bi] = objCamPos + camObjRot × boneTrans
+            // composedTrans[bi] = objCamPos + camObjRot x boneTrans
             psyqo::Vec3 boneTrans;
             boneTrans.x.value = bm.t[0]; boneTrans.y.value = bm.t[1]; boneTrans.z.value = bm.t[2];
 
@@ -1319,9 +1323,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
 
             int32_t sz0 = (int32_t)sz0Raw, sz1 = (int32_t)sz1Raw, sz2 = (int32_t)sz2Raw;
 
-            // All behind camera → invisible
+            // All behind camera -> invisible
             if (sz0 <= 0 && sz1 <= 0 && sz2 <= 0) continue;
-            // Beyond fog wall → invisible
+            // Beyond fog wall -> invisible
             if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) continue;
 
             int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);

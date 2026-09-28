@@ -37,6 +37,16 @@ public:
   /// Initialize SPU hardware and reset state
   void init();
 
+  /// The SPU hardware setup ALONE, with the clip table left alone.
+  ///
+  /// `init()` does two unrelated jobs - it programs the SPU and it empties the
+  /// clip table - and the scene load needs them at two different moments. The
+  /// ADPCM is uploaded before InitializeScene runs, so a full init() in there
+  /// marks every clip unloaded a moment after it was loaded; but the SPU still
+  /// has to be programmed on every scene, or the first thing that touches it
+  /// (the title screen's PlayCDDA) does so on uninitialised hardware.
+  void initHardware();
+
   /// Upload ADPCM data to SPU RAM and register as clip index.
   /// Data must be 16-byte aligned. Returns true on success.
   bool loadClip(int clipIndex, const uint8_t *adpcmData, uint32_t sizeBytes,

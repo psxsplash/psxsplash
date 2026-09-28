@@ -129,7 +129,7 @@ private:
                             int32_t qMaxX, int32_t qMaxY, int32_t qMaxZ);
 };
 
-// ── Room/portal data for interior scene occlusion ──
+// -- Room/portal data for interior scene occlusion --
 
 /// Per-room data loaded from splashpack v11+.
 /// AABB for point-in-room tests plus a range into the room triangle-ref array.
@@ -139,14 +139,14 @@ struct RoomData {
     uint16_t firstTriRef;                   // 2 bytes - index into room tri-ref array
     uint16_t triRefCount;                   // 2 bytes
     uint16_t firstCell;                     // 2 bytes - index into cell array
-    uint8_t  cellCount;                     // 1 byte  - typically 8 (2×2×2)
+    uint8_t  cellCount;                     // 1 byte  - typically 8 (2x2x2)
     uint8_t  portalRefCount;                // 1 byte  - number of portal refs for this room
     uint16_t firstPortalRef;                // 2 bytes - index into room-portal-ref array
     uint16_t pad;                           // 2 bytes - alignment
 };
 static_assert(sizeof(RoomData) == 36, "RoomData must be 36 bytes");
 
-/// Per-room portal reference — maps a room to its adjacent portals.
+/// Per-room portal reference - maps a room to its adjacent portals.
 /// Stored in a flat array indexed by RoomData::firstPortalRef + i.
 struct RoomPortalRef {
     uint16_t portalIndex;   // index into the portal array
@@ -155,7 +155,7 @@ struct RoomPortalRef {
 static_assert(sizeof(RoomPortalRef) == 4, "RoomPortalRef must be 4 bytes");
 
 /// Per-room spatial cell for sub-room frustum culling.
-/// Each cell covers a fraction of a room's volume (typically 2×2×2 = 8 cells per room).
+/// Each cell covers a fraction of a room's volume (typically 2x2x2 = 8 cells per room).
 /// At runtime, frustum-test each cell's AABB to skip triangles in invisible sub-volumes.
 struct RoomCell {
     int32_t minX, minY, minZ;   // 12 bytes - tight AABB around cell's actual triangles
@@ -174,7 +174,7 @@ struct RoomCell {
 };
 static_assert(sizeof(RoomCell) == 28, "RoomCell must be 28 bytes");
 
-// Deferred implementation of Frustum::testAABB(RoomCell) — needs full RoomCell definition.
+// Deferred implementation of Frustum::testAABB(RoomCell) - needs full RoomCell definition.
 inline bool Frustum::testAABB(const RoomCell& cell) const {
     for (int i = 0; i < 6; i++) {
         if (!cell.testPlane(planes[i].nx, planes[i].ny, planes[i].nz, planes[i].d)) {

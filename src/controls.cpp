@@ -2,7 +2,11 @@
 
 #include <psyqo/hardware/cpu.hh>
 #include <psyqo/hardware/sio.hh>
+#include <psyqo/kernel.hh>
 #include <psyqo/vector.hh>
+
+#include "irqack.hh"
+#include "sio1.hh"
 
 namespace {
 
@@ -13,27 +17,101 @@ void busyLoop(unsigned delay) {
     while (++cycles < delay) asm("");
 }
 
+// NO WAIT ON THIS PORT MAY BE UNBOUNDED. THE CONSOLE IS THE THING AT STAKE.
+//
+// Every loop below used to spin on a hardware flag with no way out, and one of
+// them is how a real console froze: `while (!(SIO::Stat & STAT_RXRDY));` after
+// writing DATA, waiting for a byte from a pad that had already given up.
+//
+// A PlayStation pad ABORTS a transfer if the console does not clock the next byte
+// promptly after ACK, and stops answering until DTR is re-asserted. That is not
+// hypothetical here -- under the retail BIOS an SIO1 receive interrupt costs on
+// the order of 150us to dispatch, and this game holds a live serial link, so one
+// landing between two pad bytes is enough. The next wait then never returns: the
+// last frame stays on screen, interrupts are still enabled, and installCrashHandler
+// says nothing because this is not an exception. It is indistinguishable from a
+// dead console, which is what makes it so expensive to diagnose -- it destroys the
+// evidence for every other bug at the same time.
+//
+// So the waits are bounded and failure is REPORTED. Every caller already has a
+// give-up path (sendCommand returns false, forceAnalogMode treats a missing pad as
+// skipped harmlessly), because a controller that is simply not plugged in has
+// always had to be survivable. Timing out now takes that same path.
+//
+// The budget: a byte at SIO0's 250kHz is 32us, and one iteration here is a single
+// I/O read, roughly 0.4us. 1024 iterations is ~450us -- more than ten byte-times,
+// so a healthy pad never comes close, and a dead one costs half a millisecond
+// instead of the machine.
+constexpr unsigned c_sioSpinLimit = 1024;
+
 void flushRxBuffer() {
-    while (SIO::Stat & SIO::Status::STAT_RXRDY) {
+    unsigned spin = c_sioSpinLimit;
+    while ((SIO::Stat & SIO::Status::STAT_RXRDY) && spin--) {
         SIO::Data.throwAway();
     }
 }
 
-uint8_t transceive(uint8_t dataOut) {
+// Acknowledge the CONTROLLER interrupt without collateral damage.
+//
+// `IReg.clear()` is a read-modify-write on I_STAT (hwregs.hh, operator&=), and
+// I_STAT is acknowledge-by-writing-ZERO - so it writes a zero back into every bit
+// that was not pending at the moment it read. If the SIO1 receive interrupt asserts
+// inside that window, this call acknowledges it by accident, and because
+// SIO_STAT.9 is sticky while I_STAT.8 is edge-triggered, no further edge is ever
+// generated: the link's receive interrupt is dead for the rest of the session. See
+// Sio1::rearmRx() for the full mechanism and the hardware references.
+//
+// psyqo's AdvancedPad does the same thing and cannot be edited here, which is why
+// Sio1::rearmRx() exists to undo it. But there is no reason for THIS driver to be a
+// second source of the same fault: with interrupts off, nothing can assert between
+// the read and the write, so the window closes completely.
+//
+// The critical section this used to hold is gone, and so is the MAIN THREAD ONLY
+// restriction that came with it: `ackIrq` writes I_STAT without reading it, so there
+// is no read-modify-write to protect. `I_STAT = ~bit` is "acknowledge this bit,
+// leave every other pending", which is what the critical section was buying at the
+// cost of disabling interrupts and of being unusable from a handler. Immune by
+// construction rather than by timing, and one store instead of three. See irqack.hh.
+inline void ackControllerIrq() { psxsplash::ackIrq(CPU::IRQ::Controller); }
+
+// Returns false if the pad never answered; *dataIn is untouched in that case.
+bool transceive(uint8_t dataOut, uint8_t *dataIn = nullptr) {
     SIO::Ctrl |= SIO::Control::CTRL_ERRRES;
-    CPU::IReg.clear(CPU::IRQ::Controller);
+    ackControllerIrq();
     SIO::Data = dataOut;
-    while (!(SIO::Stat & SIO::Status::STAT_RXRDY));
-    return SIO::Data;
+    unsigned spin = c_sioSpinLimit;
+    while (!(SIO::Stat & SIO::Status::STAT_RXRDY) && spin--);
+    if (!(SIO::Stat & SIO::Status::STAT_RXRDY)) return false;
+    uint8_t b = SIO::Data;
+    if (dataIn) *dataIn = b;
+    return true;
 }
 
+// Polls the Controller IRQ FLAG rather than taking the interrupt, which makes it
+// a deliberate race with whoever owns that IRQ - psyqo's AdvancedPad and
+// MemoryCard both clear it in their handlers. If they win, this times out.
+//
+// That is survivable, and it is why the timeout exists rather than a bare spin:
+// the only callers are forceAnalogMode() and the rumble writes, both of which are
+// best-effort. Per-frame input does NOT come through here - it comes from
+// psyqo::AdvancedPad, which is takeover-aware. So the worst case is that analog
+// mode is not forced or a motor does not buzz, never a lost button press.
+//
+// Taking over the kernel makes psyqo's dispatch faster and so makes losing this
+// race MORE likely, not less. If analog mode or rumble ever stops working, this
+// is the first place to look - and the fix is to stop polling the shared flag,
+// not to lengthen the timeout.
 bool waitForAck() {
     int cyclesWaited = 0;
     static constexpr int ackTimeout = 0x137;
     while (!(CPU::IReg.isSet(CPU::IRQ::Controller)) && ++cyclesWaited < ackTimeout);
     if (cyclesWaited >= ackTimeout) return false;
-    while (SIO::Stat & SIO::Status::STAT_ACK);  // Wait for ACK to go high
-    return true;
+    // Wait for ACK to go high -- BOUNDED, see c_sioSpinLimit. A pad holding ACK
+    // low forever is precisely the wedged-peripheral case that must not take the
+    // console with it.
+    unsigned spin = c_sioSpinLimit;
+    while ((SIO::Stat & SIO::Status::STAT_ACK) && spin--);
+    return !(SIO::Stat & SIO::Status::STAT_ACK);
 }
 
 void configurePort(uint8_t port) {
@@ -48,7 +126,11 @@ void configurePort(uint8_t port) {
 // Returns false if ACK was lost at any point.
 bool sendCommand(const uint8_t *cmd, unsigned len) {
     for (unsigned i = 0; i < len; i++) {
-        transceive(cmd[i]);
+        // A timed-out byte now aborts the command instead of spinning forever.
+        // The caller already treats a failed command as "no pad here", which is
+        // the right reading: a pad that stopped answering mid-sequence is, for
+        // this purpose, indistinguishable from one that was never plugged in.
+        if (!transceive(cmd[i])) return false;
         if (i < len - 1) {
             if (!waitForAck()) return false;
         }
@@ -58,7 +140,50 @@ bool sendCommand(const uint8_t *cmd, unsigned len) {
 
 }  // namespace
 
+uint32_t psxsplash::Controls::s_padInitCount = 0;
+bool psxsplash::Controls::s_shieldBeginInstalled = false;
+bool psxsplash::Controls::s_shieldEndInstalled = false;
+
+// The two halves of the pad-poll bracket. Registration order is execution order
+// (Kernel::Internal::beginFrame walks its list front to back), so these must be
+// registered on either side of AdvancedPad::initialize() -- which is what
+// SceneManager::InitializeScene does. The full reasoning is on the declarations in
+// controls.hh; it lives there because that is where somebody removing this will be
+// reading.
+void psxsplash::Controls::ShieldPadPollBegin() {
+    if (s_shieldBeginInstalled) return;
+    s_shieldBeginInstalled = true;
+    psyqo::Kernel::Internal::addOnFrame([]() {
+        // Go in with an EMPTY FIFO and a live interrupt. The pad poll is ~760us,
+        // and 760us at 57600 is 4.4 bytes -- so an empty FIFO cannot overflow
+        // inside the window, whereas a half-full one can. That is what turns this
+        // from damage limitation into "no byte is ever lost".
+        //
+        // rearmRx(), NOT poll(): poll() also runs pumpTxBlocking, whose 48-byte
+        // budget can spend 8.3ms. Calling it from the frame callback would add a
+        // second full transmit pass per frame from inside GPU::flip.
+        Sio1::Get().rearmRx();
+    });
+}
+
+void psxsplash::Controls::ShieldPadPollEnd() {
+    if (s_shieldEndInstalled) return;
+    s_shieldEndInstalled = true;
+    psyqo::Kernel::Internal::addOnFrame([]() {
+        // Recreate the interrupt's edge, immediately after the only code in the
+        // program that can have destroyed it. This is the tight net; Sio1::poll()
+        // carries a second one for everything else. See Sio1::rearmRx().
+        Sio1::Get().rearmRx();
+    });
+}
+
 void psxsplash::Controls::forceAnalogMode() {
+    // Once per boot. The pad latches analog mode itself, so a scene change does
+    // not undo it -- and this is four raw SIO0 command chains per port, every byte
+    // of which is a busy-wait. See the header.
+    if (m_analogForced) return;
+    m_analogForced = true;
+
     // Initialize SIO for pad communication
     using namespace psyqo::Hardware;
     SIO::Ctrl = SIO::Control::CTRL_IR;
@@ -97,7 +222,18 @@ void psxsplash::Controls::forceAnalogMode() {
     }
 }
 
-void psxsplash::Controls::Init() { m_input.initialize(); }
+// ONCE PER BOOT. psyqo::AdvancedPad::initialize() appends a readPad() callback to
+// the kernel's per-frame list and nothing can ever remove it, so calling this from
+// every scene load leaked two blocking SIO0 pad polls per frame, permanently, per
+// transition -- and that is what turned a missing timeout into a hard freeze on
+// hardware. The full reasoning is on the declaration in controls.hh; it is written
+// there because that is where somebody deleting this guard will be looking.
+void psxsplash::Controls::Init() {
+    if (m_padInitialized) return;
+    m_padInitialized = true;
+    s_padInitCount++;
+    m_input.initialize();
+}
 
 bool psxsplash::Controls::isDigitalPad() const {
     uint8_t padType = m_input.getPadType(m_pad);
@@ -285,7 +421,7 @@ void psxsplash::Controls::handleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
 }
 
 void psxsplash::Controls::sendMotorValues() {
-    // Skip SIO transaction when both motors are off — nothing to send.
+    // Skip SIO transaction when both motors are off - nothing to send.
     if (m_motorSmallCache == 0 && m_motorLargeCache == 0) return;
 
     using namespace psyqo::Hardware;
@@ -296,16 +432,20 @@ void psxsplash::Controls::sendMotorValues() {
     // bridges the brief gap where AdvancedPad zeroes them.
     configurePort(m_port);
 
-    transceive(0x01);         // byte 0: device select
+    // Every step can now give up rather than spin. This runs EVERY FRAME whenever
+    // a motor is on, so it is the hottest raw-SIO0 path in the engine and the one
+    // least able to afford an unbounded wait.
+    if (!transceive(0x01)) { SIO::Ctrl = 0; return; }  // byte 0: device select
     if (!waitForAck()) { SIO::Ctrl = 0; return; }
 
-    transceive(0x42);         // byte 1: ReadPad command
+    if (!transceive(0x42)) { SIO::Ctrl = 0; return; }  // byte 1: ReadPad command
     if (!waitForAck()) { SIO::Ctrl = 0; return; }
 
-    transceive(0x00);         // byte 2: TAP (ignored)
+    if (!transceive(0x00)) { SIO::Ctrl = 0; return; }  // byte 2: TAP (ignored)
     if (!waitForAck()) { SIO::Ctrl = 0; return; }
 
-    transceive(m_motorSmallCache);  // byte 3: small motor (right, on/off)
+    // byte 3: small motor (right, on/off)
+    if (!transceive(m_motorSmallCache)) { SIO::Ctrl = 0; return; }
     if (!waitForAck()) { SIO::Ctrl = 0; return; }
 
     transceive(m_motorLargeCache);  // byte 4: large motor (left, 0-255)

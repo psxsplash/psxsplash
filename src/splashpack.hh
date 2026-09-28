@@ -47,14 +47,14 @@ static_assert(sizeof(SPLASHPACKTriggerBox) == 32, "SPLASHPACKTriggerBox must be 
  * 8-byte stub with a complete description of movement, vision, hearing,
  * patrol behaviour and per-state animation mappings.
  *
- * Binary layout (28 bytes) is immediately followed by waypointCount × 12-byte
+ * Binary layout (28 bytes) is immediately followed by waypointCount x 12-byte
  * Vec3 patrol waypoints stored in fixed-point 20.12 XYZ order.
  *
  * flags bits:
- *   bit 0  – start enabled
- *   bit 1  – vision enabled
- *   bit 2  – hearing enabled
- *   bit 3  – patrol enabled (loops through waypoints when idle)
+ *   bit 0  - start enabled
+ *   bit 1  - vision enabled
+ *   bit 2  - hearing enabled
+ *   bit 3  - patrol enabled (loops through waypoints when idle)
  */
 struct SPLASHPACKAgentV2 {
     uint16_t gameObjectIndex;   ///< Index into game-object array
@@ -131,7 +131,7 @@ struct SplashpackSceneSetup {
     psyqo::FixedPoint<12, uint16_t> moveSpeed;       // Per-frame speed constant (fp12)
     psyqo::FixedPoint<12, uint16_t> sprintSpeed;     // Per-frame sprint constant (fp12)
     psyqo::FixedPoint<12, uint16_t> jumpVelocity;    // Per-second initial velocity (fp12)
-    psyqo::FixedPoint<12, uint16_t> gravity;          // Per-second² acceleration (fp12)
+    psyqo::FixedPoint<12, uint16_t> gravity;          // Per-second^2 acceleration (fp12)
     psyqo::FixedPoint<12, uint16_t> playerRadius;    // Collision radius (fp12)
 
     Cutscene loadedCutscenes[MAX_CUTSCENES];
@@ -151,9 +151,15 @@ struct SplashpackSceneSetup {
     uint16_t spriteSheetCount = 0;
     uint16_t spriteAnimCount = 0;
     uint32_t spriteTableOffset = 0;
-    /// Authored network scene id. 0 means "not authored" — the caller falls back
+    /// Authored network scene id. 0 means "not authored" - the caller falls back
     /// to the derived hash, which is why older packs keep working.
     uint32_t sceneHash = 0;
+
+    // --- v23 ---
+    /// Offset to the tilemap header (SPLASHPACKTilemap), or 0 if the scene has no
+    /// tilemap. Reuses the v22 reserved header word, so the header size is
+    /// unchanged and a v22 pack (which left that word 0) reads as "no tilemap".
+    uint32_t tilemapTableOffset = 0;
 };
 
 class SplashPackLoader {

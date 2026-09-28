@@ -347,7 +347,7 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t 
             break;
         }
 
-        // ── Vibration track types ──
+        // -- Vibration track types --
 
         case TrackType::RumbleSmall: {
             if (!m_controls) return;

@@ -16,8 +16,10 @@ uint16_t AudioManager::volToHw(int v) {
   return static_cast<uint16_t>((v * 0x3fff) / 128);
 }
 
+void AudioManager::initHardware() { psyqo::SPU::initialize(); }
+
 void AudioManager::init() {
-  psyqo::SPU::initialize();
+  initHardware();
 
   m_nextAddr = SPU_RAM_START;
 

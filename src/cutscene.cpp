@@ -267,8 +267,8 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             if (!m_camera) return;
             psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             int32_t h = (int32_t)out[0];
-            if (h < 1) h = 1;           // Avoid zero/negative — GTE would divide-by-zero
-            if (h > 1024) h = 1024;     // Practical upper limit (~13° vFOV)
+            if (h < 1) h = 1;           // Avoid zero/negative - GTE would divide-by-zero
+            if (h > 1024) h = 1024;     // Practical upper limit (~13 deg vFOV)
             m_camera->SetProjectionH(h);
             break;
         }
@@ -334,7 +334,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             break;
         }
 
-        // ── UI track types ──
+        // -- UI track types --
 
         case TrackType::UICanvasVisible: {
             if (!m_uiSystem) return;
@@ -391,7 +391,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             break;
         }
 
-        // ── Vibration track types ──
+        // -- Vibration track types --
 
         case TrackType::RumbleSmall: {
             if (!m_controls) return;

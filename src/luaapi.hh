@@ -32,6 +32,7 @@ class CutscenePlayer;  // Forward declaration
 class AnimationPlayer;  // Forward declaration
 class UISystem;  // Forward declaration
 class SpriteSystem;  // Forward declaration
+class TileSystem;    // Forward declaration
 
 /**
  * Lua API - Provides game scripting functionality
@@ -48,7 +49,7 @@ class SpriteSystem;  // Forward declaration
 class LuaAPI {
 public:
     // Initialize all API modules
-    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr, SpriteSystem* spriteSystem = nullptr);
+    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr, SpriteSystem* spriteSystem = nullptr, TileSystem* tileSystem = nullptr);
     
     // Called once per frame to advance the Lua frame counter
     static void IncrementFrameCount();
@@ -71,6 +72,9 @@ private:
 
     // Sprite system pointer (set during RegisterAll)
     static SpriteSystem* s_spriteSystem;
+
+    // Tile system pointer (set during RegisterAll)
+    static TileSystem* s_tileSystem;
 
     // ========================================================================
     // SPRITE API - 2D sprites (screen-space), authored sheets + animations
@@ -98,6 +102,15 @@ private:
     static int Sprite_GetViewOffset(lua_State* L);
     static int Sprite_Count(lua_State* L);
 
+    // Tile API
+    static int Tile_Walkable(lua_State* L);
+    static int Tile_RayClear(lua_State* L);
+    static int Tile_MoveActor(lua_State* L);
+    static int Tile_Active(lua_State* L);
+    static int Tile_MapSize(lua_State* L);
+    static int Tile_ObjectCount(lua_State* L);
+    static int Tile_ObjectAt(lua_State* L);
+
 
     // ========================================================================
     // ACTOR API - Player + object-backed actor handles
@@ -123,6 +136,9 @@ private:
 
     // Actor.GetPosition(actor) -> {x,y,z}
     static int Actor_GetPosition(lua_State* L);
+
+    // Actor.GetPositionXZ(actor) -> x, z (plain integer pixels; no allocation)
+    static int Actor_GetPositionXZ(lua_State* L);
 
     // Actor.SetPosition(actor, {x,y,z})
     static int Actor_SetPosition(lua_State* L);
@@ -182,9 +198,11 @@ private:
     static int Net_IsConnected(lua_State* L);
     static int Net_IsHost(lua_State* L);
     static int Net_State(lua_State* L);
+    static int Net_Stats(lua_State* L);
     static int Net_LocalSlot(lua_State* L);
     static int Net_PlayerCount(lua_State* L);
     static int Net_SetLocalAvatar(lua_State* L);
+    static int Net_SetReplicationEnabled(lua_State* L);
     static int Net_SetRemoteAvatar(lua_State* L);
     static int Net_RegisterActor(lua_State* L);
     static int Net_UnregisterActor(lua_State* L);
@@ -649,6 +667,8 @@ private:
     static int UI_SetSize(lua_State* L);
     static int UI_GetSize(lua_State* L);
     static int UI_SetProgressColors(lua_State* L);
+    static int UI_SetFrame(lua_State* L);
+    static int UI_GetFrame(lua_State* L);
     static int UI_GetElementType(lua_State* L);
     static int UI_GetElementCount(lua_State* L);
     static int UI_GetElementByIndex(lua_State* L);

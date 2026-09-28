@@ -64,7 +64,7 @@ enum class InterpMode : uint8_t {
 
 struct CutsceneKeyframe {
     // Upper 3 bits = InterpMode (0-7), lower 13 bits = frame number (0-8191).
-    // At 30fps, max frame 8191 ≈ 4.5 minutes.
+    // At 30fps, max frame 8191 ~ 4.5 minutes.
     uint16_t frameAndInterp;
     int16_t  values[3];
 

@@ -14,8 +14,50 @@ class Controls {
   public:
     /// Force DualShock into analog mode
     /// Must be called BEFORE Init() since Init() hands SIO control to AdvancedPad.
+    ///
+    /// ONCE PER BOOT, like Init(). The pad latches analog mode itself (that is
+    /// what the 0x44/0x03 "lock" byte in the sequence is for), so it survives a
+    /// scene change and re-sending it buys nothing. It is not free either: the
+    /// whole sequence is four raw SIO0 commands per port, each a chain of
+    /// unbounded busy-waits, and running it while the SIO1 receive interrupt is
+    /// live is exactly the window in which a pad gives up mid-transfer. See
+    /// Init() for the full story.
     void forceAnalogMode();
 
+    /// Hand SIO0 to psyqo's AdvancedPad. IDEMPOTENT, AND THAT IS LOAD-BEARING.
+    ///
+    /// psyqo::AdvancedPad::initialize() ends with
+    ///
+    ///     Kernel::Internal::addOnFrame([this]() { readPad(); ... });
+    ///
+    /// and that list (kernel.cpp: s_beginFrameEvents) is APPEND-ONLY -- there is no
+    /// removal API, nothing clears it between scenes, and its fixed_vector has
+    /// overflow enabled, so past 32 entries it spills to the heap and keeps
+    /// growing. Every registered copy runs every frame, from inside GPU::flip().
+    ///
+    /// SceneManager::InitializeScene calls this for BOTH players on every scene
+    /// load, so without this guard the console permanently gained two more
+    /// blocking, bit-banged SIO0 pad polls per frame on every scene transition:
+    /// ~0.8ms per frame after the menu, ~2.4ms by the time the game scene is up,
+    /// and climbing by ~0.8ms with every lobby->game round after that.
+    ///
+    /// THAT IS WHAT MADE IT A FREEZE rather than a slowdown. AdvancedPad::readPad
+    /// waits for the pad with `while (!(SIO::Stat & STAT_RXRDY));` and no timeout,
+    /// and a PlayStation pad ABORTS a transfer if the console does not clock the
+    /// next byte promptly after ACK. Under the retail BIOS an SIO1 receive
+    /// interrupt costs on the order of 150us to dispatch; one landing between two
+    /// pad bytes ends the transfer, and the next wait never returns. More polls
+    /// per frame means more windows for that to happen, which is why the freeze
+    /// arrived sooner the longer a session ran -- and why it only ever happened
+    /// with the link up.
+    ///
+    /// PCSX-Redux cannot show any of this: it resolves RxMode to Polled and masks
+    /// IRQ8 outright (sio1.cpp), its SIO0 answers instantly so the missing timeout
+    /// is unreachable, and with no wire the extra polls cost nothing. "It works on
+    /// the emulator" was the absence of evidence here.
+    ///
+    /// The callback lives on the Kernel, not on the scene, so registering once per
+    /// boot is not merely cheaper -- it is the correct lifetime.
     void Init();
 
     /// Per-player movement/look handling.
@@ -86,9 +128,64 @@ class Controls {
         m_motorLargeCache = 0;
     }
 
+    /// Bracket psyqo's per-frame pad poll, which is the one place in the whole
+    /// program that can destroy the SIO1 receive interrupt. Call Begin BEFORE the
+    /// first Init() and End AFTER the last one; both are once-per-boot no-ops
+    /// afterwards.
+    ///
+    /// WHY THE PAD POLL, of all things, is a network hazard: psyqo's
+    /// AdvancedPad::transceive() clears the CONTROLLER interrupt before every pad
+    /// byte, and psyqo implements that as a read-modify-write on I_STAT. I_STAT is
+    /// acknowledge-by-writing-zero, so it writes back a zero for every bit that was
+    /// not pending when it read - including ours, if SIO1 asserted in between. And
+    /// because SIO_STAT.9 is sticky while I_STAT.8 is edge-triggered, that
+    /// acknowledgement is FINAL: no further edge is ever generated and the receive
+    /// interrupt is dead for the session. Full mechanism on Sio1::rearmRx().
+    ///
+    /// THE FIRST VERSION OF THIS MASKED IRQ8 ACROSS THE POLL, AND THAT WAS WORSE
+    /// THAN NOTHING. I_MASK gates DISPATCH; it does not stop I_STAT.8 being set. So
+    /// masking simply left our pending bit latched for the whole poll, maximally
+    /// exposed to the very read-modify-writes that clear it. It is recorded here
+    /// because it looks like an obvious fix and is the opposite of one.
+    ///
+    /// What actually works is to drain the FIFO going in and re-arm the interrupt
+    /// coming out, so a destroyed edge is recreated before it can cost a byte. The
+    /// arithmetic is what makes this exact rather than hopeful: a pad poll is ~9
+    /// bytes at SIO0's 250kHz plus setup, about 380us, twice (one per player) -
+    /// ~760us. At 57600 that is 4.4 bytes arriving into an 8-byte FIFO that Begin
+    /// just emptied. **The FIFO cannot overflow inside the window**, so re-arming
+    /// immediately after it means no byte is ever lost, even when the race fires.
+    ///
+    /// Both halves are no-ops in RxMode::Polled, which is what PCSX-Redux resolves
+    /// to: there is no interrupt there to lose, and Sio1::rearmRx() returns
+    /// immediately. The emulator's behaviour is unchanged by any of this.
+    static void ShieldPadPollBegin();
+    static void ShieldPadPollEnd();
+
+    /// How many times a Controls instance has actually handed SIO0 to AdvancedPad
+    /// since boot -- i.e. how many entries this class has added to the kernel's
+    /// per-frame callback list, which nothing can ever remove.
+    ///
+    /// A DIAGNOSTIC WITH A FIXED EXPECTED VALUE, which is what makes it useful on
+    /// a console with no other channel: it must read 2 (one per player) and stay
+    /// there for the life of the boot. Anything higher means the guard in Init()
+    /// has been defeated and the per-frame pad-poll cost is growing again. It read
+    /// 2 x (scene loads) before that guard existed.
+    static uint32_t padInitCount() { return s_padInitCount; }
+
   private:
     psyqo::AdvancedPad m_input;
     psyqo::Trig<> m_trig;
+
+    // See Init() / forceAnalogMode(). Both are once-per-boot, per instance.
+    bool m_padInitialized = false;
+    bool m_analogForced = false;
+    static uint32_t s_padInitCount;
+
+    // See ShieldPadPollBegin/End. The registrations are once-per-boot for the same
+    // reason Init() is: addOnFrame has no removal API.
+    static bool s_shieldBeginInstalled;
+    static bool s_shieldEndInstalled;
 
     // Which physical controller this instance drives. Set by the PlayerN entry
     // points; defaults to player 1 (controller in port 1).

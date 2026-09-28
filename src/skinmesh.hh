@@ -22,9 +22,9 @@ static constexpr uint8_t  SKINMESH_MAX_BONES  = 64;
 static constexpr uint8_t  SKINMESH_MAX_CLIPS  = 16;
 static constexpr int      MAX_SKINNED_MESHES   = 16;
 
-/// Pre-baked bone matrix: 3×3 rotation (4.12 fp) + translation.
-/// Layout matches the GTE rotation register format (9 × int16)
-/// plus a 3-component translation (3 × int16).
+/// Pre-baked bone matrix: 3x3 rotation (4.12 fp) + translation.
+/// Layout matches the GTE rotation register format (9 x int16)
+/// plus a 3-component translation (3 x int16).
 struct BakedBoneMatrix {
     int16_t r[9];    // row-major: r00,r01,r02, r10,r11,r12, r20,r21,r22
     int16_t t[3];    // translation: tx, ty, tz (model-space scale, 4.12 fp)
@@ -36,7 +36,7 @@ static_assert(sizeof(BakedBoneMatrix) == 24, "BakedBoneMatrix must be 24 bytes")
 struct SkinAnimClip {
     const char* name;              // points into splashpack data (null-terminated by loader)
     const BakedBoneMatrix* frames; // points into the scene data buffer
-    uint16_t frameCount;           // number of baked frames (no hard cap — user's responsibility)
+    uint16_t frameCount;           // number of baked frames (no hard cap - user's responsibility)
     uint8_t  flags;                // bit 0 = loops
     uint8_t  fps;                  // baked sampling rate (1-30)
     uint8_t  boneCount;
@@ -46,7 +46,7 @@ struct SkinAnimClip {
 /// All clips for one skinned object.
 struct SkinAnimSet {
     Tri*         polygons;          // stolen from the GO at init (regular render sees polyCount=0)
-    const uint8_t* boneIndices;    // polyCount×3 bone index bytes, points into splashpack data
+    const uint8_t* boneIndices;    // polyCountx3 bone index bytes, points into splashpack data
     uint16_t     polyCount;        // triangle count (moved from GO)
     uint8_t      clipCount;
     uint8_t      boneCount;        // from the skin data (shared across clips)

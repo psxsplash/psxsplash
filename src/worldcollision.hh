@@ -19,7 +19,7 @@
 namespace psxsplash {
 
 // ============================================================================
-// Surface flags — packed per-triangle, exported from SplashEdit
+// Surface flags - packed per-triangle, exported from SplashEdit
 // ============================================================================
 enum SurfaceFlag : uint8_t {
     SURFACE_SOLID    = 0x01,
@@ -29,8 +29,8 @@ enum SurfaceFlag : uint8_t {
 };
 
 // ============================================================================
-// Collision triangle — world-space, pre-transformed, contiguous in memory
-// 40 bytes each — v0(12) + v1(12) + v2(12) + normal(12) omitted to save
+// Collision triangle - world-space, pre-transformed, contiguous in memory
+// 40 bytes each - v0(12) + v1(12) + v2(12) + normal(12) omitted to save
 // Actually: 40 bytes = v0(12) + edge1(12) + edge2(12) + flags(1) + pad(3)
 // We store edges for Moller-Trumbore intersection
 // ============================================================================
@@ -51,7 +51,7 @@ struct CollisionTri {
 static_assert(sizeof(CollisionTri) == 52, "CollisionTri must be 52 bytes");
 
 // ============================================================================
-// Collision mesh header — one per collision mesh in the splashpack
+// Collision mesh header - one per collision mesh in the splashpack
 // The triangles themselves follow contiguously after all headers.
 // ============================================================================
 struct CollisionMeshHeader {
@@ -68,7 +68,7 @@ struct CollisionMeshHeader {
 static_assert(sizeof(CollisionMeshHeader) == 32, "CollisionMeshHeader must be 32 bytes");
 
 // ============================================================================
-// Spatial chunk for exterior scenes — 2D grid over XZ
+// Spatial chunk for exterior scenes - 2D grid over XZ
 // ============================================================================
 struct CollisionChunk {
     uint16_t firstMeshIndex;    // Index into CollisionMeshHeader array
@@ -77,7 +77,7 @@ struct CollisionChunk {
 static_assert(sizeof(CollisionChunk) == 4, "CollisionChunk must be 4 bytes");
 
 // ============================================================================
-// Collision data header — describes the entire collision dataset
+// Collision data header - describes the entire collision dataset
 // ============================================================================
 struct CollisionDataHeader {
     uint16_t meshCount;         // Number of CollisionMeshHeader entries
@@ -108,17 +108,17 @@ struct CollisionHit {
 
 // ============================================================================
 // Maximum slope angle for walkable surfaces
-// cos(46°) ≈ 0.6947 → in 20.12 fixed-point = 2845
+// cos(46 deg) ~ 0.6947 -> in 20.12 fixed-point = 2845
 // Surfaces with normal.y < this are treated as walls
 // ============================================================================
-static constexpr int32_t WALKABLE_SLOPE_COS = 2845;  // cos(46°) in 20.12
+static constexpr int32_t WALKABLE_SLOPE_COS = 2845;  // cos(46 deg) in 20.12
 
 // Player collision capsule radius (20.12 fixed-point)
-// ~0.5 world units at GTEScaling=100 → 0.005 GTE units → 20 in 20.12
+// ~0.5 world units at GTEScaling=100 -> 0.005 GTE units -> 20 in 20.12
 static constexpr int32_t PLAYER_RADIUS = 20;
 
 // Small epsilon for collision (20.12)
-// ≈ 0.01 GTE units
+// ~ 0.01 GTE units
 static constexpr int32_t COLLISION_EPSILON = 41;
 
 // Maximum number of collision iterations per frame
@@ -128,7 +128,7 @@ static constexpr int MAX_COLLISION_ITERATIONS = 8;
 static constexpr int MAX_TRI_TESTS_PER_FRAME = 256;
 
 // ============================================================================
-// WorldCollision — main collision query interface
+// WorldCollision - main collision query interface
 // Loaded from splashpack data, used by SceneManager every frame
 // ============================================================================
 class WorldCollision {

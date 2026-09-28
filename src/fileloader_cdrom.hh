@@ -10,14 +10,14 @@
 namespace psxsplash {
 
 /**
- * FileLoaderCDRom — loads files from CD-ROM using the psyqo ISO9660 parser.
+ * FileLoaderCDRom - loads files from CD-ROM using the psyqo ISO9660 parser.
  *
  * Follows the same pattern as nugget/psyqo/examples/task-demo:
- *   1. CDRomDevice::prepare()          — called from Application::prepare()
- *   2. CDRomDevice::scheduleReset()    — reset the drive
- *   3. ISO9660Parser::scheduleInitialize() — parse the PVD and root dir
- *   4. ISO9660Parser::scheduleGetDirentry  — look up a file by path
- *   5. ISO9660Parser::scheduleReadRequest  — read the file sectors
+ *   1. CDRomDevice::prepare()          - called from Application::prepare()
+ *   2. CDRomDevice::scheduleReset()    - reset the drive
+ *   3. ISO9660Parser::scheduleInitialize() - parse the PVD and root dir
+ *   4. ISO9660Parser::scheduleGetDirentry  - look up a file by path
+ *   5. ISO9660Parser::scheduleReadRequest  - read the file sectors
  *
  */
 
@@ -25,13 +25,13 @@ class FileLoaderCDRom final : public FileLoader {
   public:
     FileLoaderCDRom() : m_isoParser(&m_cdrom) {}
 
-    // ── prepare: must be called from Application::prepare() ──────
+    // -- prepare: must be called from Application::prepare() ------
     void prepare() override {
         m_cdrom.prepare();
     }
 
-    // ── scheduleInit ─────────────────────────────────────────────
-    // Chains: reset CD drive → initialise ISO9660 parser.
+    // -- scheduleInit ---------------------------------------------
+    // Chains: reset CD drive -> initialise ISO9660 parser.
     psyqo::TaskQueue::Task scheduleInit() override {
         m_initQueue
             .startWith(m_cdrom.scheduleReset())
@@ -39,8 +39,8 @@ class FileLoaderCDRom final : public FileLoader {
         return m_initQueue.schedule();
     }
 
-    // ── scheduleLoadFile ─────────────────────────────────────────
-    // Chains: getDirentry → allocate + read.
+    // -- scheduleLoadFile -----------------------------------------
+    // Chains: getDirentry -> allocate + read.
     // The lambda captures filename/outBuffer/outSize by reference;
     // they must remain valid until the owning TaskQueue completes.
     psyqo::TaskQueue::Task scheduleLoadFile(
@@ -55,7 +55,7 @@ class FileLoaderCDRom final : public FileLoader {
                 outBuffer = nullptr;
                 outSize = 0;
 
-                // Step 1 — look up the directory entry.
+                // Step 1 - look up the directory entry.
                 m_isoParser.getDirentry(
                     filename, &m_request.entry,
                     [this](bool success) {
@@ -66,7 +66,7 @@ class FileLoaderCDRom final : public FileLoader {
                             return;
                         }
 
-                        // Step 2 — allocate a sector-aligned buffer and read.
+                        // Step 2 - allocate a sector-aligned buffer and read.
                         uint32_t sectors =
                             (m_request.entry.size + 2047) / 2048;
                         uint8_t* buf = new uint8_t[sectors * 2048];
@@ -74,17 +74,17 @@ class FileLoaderCDRom final : public FileLoader {
                         *m_pOutSize = static_cast<int>(m_request.entry.size);
                         m_request.buffer = buf;
 
-                        // Step 3 — chain the actual CD read via a sub-queue.
+                        // Step 3 - chain the actual CD read via a sub-queue.
                         m_readQueue
                             .startWith(
                                 m_isoParser.scheduleReadRequest(&m_request))
                             .then([this](psyqo::TaskQueue::Task* inner) {
-                                // Read complete — resolve the outer task.
+                                // Read complete - resolve the outer task.
                                 m_pendingTask->resolve();
                                 inner->resolve();
                             })
                             .butCatch([this](psyqo::TaskQueue*) {
-                                // Read failed — clean up and reject.
+                                // Read failed - clean up and reject.
                                 delete[] *m_pOutBuffer;
                                 *m_pOutBuffer = nullptr;
                                 *m_pOutSize = 0;
@@ -95,7 +95,7 @@ class FileLoaderCDRom final : public FileLoader {
             });
     }
 
-    // ── LoadFileSyncWithProgress ───────────────────────────────
+    // -- LoadFileSyncWithProgress -------------------------------
     // Reads the file in 32-sector (64 KB) chunks, calling the
     // progress callback between each chunk so the loading bar
     // animates during the CD-ROM transfer.
@@ -150,7 +150,7 @@ class FileLoaderCDRom final : public FileLoader {
         return buf;
     }
 
-    // ── LoadFileSync ─────────────────────────────────────────────
+    // -- LoadFileSync ---------------------------------------------
     // Blocking fallback for code paths that can't use tasks (e.g.
     // SceneManager scene transitions).  Uses the blocking readSectors
     // variant which spins on GPU callbacks.
@@ -176,7 +176,7 @@ class FileLoaderCDRom final : public FileLoader {
         return buf;
     }
 
-    // ── FreeFile ─────────────────────────────────────────────────
+    // -- FreeFile -------------------------------------------------
     void FreeFile(uint8_t* data) override { delete[] data; }
 
     const char* Name() const override { return "cdrom"; }
@@ -187,7 +187,7 @@ class FileLoaderCDRom final : public FileLoader {
     psyqo::CDRomDevice* getCDRomDevice() { return &m_cdrom; }
 
   private:
-    // ── resolveEntryBlocking ─────────────────────────────────────
+    // -- resolveEntryBlocking -------------------------------------
     // Walks the ISO9660 directory tree to find `path`, using only the
     // blocking readSectorsBlocking API.  This is a deliberate,
     // self-contained replacement for psyqo's async ISO9660Parser::getDirentry
@@ -272,7 +272,7 @@ class FileLoaderCDRom final : public FileLoader {
     psyqo::TaskQueue m_readQueue;
     psyqo::TaskQueue m_syncQueue;
 
-    // State carried across the async getDirentry→read chain.
+    // State carried across the async getDirentry->read chain.
     psyqo::ISO9660Parser::ReadRequest m_request;
     psyqo::TaskQueue::Task* m_pendingTask = nullptr;
     uint8_t** m_pOutBuffer = nullptr;

@@ -23,6 +23,7 @@ namespace psxsplash {
 
 class UISystem; // Forward declaration
 class SpriteSystem; // Forward declaration
+class TileSystem;   // Forward declaration
 #ifdef PSXSPLASH_MEMOVERLAY
 class MemOverlay; // Forward declaration
 #endif
@@ -57,7 +58,7 @@ class Renderer final {
     //
     // The 2D overlays get slots that 3D geometry can never occupy. Without that,
     // a polygon right in front of the camera lands on the same depth as a sprite
-    // and which one survives depends on insertion order — the UI only gets away
+    // and which one survives depends on insertion order - the UI only gets away
     // with sharing depth 0/1 today because it happens to be inserted last.
     //
     //   0 .. UI_DEPTH_MAX                  UI
@@ -65,10 +66,22 @@ class Renderer final {
     //   WORLD_DEPTH_MIN .. OT_SIZE-1       3D geometry
     //
     // Cost: 9 of 16384 OT slots, and near-camera polygons clamp to
-    // WORLD_DEPTH_MIN instead of 1 — which is what stops them fighting the HUD.
+    // WORLD_DEPTH_MIN instead of 1 - which is what stops them fighting the HUD.
     static constexpr int UI_DEPTH_MAX = 1;
     static constexpr int SPRITE_DEPTH_BASE = UI_DEPTH_MAX + 1;
-    static constexpr int SPRITE_LAYERS = 8;
+    /// How many sprite layers content may use. A sprite whose layer is >= this is
+    /// SILENTLY DROPPED by SpriteSystem::render - there is no warning and no
+    /// counter, the sprite is simply never emitted.
+    ///
+    /// This was 8 while PSXSUS was already placing sprites on layers 8 (the
+    /// interact ring) and 9 (the task markers), so both were invisible on
+    /// hardware for as long as they existed. Keep this ABOVE the highest layer any
+    /// content assigns; the game's table is `_G.LAYER` in scene_game.lua, which
+    /// deliberately leaves gaps to slot new layers in, so leave headroom here too.
+    ///
+    /// Cost is one ordering-table slot per layer out of 16384, so headroom is
+    /// effectively free and running out is not.
+    static constexpr int SPRITE_LAYERS = 12;
     static constexpr int WORLD_DEPTH_MIN = SPRITE_DEPTH_BASE + SPRITE_LAYERS;
 
     static constexpr int32_t PROJ_H = 120;
@@ -94,6 +107,7 @@ class Renderer final {
 
     void SetUISystem(UISystem* ui) { m_uiSystem = ui; }
     void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
+    void SetTileSystem(TileSystem* tiles) { m_tileSystem = tiles; }
 #ifdef PSXSPLASH_MEMOVERLAY
     void SetMemOverlay(MemOverlay* overlay) { m_memOverlay = overlay; }
 #endif
@@ -128,6 +142,7 @@ class Renderer final {
 
     UISystem* m_uiSystem = nullptr;
     SpriteSystem* m_spriteSystem = nullptr;
+    TileSystem* m_tileSystem = nullptr;
 #ifdef PSXSPLASH_MEMOVERLAY
     MemOverlay* m_memOverlay = nullptr;
 #endif

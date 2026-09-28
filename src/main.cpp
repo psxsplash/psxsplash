@@ -94,7 +94,7 @@ void PSXSplash::prepare() {
     psxsplash::MemoryCardManager::Get().prepare(gpu());
 
 #if defined(PSXSPLASH_SIO1_ECHO)
-    // SIO1 is separate hardware from the SIO0 bus above — no conflict.
+    // SIO1 is separate hardware from the SIO0 bus above - no conflict.
     psxsplash::Sio1::Get().init();
 #endif
 
@@ -127,7 +127,7 @@ void MainScene::start(StartReason reason) {
             task->resolve();
         })
         .butCatch([](psyqo::TaskQueue*) {
-            // FileLoader init failed — nothing we can do on PS1.
+            // FileLoader init failed - nothing we can do on PS1.
         })
         .run();
 }
@@ -169,7 +169,7 @@ void MainScene::frame() {
 
 #if defined(PSXSPLASH_SIO1_ECHO)
 /**
- * Raw SIO1 link self-test — and the probe that validates the RX strategy.
+ * Raw SIO1 link self-test - and the probe that validates the RX strategy.
  *
  * Both ends send a saturating stream of an incrementing counter, and each end
  * checks the received sequence for gaps. Because the payload is a known
@@ -177,7 +177,7 @@ void MainScene::frame() {
  * many, which is the one thing byte counters alone cannot show.
  *
  * The stream is deliberately saturating. An earlier version sent one byte per
- * frame (~60 B/s) — that can never overrun an 8-byte FIFO, so it would report a
+ * frame (~60 B/s) - that can never overrun an 8-byte FIFO, so it would report a
  * healthy link on hardware that is in fact losing ~96% of a real burst. A probe
  * that cannot fail is not a probe.
  *
@@ -198,7 +198,7 @@ void MainScene::sio1SelfTest() {
     // 10-player snapshot burst would.
     static uint8_t txVal = 0;
     for (int i = 0; i < 192; i++) {
-        if (!sio.writeByte(txVal)) break;  // TX ring full — stop, don't spin
+        if (!sio.writeByte(txVal)) break;  // TX ring full - stop, don't spin
         txVal++;
     }
 
@@ -235,8 +235,15 @@ void MainScene::sio1SelfTest() {
     app.m_font.chainprintf(gpu(), {{.x = 8, .y = 72}}, sio.serialErrors() ? red : white, "STAT_OE etc: %i",
                            (int)sio.serialErrors());
     app.m_font.chainprintf(gpu(), {{.x = 8, .y = 84}}, white, "RX ring ovf: %i", (int)sio.rxOverflows());
+    // How close the ring came to filling. Non-zero overflow is a post-mortem;
+    // this is the number that shows trouble building while there is still time.
+    app.m_font.chainprintf(gpu(), {{.x = 8, .y = 96}}, white, "RX peak : %i / %i", (int)sio.rxHighWater(),
+                           (int)sio.rxCapacity());
     if (interrupt) {
-        app.m_font.chainprintf(gpu(), {{.x = 8, .y = 96}}, white, "RX IRQs : %i", (int)sio.rxInterrupts());
+        // Compare against RX bytes: this should be roughly bytes/8 with the FIFO
+        // threshold at 8. Approaching 1:1 means the threshold has regressed to
+        // per-byte interrupts, which alone can cost the console most of its CPU.
+        app.m_font.chainprintf(gpu(), {{.x = 8, .y = 108}}, white, "RX IRQs : %i", (int)sio.rxInterrupts());
     }
 
     gpu().pumpCallbacks();
@@ -265,4 +272,34 @@ void MainScene::netTest() {
 }
 #endif
 
-int main() { return app.run(); }
+int main() {
+    // BEFORE run(): takeOverKernel() queues an initializer, and psyqo runs those
+    // in Kernel::Internal::prepare() at the top of run(), ahead of our prepare().
+    // Every driver that has to choose a dispatch path reads
+    // Kernel::isKernelTakenOver(), which this sets immediately.
+    //
+    // See psxsplash::c_takeOverKernel for why. Short version: under the retail
+    // BIOS every interrupt is dispatched by a handler that walks an event table
+    // with interrupts disabled, and that blackout is long enough to overrun the
+    // 8-byte SIO1 RX FIFO - which corrupts long serial frames only, and therefore
+    // presents as a game-logic bug rather than a link one.
+    if constexpr (psxsplash::c_takeOverKernel) {
+        psyqo::Kernel::takeOverKernel();
+    }
+
+    // Turn a crash into a readable screen instead of a black one.
+    //
+    // On a retail PlayStation there is no other channel: Debug.Log goes to a BIOS
+    // TTY that does not exist, so an unhandled exception is indistinguishable from
+    // a dead console, a bad disc or a wrong cable. This prints the exception type,
+    // the faulting address and every register. That is the difference between
+    // "ReservedInstruction from 0x00005704" being a mystery and being a five
+    // minute fix - one register would name whatever jumped there.
+    //
+    // LIMIT: it draws with the system font, which prepare() uploads to VRAM, so a
+    // crash BEFORE that still shows nothing. It covers everything from the first
+    // frame onward, which is where a game actually spends its life.
+    psyqo::Kernel::installCrashHandler();
+
+    return app.run();
+}

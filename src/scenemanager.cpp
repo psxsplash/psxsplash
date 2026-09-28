@@ -67,9 +67,26 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     auto& gpu = Renderer::GetInstance().getGPU();
 
     L.Reset();
-    
-    // Initialize audio system
-    m_audio.init();
+
+    // Deliberately NO m_audio.initHardware() here.
+    //
+    // The SPU is already programmed: our only caller is LoadScene, whose Step 2
+    // calls m_audio.init() before uploading the ADPCM, and nothing between that
+    // and this point touches an SPU register (SilenceDrive only masks CD-ROM
+    // IRQs). A second call is not the free idempotent re-programming it looks
+    // like.
+    //
+    // psyqo::SPU::initialize() ends with
+    // `dmaWrite(0x1000, &DUMMY_SAMPLE, 16, 4)`, and dmaWrite counts its size in
+    // WORDS, not bytes - so that DMA is 64 bytes wide, not 16. It runs off the
+    // end of the dummy sample straight into 0x1010, which is SPU_RAM_START, and
+    // replaces the first three ADPCM blocks of clip 0 - uploaded seconds
+    // earlier in Step 2 - with whatever rodata follows DUMMY_SAMPLE.
+    //
+    // Only clip 0 is in range, which is why this hid for so long: every other
+    // clip in the scene plays perfectly and Audio.Play still returns a real
+    // voice. Clip 0 emits a few milliseconds of decoded garbage - an audible
+    // click - until a stray loop-end flag in that garbage kills the voice.
 
 #ifdef LOADER_CDROM
     m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(
@@ -78,7 +95,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     // Register the Lua API
     LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem,
-                        &m_spriteSystem);
+                        &m_spriteSystem, &m_tileSystem);
 
 #ifdef PSXSPLASH_PROFILER
     debug::Profiler::getInstance().initialize(s_font);
@@ -197,7 +214,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_authoredSceneHash = sceneSetup.sceneHash;
 
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
-    // images and 3D textures, so there is nothing to upload here — only the
+    // images and 3D textures, so there is nothing to upload here - only the
     // sheet/anim tables to parse.
     m_spriteSystem.init();
     if (sceneSetup.spriteSheetCount > 0 && sceneSetup.spriteTableOffset != 0) {
@@ -207,6 +224,18 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         Renderer::GetInstance().SetSpriteSystem(&m_spriteSystem);
     } else {
         Renderer::GetInstance().SetSpriteSystem(nullptr);
+    }
+
+    // Tilemap (v23+). It draws from one of the sprite sheets loaded just above,
+    // so this must come after the sprite system is populated. A scene with no
+    // tilemap leaves the offset 0 and the tile system inactive.
+    m_tileSystem.init();
+    if (sceneSetup.tilemapTableOffset != 0) {
+        m_tileSystem.loadFromSplashpack(splashpackData, sceneSetup.tilemapTableOffset,
+                                        &m_spriteSystem);
+        Renderer::GetInstance().SetTileSystem(&m_tileSystem);
+    } else {
+        Renderer::GetInstance().SetTileSystem(nullptr);
     }
 
     // Initialize UI system (v13+)
@@ -236,7 +265,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
                     track.uiHandle = static_cast<int16_t>(m_uiSystem.findCanvas(nameStr));
                 }
                 else {
-                    // Name is "canvasName/elementName" — find the '/' separator
+                    // Name is "canvasName/elementName" - find the '/' separator
                     const char* sep = nameStr;
                     while (*sep && *sep != '/') sep++;
                     if (*sep == '/') {
@@ -382,11 +411,28 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
             m_gameObjects.size());
     }
 
+    // THE ORDER OF THESE FIVE CALLS IS THE FIX, not decoration.
+    //
+    // Init() hands SIO0 to psyqo's AdvancedPad, which registers a per-frame pad
+    // poll on the kernel. That list is append-only -- nothing can remove an entry
+    // -- so Init() is guarded to run once per boot; without that guard every scene
+    // load permanently added two more blocking, bit-banged SIO0 transfers to every
+    // frame, and the console eventually hung inside one of them.
+    //
+    // Shield{Begin,End} bracket those registrations so the SIO1 receive interrupt
+    // is masked for the duration of the poll. Registration order IS execution
+    // order, so Begin must precede the Init()s and End must follow them. Swapping
+    // any of this silently disarms the shield: the callbacks still run, just not
+    // around the thing they exist to protect. See Controls::ShieldPadPollBegin.
+    Controls::ShieldPadPollBegin();
+
     m_controls[0].forceAnalogMode();
     m_controls[0].Init();
 
     m_controls[1].forceAnalogMode();
     m_controls[1].Init();
+
+    Controls::ShieldPadPollEnd();
 
     Renderer::GetInstance().SetCamera(m_currentCamera);
 
@@ -394,7 +440,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 95);
 
-    // v20: No more shrinkBuffer() — VRAM/SPU data is in separate files,
+    // v20: No more shrinkBuffer() - VRAM/SPU data is in separate files,
     // so the splashpack buffer IS the live data. No relocation needed.
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
@@ -445,7 +491,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Networking: pump the link and apply any remote state BEFORE this frame's
     // game logic, so scripts and movement see fresh peer state. No-op (and never
     // blocks) unless a session has been started.
-    NetworkManager::Get().preTick(*this);
+    NetworkManager::Get().preTick(*this, m_dt12);
 
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameStart = gpu.now();
@@ -469,7 +515,8 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Advance animations and let bound sprites follow their actors. Immediately
     // before the draw, so a sprite never renders a frame behind the actor it is
     // pinned to.
-    m_spriteSystem.update();
+    m_spriteSystem.update(m_dt12);
+
 
     uint32_t renderingStart = gpu.now();
     auto& renderer = psxsplash::Renderer::GetInstance();
@@ -796,7 +843,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     }
 
     // Networking: capture our owned state and send it at the net-tick cadence.
-    NetworkManager::Get().postTick(*this);
+    NetworkManager::Get().postTick(*this, m_dt12);
 
     // Process pending scene transitions (at end of frame)
     processPendingSceneLoad();
@@ -1235,7 +1282,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     // drive reports position and the end-of-track IRQ through it).  While that
     // action is pending, any blocking data read aborts with "readSectorsBlocking
     // called with pending action".  So the drive must be brought to idle before
-    // loading any scene files — this must happen before the loading-screen read
+    // loading any scene files - this must happen before the loading-screen read
     // below.
     //
     // Getting there safely is fiddly.  The device exposes only isIdle()
@@ -1245,7 +1292,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     // with "stopCDDA called while not playing".  And MusicManager::isPlayingCDDA()
     // can't be trusted alone: it's set from a deferred callback, so it lags the
     // hardware.  So do it in two phases:
-    //   1. Pump until the drive settles into a definite state — either idle
+    //   1. Pump until the drive settles into a definite state - either idle
     //      (a startup that failed, or an in-flight pause/stop that finished) or
     //      steady playback.  isPlayingCDDA() flips true from the callback that
     //      fires exactly when the PLAYING state is entered, so it is a reliable
@@ -1283,7 +1330,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     }
 
     if (!isFirstScene) {
-        // Tear down EVERYTHING in the current scene first —
+        // Tear down EVERYTHING in the current scene first -
         // Lua VM, vector backing storage, audio.  This returns as much
         // heap memory as possible before any new allocation.
         clearScene();
@@ -1312,8 +1359,33 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     if (loading.isActive()) loading.updateProgress(gpu, 20);
 
-    // ── Step 2: Load SPU data, upload to SPU RAM, free buffer ──
-    // Must init audio before uploading ADPCM data so SPU RAM is ready.
+    // -- Step 2: Load SPU data, upload to SPU RAM, free buffer --
+    //
+    // The position of this block is load-bearing in BOTH directions, and moving
+    // it either way produces a bug that looks nothing like a misplaced upload.
+    //
+    // It must come AFTER m_audio.init(), which does two unrelated jobs - it
+    // programs the SPU, and it empties the clip table:
+    //
+    //     m_nextAddr = SPU_RAM_START;
+    //     for (i) m_clips[i].loaded = false;
+    //
+    // An init() after the upload marks every clip UNLOADED one call after it was
+    // loaded, and the failure is near-undiagnosable: clip NAMES and clip SAMPLES
+    // live in two independent tables, so m_audioClipNames stays intact, every
+    // Audio.Find resolves and every "is that clip on the disc" check passes,
+    // while Audio.Play hits !m_clips[i].loaded and returns -1 in silence.
+    //
+    // It must also come BEFORE CDRomHelper::SilenceDrive() below, because this
+    // is a CD-ROM READ. SilenceDrive sets CDRom::CauseMask = 0, so the drive
+    // controller stops asserting its IRQ line entirely; psyqo's BlockingAction
+    // destructor then spins on `while (device->m_state != 0)` waiting for a
+    // completion IRQ that can no longer arrive, and the console hangs on a black
+    // screen with nothing in the log. Worse, by then the title screen's
+    // onSceneCreationEnd has already started CD-DA, so the read can instead trip
+    // "readSectorsBlocking called with pending action".
+    //
+    // In short: after m_audio.init(), before SilenceDrive(), before Lua runs.
     m_audio.init();
     {
         char spuFilename[32];
@@ -1328,7 +1400,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     if (loading.isActive()) loading.updateProgress(gpu, 25);
 
-    // ── Step 3: Load splashpack (live data only, stays resident) ──
+    // -- Step 3: Load splashpack (live data only, stays resident) --
     char filename[32];
     FileLoader::BuildSceneFilename(sceneIndex, filename, sizeof(filename));
 
@@ -1371,7 +1443,8 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     m_currentSceneData = newData;
     m_currentSceneIndex = sceneIndex;
 
-    // Initialize with new data (creates fresh Lua VM inside)
+    // Initialize with new data (creates fresh Lua VM inside).
+    // Audio is already uploaded by this point - see Step 2 above.
     InitializeScene(newData, loading.isActive() ? &loading : nullptr);
 }
 
@@ -1504,8 +1577,8 @@ void psxsplash::SceneManager::clearScene() {
     //
     //    The SESSION is a separate question. By default it goes too, and a scene
     //    that wants networking re-establishes it on creation. But a game that
-    //    called Net.SetPersistent(true) is mid-handover — lobby scene to game
-    //    scene, holding a slot on a server — and tearing the session down there
+    //    called Net.SetPersistent(true) is mid-handover - lobby scene to game
+    //    scene, holding a slot on a server - and tearing the session down there
     //    would drop it from its own room, which may then be full of the very
     //    players it was about to join. Such a scene keeps its slot and re-Hellos
     //    with c_flagRebind once the new scene is up.
@@ -1515,7 +1588,7 @@ void psxsplash::SceneManager::clearScene() {
         NetworkManager::Get().reset();
     }
 
-    // 1. Shut down the Lua VM first — frees ALL Lua-allocated memory
+    // 1. Shut down the Lua VM first - frees ALL Lua-allocated memory
     //    (bytecode, strings, tables, registry) in one shot via lua_close.
     L.Shutdown();
 
@@ -1546,6 +1619,11 @@ void psxsplash::SceneManager::clearScene() {
     // instances point at GameObjects that are about to go away.
     Renderer::GetInstance().SetSpriteSystem(nullptr);
     m_spriteSystem.init();
+
+    // Same for the tilemap: its cells and objects point straight into splashpack
+    // data, which is about to be freed and reloaded.
+    Renderer::GetInstance().SetTileSystem(nullptr);
+    m_tileSystem.init();
 
     // Reset room/portal pointers (they point into splashpack data which is being freed)
     m_rooms = nullptr;
@@ -1762,7 +1840,7 @@ void psxsplash::SceneManager::tickAgentVisionHearing(uint16_t actorId, AgentRunt
         agent.alertCountdown = agent.alertTimeoutFrames;
 
         if (!wasSeen) {
-            // Newly seen/heard — fire event
+            // Newly seen/heard - fire event
             agent.flags |= AGENT_FLAG_TARGET_SEEN;
             GameObject* go = getActorGameObject(actorId);
             if (go && canSee) {
@@ -1771,7 +1849,7 @@ void psxsplash::SceneManager::tickAgentVisionHearing(uint16_t actorId, AgentRunt
             }
         }
     } else {
-        // Not currently sensed — decrement alert countdown
+        // Not currently sensed - decrement alert countdown
         if (agent.alertCountdown > 0) {
             --agent.alertCountdown;
             if (agent.alertCountdown == 0 && wasSeen) {
@@ -1815,7 +1893,7 @@ void psxsplash::SceneManager::tickAgentStateMachine(uint16_t actorId, AgentRunti
             break;
 
         case AGENT_STATE_FLEE:
-            // Flee: move away from target — set target to opposite direction every N frames
+            // Flee: move away from target - set target to opposite direction every N frames
             if (agent.targetActorId != 0xFFFF) {
                 agent.flags |= AGENT_FLAG_MOVING | AGENT_FLAG_TARGET_ACTOR;
                 agent.repathCounter = 0;

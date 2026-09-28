@@ -13,7 +13,7 @@ namespace psxsplash {
 /// A sprite sheet: one texture in the VRAM atlas, cut into a uniform cell grid.
 ///
 /// Sheets are packed into the same atlas as UI images and 3D textures by the
-/// exporter, so there is no per-sheet VRAM upload — by the time the runtime sees
+/// exporter, so there is no per-sheet VRAM upload - by the time the runtime sees
 /// a sheet, its pixels are already resident and these are just coordinates.
 struct SpriteSheet {
     const char* name;  // points into splashpack data; fixed up by relocate()

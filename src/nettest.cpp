@@ -35,6 +35,18 @@ class PipeEnd final : public INetTransport {
         while (n < len && m_out.push(src[n])) n++;
         return n;
     }
+    bool writeAll(const uint8_t* src, uint32_t len) override {
+        // Capacity check before committing, so a full pipe refuses the frame
+        // rather than putting a truncated one through.
+        if (m_out.space() < len) return false;
+        for (uint32_t i = 0; i < len; i++) m_out.push(src[i]);
+        return true;
+    }
+    uint8_t txCongestion() const override {
+        return static_cast<uint8_t>((m_out.size() * 255u) / m_out.capacity());
+    }
+    uint32_t txSpace() const override { return m_out.space(); }
+    uint32_t txCapacity() const override { return m_out.capacity(); }
 
   private:
     RingBuffer<4096>& m_out;
@@ -107,10 +119,14 @@ NetTestResult runNetLinkSelfTest() {
         if (c) passed++;
         else failed++;
     };
+    // One 60Hz frame of simulated elapsed time per pump. poll() takes real time
+    // now (4096 == one 30Hz frame) so retransmit backoff does not stretch with
+    // the frame rate.
+    constexpr int32_t kFrameDt = 2048;
     auto pumpN = [&](int n) {
         for (int i = 0; i < n; i++) {
-            host.poll();
-            client.poll();
+            host.poll(kFrameDt);
+            client.poll(kFrameDt);
         }
     };
 
@@ -170,7 +186,7 @@ NetTestResult runNetLinkSelfTest() {
     check(client.reliableIdle());
 
     // 6. AppData: the game's opaque reliable channel. Must reach onAppData and
-    //    NOT leak into onEvent — they share a seq stream, so a routing mistake
+    //    NOT leak into onEvent - they share a seq stream, so a routing mistake
     //    would silently deliver room data to the game-event handler.
     const uint8_t app[4] = {'R', 'O', 'O', 'M'};
     client.sendReliable(PacketType::AppData, app, 4);

@@ -47,6 +47,9 @@ struct SpriteInstance {
     int8_t anim;  // index into m_anims, or -1
     uint8_t animFrame;  // index within the animation, not the sheet
     uint8_t animTimer;
+    /// Sub-vsync-frame carry, in raw dt units (4096 == one 30Hz frame). Keeps
+    /// animation speed independent of the frame rate; see SpriteSystem::update.
+    int16_t animAccum;
     bool animPlaying;
 
     GameObject* boundActor;  // follow this actor's position, or null
@@ -56,7 +59,7 @@ struct SpriteInstance {
 /// Screen-space 2D sprites, drawn between the 3D scene and the UI.
 ///
 /// Presentation only: a sprite bound to an actor reads that actor's position and
-/// never writes it. Nothing here touches networking — a bound sprite follows a
+/// never writes it. Nothing here touches networking - a bound sprite follows a
 /// replicated actor for free, because the actor is what replicates.
 class SpriteSystem {
   public:
@@ -69,7 +72,7 @@ class SpriteSystem {
     void relocate(intptr_t delta);
 
     /// Advance animations and follow bound actors. Once per frame, before render.
-    void update();
+    void update(int32_t dt12);
 
     /// Insert this frame's primitives. Called from the renderer before the UI's,
     /// so the UI stays on top.
@@ -108,6 +111,9 @@ class SpriteSystem {
     int sheetCount() const { return m_sheetCount; }
     int animCount() const { return m_animCount; }
     const SpriteAnim* anim(int i) const;
+    /// Resolved atlas coordinates for a sheet, or null if out of range. The tile
+    /// system uses this to draw a tilemap from a sheet it does not itself own.
+    const SpriteSheet* sheet(int i) const;
 
   private:
     bool valid(int id) const { return id >= 0 && id < SPRITE_MAX && m_sprites[id].active; }

@@ -121,8 +121,8 @@ class Lua {
 
   private:
     // A length-counted byte range destined for Lua. Lua strings are binary-safe
-    // (counted, not NUL-terminated), so this carries arbitrary payloads —
-    // including embedded zeros — through the same variadic pushArgs path as
+    // (counted, not NUL-terminated), so this carries arbitrary payloads -
+    // including embedded zeros - through the same variadic pushArgs path as
     // every other argument type, with no special-casing at the call site.
     struct LuaBytes {
         const uint8_t* data;

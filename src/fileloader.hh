@@ -6,7 +6,7 @@
 namespace psxsplash {
 
 /**
- * FileLoader — abstract interface for loading files on PS1.
+ * FileLoader - abstract interface for loading files on PS1.
  *
  * Two compile-time backends:
  *   - FileLoaderPCdrv: PCdrv protocol (emulator break instructions OR SIO1 serial)
@@ -100,7 +100,7 @@ class FileLoader {
     /** Human-readable name for logging ("pcdrv" / "cdrom"). */
     virtual const char* Name() const = 0;
 
-    // ── Filename helpers ──────────────────────────────────────────
+    // -- Filename helpers ------------------------------------------
     // Build the correct filename for the active backend.
 
     /** scene_N.splashpack  or  SCENE_N.SPK;1 */
@@ -115,7 +115,7 @@ class FileLoader {
     /** scene_N.loading  or  SCENE_N.LDG;1 */
     static void BuildLoadingFilename(int sceneIndex, char* out, int maxLen);
 
-    // ── Singleton ─────────────────────────────────────────────────
+    // -- Singleton -------------------------------------------------
     static FileLoader& Get();
 };
 

@@ -26,6 +26,7 @@
 #include "animation.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
+#include "tilesystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -561,6 +562,7 @@ namespace psxsplash {
 
         UISystem m_uiSystem;
         SpriteSystem m_spriteSystem;
+        TileSystem m_tileSystem;
         uint32_t m_authoredSceneHash = 0;
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
@@ -633,7 +635,7 @@ namespace psxsplash {
             psyqo::FixedPoint<12, uint16_t> stopDistance = 0;
             // ---- Vision/hearing config ----
             psyqo::FixedPoint<12, uint16_t> visionRange  = 0;  // 0 = disabled
-            int16_t  visionCosAngle   = 0;   // fp12 dot threshold (4096=0°, 0=90°, -4096=180°)
+            int16_t  visionCosAngle   = 0;   // fp12 dot threshold (4096=0 deg, 0=90 deg, -4096=180 deg)
             psyqo::FixedPoint<12, uint16_t> hearingRange = 0;  // 0 = disabled
             uint16_t alertTimeoutFrames = 0;
             uint8_t  visionRegionDepth = 0;  // max nav region BFS hops for LOS

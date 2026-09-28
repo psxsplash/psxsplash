@@ -13,8 +13,15 @@
 
 namespace psxsplash {
 
-static constexpr int UI_MAX_CANVASES  = 16;
-static constexpr int UI_MAX_ELEMENTS  = 128;
+// The element pool is what an authored UI costs, and it is what caps how much of
+// a game's screen can be built in the editor instead of assembled from sprites at
+// run time. 128 was enough while a canvas was a list of text rows; a scene that
+// authors its panels - a bezel, a gauge, four keys and their lamps - spends
+// dozens per panel, so the pool is the budget for the whole approach. 256
+// elements is ~29 KB of static RAM, which buys every canvas in a scene being
+// authored rather than a handful.
+static constexpr int UI_MAX_CANVASES  = 24;
+static constexpr int UI_MAX_ELEMENTS  = 256;
 static constexpr int UI_TEXT_BUF      = 64;
 static constexpr int UI_MAX_FONTS     = 4;  // 0 = system font, 1-3 = custom
 
@@ -26,11 +33,23 @@ enum class UIElementType : uint8_t {
     Line     = 4,
 };
 
+/// A UI image is a rectangle of the VRAM atlas drawn at the element's rect.
+///
+/// When the exporter knows that rectangle is one CELL of a sprite sheet - which
+/// is what a PSXUISprite authors - it also stores the cell grid, and that is what
+/// makes an authored image switchable: `UI.SetFrame` re-points the UVs at another
+/// cell of the same sheet without touching VRAM. A plain PSXUIImage leaves
+/// `cellW`/`cellH` zero, and SetFrame on one is a no-op rather than a corruption.
 struct UIImageData {
     uint8_t  texpageX, texpageY;
     uint16_t clutX, clutY;
     uint8_t  u0, v0, u1, v1;
     uint8_t  bitDepth; // 0=4bit, 1=8bit, 2=16bit
+    // --- sheet grid (sheet-backed images only; 0 = not sheet-backed) ---
+    uint8_t  cellW, cellH;   // cell size in texels
+    uint8_t  cols;           // cells per row
+    uint8_t  baseU, baseV;   // texel of cell 0 within the texture page
+    uint8_t  frame;          // current cell, kept so getFrame needs no division
 };
 
 struct UIProgressData {
@@ -122,6 +141,12 @@ public:
     void getSize(int handle, int16_t& w, int16_t& h) const;
     void setProgressColors(int handle, uint8_t bgR, uint8_t bgG, uint8_t bgB,
                            uint8_t fillR, uint8_t fillG, uint8_t fillB);
+    /// Point a sheet-backed image at another cell of its sheet. No effect on any
+    /// other element type, or on an image that was not authored from a sheet.
+    void setFrame(int handle, uint8_t frame);
+    /// Current cell of a sheet-backed image, or -1 when the element is not one.
+    /// The -1 is what lets Lua ask "can I SetFrame this?" without a second call.
+    int getFrame(int handle) const;
     uint8_t getProgress(int handle) const;
     UIElementType getElementType(int handle) const;
     int getCanvasElementCount(int canvasIdx) const;

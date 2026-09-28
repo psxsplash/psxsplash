@@ -7,7 +7,9 @@
 #include "cutscene.hh"
 #include "animation.hh"
 #include "skinmesh.hh"
+#include "sio1.hh"
 #include "spritesystem.hh"
+#include "tilesystem.hh"
 #include "uisystem.hh"
 #include "networkmanager.hh"
 
@@ -29,6 +31,7 @@ CutscenePlayer* LuaAPI::s_cutscenePlayer = nullptr;
 AnimationPlayer* LuaAPI::s_animationPlayer = nullptr;
 UISystem* LuaAPI::s_uiSystem = nullptr;
 SpriteSystem* LuaAPI::s_spriteSystem = nullptr;
+TileSystem* LuaAPI::s_tileSystem = nullptr;
 
 // Scale factor: FixedPoint<12> stores 1.0 as raw 4096.
 // Lua scripts work in world-space units (1 = one unit), so we convert.
@@ -51,12 +54,13 @@ static psyqo::Trig<> s_trig;
 // REGISTRATION
 // ============================================================================
 
-void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem) {
+void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem, TileSystem* tileSystem) {
     s_sceneManager = scene;
     s_cutscenePlayer = cutscenePlayer;
     s_animationPlayer = animationPlayer;
     s_uiSystem = uiSystem;
     s_spriteSystem = spriteSystem;
+    s_tileSystem = tileSystem;
     
     // ========================================================================
     // ACTOR API
@@ -83,6 +87,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
 
     L.push(Actor_GetPosition);
     L.setField(-2, "GetPosition");
+
+    L.push(Actor_GetPositionXZ);
+    L.setField(-2, "GetPositionXZ");
 
     L.push(Actor_SetPosition);
     L.setField(-2, "SetPosition");
@@ -201,12 +208,16 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "IsHost");
     L.push(Net_State);
     L.setField(-2, "State");
+    L.push(Net_Stats);
+    L.setField(-2, "Stats");
     L.push(Net_LocalSlot);
     L.setField(-2, "LocalSlot");
     L.push(Net_PlayerCount);
     L.setField(-2, "PlayerCount");
     L.push(Net_SetLocalAvatar);
     L.setField(-2, "SetLocalAvatar");
+    L.push(Net_SetReplicationEnabled);
+    L.setField(-2, "SetReplicationEnabled");
     L.push(Net_SetRemoteAvatar);
     L.setField(-2, "SetRemoteAvatar");
     L.push(Net_RegisterActor);
@@ -776,6 +787,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(UI_SetProgressColors);
     L.setField(-2, "SetProgressColors");
 
+    L.push(UI_SetFrame);
+    L.setField(-2, "SetFrame");
+
+    L.push(UI_GetFrame);
+    L.setField(-2, "GetFrame");
+
     L.push(UI_GetElementType);
     L.setField(-2, "GetElementType");
 
@@ -842,6 +859,31 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "Count");
 
     L.setGlobal("Sprite");
+
+    // ========================================================================
+    // TILE API
+    // ========================================================================
+    L.newTable();  // Tile table
+
+    L.push(Tile_Walkable);
+    L.setField(-2, "Walkable");
+    L.push(Tile_RayClear);
+    L.setField(-2, "RayClear");
+    L.push(Tile_MoveActor);
+    L.setField(-2, "MoveActor");
+    L.push(Tile_Active);
+    L.setField(-2, "Active");
+    L.push(Tile_MapSize);
+    L.setField(-2, "MapSize");
+    L.push(Tile_ObjectCount);
+    L.setField(-2, "ObjectCount");
+    L.push(Tile_ObjectAt);
+    L.setField(-2, "ObjectAt");
+
+    // No Tile.KIND here on purpose: the engine attaches no meaning to an object's
+    // kind byte. A game defines its own kind constants, and the values only have
+    // to agree with what its tilemap was painted with.
+    L.setGlobal("Tile");
 
     // ========================================================================
     // PLAYER API
@@ -927,7 +969,7 @@ int LuaAPI::Entity_Find(lua_State* L) {
     }
 
     // Accept number (index) or string (name lookup) for backwards compat
-    // Check isNumber FIRST — in Lua, numbers pass isString too.
+    // Check isNumber FIRST - in Lua, numbers pass isString too.
     if (lua.isNumber(1)) {
         int index = static_cast<int>(lua.toNumber(1));
         GameObject* go = s_sceneManager->getGameObject(static_cast<uint16_t>(index));
@@ -1120,7 +1162,7 @@ int LuaAPI::Entity_SetRotation(lua_State* L) {
     if (!go) return 0;
 
 
-    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
+    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90 deg)
     // This matches psyqo::Angle convention used by the engine.
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 2, x, y, z);
@@ -2050,7 +2092,7 @@ int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
 
 int LuaAPI::Input_BindToActor(lua_State* L) {
     psyqo::Lua lua(L);
-    // Input.BindToActor(player, actor) — player is 1 or 2. Bind to the player
+    // Input.BindToActor(player, actor) - player is 1 or 2. Bind to the player
     // actor (Actor.GetPlayer()) to restore default player locomotion.
     int player = static_cast<int>(lua.checkNumber(1)) - 1;
     uint16_t actorId = ReadActorId(lua, 2);
@@ -2092,7 +2134,7 @@ int LuaAPI::Net_Connect(lua_State* L) {
     // Prefer the authored id (splashpack v22+). The derived fallback below is
     // wrong in two ways that only bite once a scene is edited: it collides
     // between scenes that happen to share an actor count, and it CHANGES when
-    // anyone adds an object — silently splitting a room across two builds.
+    // anyone adds an object - silently splitting a room across two builds.
     uint32_t sceneHash = s_sceneManager->getAuthoredSceneHash();
     if (sceneHash == 0) {
         uint32_t sceneIndex = static_cast<uint32_t>(s_sceneManager->getCurrentSceneIndex());
@@ -2101,7 +2143,27 @@ int LuaAPI::Net_Connect(lua_State* L) {
     }
     // Host-election entropy: a hardware timer sample that differs per console.
     uint32_t seed = s_sceneManager->getFrameTimestamp() ^ (s_frameCount << 3) ^ SceneManager::m_random.rand();
-    NetworkManager::Get().begin(sceneHash, seed);
+
+    // Net.Connect([baud[, rxMode]]).
+    //
+    // rxMode: 0/nil = Auto (polled under Redux, interrupt on hardware), 1 =
+    // Polled, 2 = Interrupt. The override exists because Auto's hardware choice
+    // is the one path that cannot be tested without a console: if a real machine
+    // sits at "connecting" forever, forcing Polled says whether the RX interrupt
+    // is at fault, and forcing Interrupt under an emulator says the opposite.
+    // The default MUST come from Sio1, not a literal. This line held its own copy
+    // of 115200, so changing Sio1::c_defaultBaud silently did nothing: the console
+    // kept transmitting at the old rate while the bridge moved to the new one, and
+    // a baud mismatch presents as a completely dead link with no diagnostic. One
+    // number, one place.
+    const uint32_t baud = lua.isNumber(1) ? static_cast<uint32_t>(lua.toNumber(1)) : Sio1::c_defaultBaud;
+    Sio1::RxMode rxMode = Sio1::RxMode::Auto;
+    if (lua.isNumber(2)) {
+        const int m = static_cast<int>(lua.toNumber(2));
+        if (m == 1) rxMode = Sio1::RxMode::Polled;
+        else if (m == 2) rxMode = Sio1::RxMode::Interrupt;
+    }
+    NetworkManager::Get().begin(sceneHash, seed, baud, rxMode);
     lua.push(true);
     return 1;
 }
@@ -2130,6 +2192,175 @@ int LuaAPI::Net_State(lua_State* L) {
     return 1;
 }
 
+/// Net.Stats() -> table of link counters.
+///
+/// These counters all existed already and NONE of them were reachable. That gap
+/// is why a dead serial link is so hard to diagnose: on real hardware
+/// `Debug.Log` writes to the BIOS TTY, which on a retail console goes nowhere, so
+/// a game that cannot read these numbers has literally no way to report what the
+/// link is doing. The only symptom available was "the screen still says
+/// connecting" - which turned out to be a frozen frame, not a status.
+///
+/// Reading the table, when the console will not connect:
+///   rxIrqs 0 + bytesRx 0  -> the RX interrupt never fired (event/mask problem)
+///   bytesRx rising, frames 0 -> bytes arrive but no frame ever completes
+///   frames rising, still connecting -> handshake rejected; check magic/version
+///   serialErrors rising   -> the 8-byte hardware FIFO is overrunning
+///   crcErrors/resyncs rising -> corruption on the wire; baud or grounding
+///   rxHighWater near rxCapacity -> poll() is not keeping up; the frame rate has
+///                            fallen far enough that the ring cannot span a frame,
+///                            and the largest messages are being shredded first
+#include <psyqo/alloc.h>
+
+namespace {
+// Heap bytes in use, in KB. Same computation the optional memory overlay does
+// (memoverlay.cpp), lifted out from behind its build flag so a RUNNING game can
+// report it -- a leak that only shows up after many minutes of play is exactly
+// the kind that a debug-only overlay never catches.
+extern "C" {
+extern char __heap_start;
+extern char __stack_start;
+}
+uint32_t HeapUsedKB() {
+    void* heapEnd = psyqo_heap_end();
+    if (heapEnd == nullptr) return 0;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(&__heap_start);
+    const uintptr_t end = reinterpret_cast<uintptr_t>(heapEnd);
+    if (end < base) return 0;
+    return static_cast<uint32_t>((end - base) / 1024);
+}
+}  // namespace
+
+int LuaAPI::Net_Stats(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto& sio = Sio1::Get();
+    const auto& link = NetworkManager::Get().link();
+
+    lua.newTable();
+    auto field = [&lua](const char* name, uint32_t v) {
+        lua.pushNumber(static_cast<lua_Number>(v));
+        lua.setField(-2, name);
+    };
+    field("bytesRx", sio.bytesReceived());
+    field("bytesTx", sio.bytesSent());
+    field("rxIrqs", sio.rxInterrupts());
+    field("rxOverflows", sio.rxOverflows());
+    // Early warning where rxOverflows is a post-mortem: this is how close the ring
+    // came to filling, so "one hitch away from loss" is visible before any byte is
+    // actually dropped. Compare against rxCapacity.
+    field("rxHighWater", sio.rxHighWater());
+    field("rxCapacity", sio.rxCapacity());
+    // The OUTGOING side. txPending pinned near txCapacity means the console is
+    // producing faster than the cable carries - which for a long time it was, by a
+    // factor of about a hundred, with nothing on screen to say so.
+    field("txPending", sio.txPending());
+    field("txHighWater", sio.txHighWater());
+    field("txCapacity", sio.txCapacity());
+    field("txRejected", sio.txRejected());
+    field("snapshotsDropped", NetworkManager::Get().snapshotsDropped());
+
+    // MEASURED, not configured - the distinction that this whole stack lacked.
+    //
+    // Every number above describes what the driver was TOLD to do or what it
+    // counted while doing it. These four describe what the link actually is. Their
+    // absence is why two separate week-long hunts ended in guesswork: with a
+    // receive path silently capped at 480 B/s, every counter here still read
+    // perfectly healthy, and nothing anywhere held a figure that could contradict
+    // the assumption.
+    //
+    // Read them together. goodput far below what the wire should carry means the
+    // bottleneck is on this side; rtt far above the wire's own latency means it is
+    // queueing somewhere; peerGoodput disagreeing with goodput means the two ends
+    // do not agree about the link, which is the most useful signal of the four.
+    // rttSamples == 0 means the peer never answered, so rtt and rto are defaults.
+    const auto& measured = NetworkManager::Get().link();
+    field("goodput", measured.goodputBytesPerSecond());
+    field("inbound", measured.inboundBytesPerSecond());
+    field("rttMillis", measured.rttMillis());
+    field("rtoMillis", measured.rtoMillis());
+    field("rttSamples", measured.rttSamples());
+    field("peerGoodput", measured.peerGoodput());
+    field("peerRttMillis", measured.peerRttMillis());
+    // Saturation, split by consequence. latestDeferred means position updates are
+    // being held back to keep the queue shallow -- the system working. pingDeferred
+    // means the link could not even fit its own measurement probe, which is how a
+    // saturated console ends up reporting NO PONG forever.
+    field("latestDeferred", measured.latestDeferred());
+    field("pingDeferred", measured.pingDeferred());
+    // The two numbers that separate "packets are not arriving" from "packets are
+    // arriving and playback is wrong" -- the only two explanations for choppy
+    // remote movement, and guessing between them costs a disc to test.
+    // HEAP USED, in KB. Not a network number, and deliberately on the same line.
+    //
+    // "It freezes after many minutes" is the signature of something accumulating,
+    // and on a 2MB console with no virtual memory the first candidate is the heap.
+    // The engine already computed this for its optional overlay (memoverlay.cpp)
+    // but behind a build flag and never where a running game could show it, so a
+    // slow leak has never once been observable in play. If this number climbs and
+    // the console dies near the ceiling, that is the answer; if it is flat, the
+    // whole family of leak theories is dead and worth eliminating cheaply.
+    field("heapKB", HeapUsedKB());
+    // PAD INITS, and it belongs beside heapKB for exactly the same reason: it is
+    // the other thing that used to accumulate until the console died.
+    //
+    // MUST READ 2 AND STAY THERE for the whole boot -- one per player, registered
+    // once. It is not a trend line, it is an assertion with a known answer, which
+    // is what makes it readable at a glance on a screen that is the only channel
+    // this machine has.
+    //
+    // It used to read 2 x (scene loads). psyqo::AdvancedPad::initialize() appends a
+    // readPad() callback to the kernel's per-frame list, nothing can remove one,
+    // and SceneManager::InitializeScene called it for both players on every scene
+    // load -- so the console permanently gained two more blocking, bit-banged SIO0
+    // pad polls per frame on every transition. Combined with the missing timeout in
+    // the pad wait and the ~150us blackout of an SIO1 interrupt, that is what froze
+    // real consoles: later and later into a session, and never on an emulator.
+    // See Controls::Init in controls.hh.
+    field("padInits", Controls::padInitCount());
+    // RX REVIVALS: times the receive interrupt was found dead and restarted.
+    //
+    // The single most diagnostic number this console can report. psyqo's pad driver
+    // clears the controller interrupt with a read-modify-write on I_STAT, which can
+    // acknowledge OUR pending SIO1 interrupt by accident - and since SIO_STAT.9 is
+    // sticky while I_STAT.8 is edge-triggered, that kill is permanent unless
+    // something re-creates the edge. Sio1::rearmRx() does, and counts it here.
+    //
+    // 0 means the race never fired this session. Climbing, with the game still
+    // playing, means it fired and was repaired in flight - which is the direct
+    // confirmation that this was the fault all along.
+    field("rxRevivals", sio.rxRevivals());
+    field("snapsPerSec", NetworkManager::Get().snapshotsPerSecond());
+    field("lerpMs", NetworkManager::Get().lerpIntervalMillis());
+    // So a console/bridge baud mismatch can be SEEN. A mismatch is otherwise
+    // silent - it presents as framing errors, i.e. as a dead link - and there is
+    // no way to read the console's setting off the outside of the machine.
+    field("baud", sio.baud());
+    // Non-zero means the driver caught its own interrupt handler running away and
+    // demoted RX to polling to keep the console alive. The link is degraded from
+    // that moment on, so this must be visible rather than inferred from symptoms.
+    field("irqStorms", sio.irqStorms());
+    field("txSpinTimeouts", sio.txSpinTimeouts());
+    // Split, because they are three unrelated faults that were reported as one
+    // number called "OVERRUN" -- a diagnosis rather than a measurement, and it
+    // cost several hardware runs chasing latency that may not have been the issue.
+    //   OE = we were too slow to drain the FIFO (latency)
+    //   FE = bit timing disagreement or a marginal signal (cable/baud/grounding)
+    field("serialErrors", sio.serialErrors());
+    field("rxOverrunErrors", sio.rxOverrunErrors());
+    field("rxFramingErrors", sio.rxFramingErrors());
+    field("rxParityErrors", sio.rxParityErrors());
+    field("rxDrainOverruns", sio.rxDrainOverruns());
+    field("acksDeferred", link.acksDeferred());
+    field("frames", link.framesReceived());
+    field("crcErrors", link.crcErrors());
+    field("resyncs", link.resyncs());
+    field("queueDepth", NetworkManager::Get().reliableQueueDepth());
+    // Which RX path actually resolved, so "works in Redux, dead on console" is
+    // visible rather than inferred.
+    field("rxMode", static_cast<uint32_t>(sio.rxMode()));
+    return 1;
+}
+
 int LuaAPI::Net_LocalSlot(lua_State* L) {
     psyqo::Lua lua(L);
     lua.pushNumber(static_cast<lua_Number>(NetworkManager::Get().localSlot()));
@@ -2146,6 +2377,21 @@ int LuaAPI::Net_SetLocalAvatar(lua_State* L) {
     psyqo::Lua lua(L);
     uint16_t actorId = ReadActorId(lua, 1);
     NetworkManager::Get().setLocalAvatarActor(actorId);
+    return 0;
+}
+
+/// Net.SetReplicationEnabled(bool) -- whether this scene replicates its avatar.
+///
+/// A menu, a lobby or a cutscene has no avatar worth sending, and sending anyway
+/// is not free. A console in an avatar-less scene was measured spending 894 B/s,
+/// essentially its entire outbound budget at that frame rate -- broadcasting a
+/// player that did not exist, while the reliable message it was waiting for queued
+/// behind that traffic.
+///
+/// Defaults to true, so an existing game that never calls this is unaffected.
+int LuaAPI::Net_SetReplicationEnabled(lua_State* L) {
+    psyqo::Lua lua(L);
+    NetworkManager::Get().setReplicationEnabled(lua.toBoolean(1));
     return 0;
 }
 
@@ -2213,7 +2459,7 @@ int LuaAPI::Net_SendData(lua_State* L) {
     psyqo::Lua lua(L);
     // Net.SendData(str) -> bool. Sends an opaque payload reliably and in order;
     // the peer's scene script receives it as onNetData(str). The engine never
-    // interprets the bytes — this is where a game puts its own protocol (room
+    // interprets the bytes - this is where a game puts its own protocol (room
     // lists, roles, votes). Unlike Net.Send(id, arg) it can carry strings.
     //
     // Returns false if the payload is too large or the reliable queue is full.
@@ -2246,8 +2492,8 @@ int LuaAPI::Net_ReliableQueueDepth(lua_State* L) {
 int LuaAPI::Net_SetPersistent(lua_State* L) {
     psyqo::Lua lua(L);
     // Net.SetPersistent(bool). Keep the network session (our slot, the link)
-    // alive across the next Scene.Load(). Scene-scoped bindings — avatar
-    // mappings, networked-actor registry — are still dropped, because actorIds
+    // alive across the next Scene.Load(). Scene-scoped bindings - avatar
+    // mappings, networked-actor registry - are still dropped, because actorIds
     // mean different objects in a different scene.
     //
     // Call this before Scene.Load() when handing over from a lobby scene to a
@@ -2361,6 +2607,44 @@ int LuaAPI::Actor_GetName(lua_State* L) {
     if (name) lua.push(name);
     else lua.push();
     return 1;
+}
+
+/// Actor.GetPositionXZ(actor) -> x, z as plain integer PIXELS (or nil).
+///
+/// The allocation-free alternative to Actor.GetPosition, for the 2D case.
+///
+/// GetPosition costs FOUR Lua tables and three Lua calls every time: one for the
+/// vector plus one metatable-carrying FixedPoint per component (psyqo-lua's
+/// push(FixedPoint) runs the FixedPoint constructor). A 2D game reading ten
+/// avatars' positions each frame was generating well over a thousand tables a
+/// second purely to throw them away - and psyqo-lua's collector runs on a 33MHz
+/// R3000 with no tuning.
+///
+/// Every 2D caller then immediately did the same dance on the way out, reading
+/// `._raw` and shifting down 12 by hand because FixedPoint's :toNumber() is
+/// unreachable (the metatable sets no __index). This returns what they actually
+/// wanted in the first place: two numbers, no garbage.
+int LuaAPI::Actor_GetPositionXZ(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 position;
+    if (!s_sceneManager->getActorPosition(actorId, position)) {
+        lua.push();
+        return 1;
+    }
+
+    // .integer() truncates toward zero; the Lua helpers this replaces floored.
+    // For the screen-plane coordinates this serves, positions are >= 0 in
+    // practice and both agree, but do the arithmetic shift explicitly so a map
+    // authored across the origin does not shift by a pixel.
+    lua.pushNumber(static_cast<lua_Number>(position.x.value >> 12));
+    lua.pushNumber(static_cast<lua_Number>(position.z.value >> 12));
+    return 2;
 }
 
 int LuaAPI::Actor_GetPosition(lua_State* L) {
@@ -2708,7 +2992,7 @@ int LuaAPI::Agent_SetVisionAngle(lua_State* L) {
     lua_Number halfAngleDeg = lua.toNumber(2);
     if (halfAngleDeg < 0)   halfAngleDeg = 0;
     if (halfAngleDeg > 180) halfAngleDeg = 180;
-    // Map 0..180° to 0..32767 (half psyqo Angle circle)
+    // Map 0..180 deg to 0..32767 (half psyqo Angle circle)
     int16_t threshold = static_cast<int16_t>(static_cast<int32_t>(halfAngleDeg * 32767 / 180));
     if (halfAngleDeg >= 180) threshold = 0x7FFF;  // omnidirectional
     s_sceneManager->setActorVisionAngleCos(actorId, threshold);
@@ -2840,7 +3124,7 @@ int LuaAPI::Camera_SetRotation(lua_State* L) {
     
     if (!s_sceneManager || !lua.isTable(1)) return 0;
     
-    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
+    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90 deg)
     // This matches psyqo::Angle convention used by the engine.
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 1, x, y, z);
@@ -3059,7 +3343,7 @@ int LuaAPI::Camera_LookAt(lua_State* L) {
         horizGuess = (horizGuess + hn / horizGuess) / 2;
     }
     
-    // Yaw = atan2(dx, dz) — approximate with lookup or use psyqo trig
+    // Yaw = atan2(dx, dz) - approximate with lookup or use psyqo trig
     // For now, use a simple atan2 approximation in fp12 domain
     // and set rotation via SetRotation (pitch, yaw, 0)
     // Approximate: yaw is proportional to dx/dz in small-angle
@@ -3662,7 +3946,7 @@ int LuaAPI::Persist_Set(lua_State* L) {
         }
     }
     
-    return 0;  // No room — silently fail
+    return 0;  // No room - silently fail
 }
 
 void LuaAPI::PersistClear() {
@@ -4377,6 +4661,30 @@ int LuaAPI::UI_SetProgressColors(lua_State* L) {
     return 0;
 }
 
+int LuaAPI::UI_SetFrame(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_uiSystem || !lua.isNumber(1) || !lua.isNumber(2)) return 0;
+    int handle = static_cast<int>(lua.toNumber(1));
+    int frame = static_cast<int>(lua.toNumber(2));
+    if (frame < 0) frame = 0;
+    if (frame > 255) frame = 255;
+    s_uiSystem->setFrame(handle, static_cast<uint8_t>(frame));
+    return 0;
+}
+
+int LuaAPI::UI_GetFrame(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_uiSystem || !lua.isNumber(1)) {
+        // pushNumber, not push: push(int) resolves to push(bool) - see the note
+        // on every other integer return in this file.
+        lua.pushNumber(-1);
+        return 1;
+    }
+    int handle = static_cast<int>(lua.toNumber(1));
+    lua.pushNumber(static_cast<lua_Number>(s_uiSystem->getFrame(handle)));
+    return 1;
+}
+
 int LuaAPI::UI_GetElementType(lua_State* L) {
     psyqo::Lua lua(L);
     if (!s_uiSystem || !lua.isNumber(1)) {
@@ -4664,7 +4972,7 @@ int LuaAPI::Player_GetRotation(lua_State* L) {
 // in a Lua table across a scene tick and cost nothing to pass around.
 //
 // Sheets and animations are authored into the splashpack, so a script names them
-// and gets an index. A name that does not exist returns -1 rather than raising —
+// and gets an index. A name that does not exist returns -1 rather than raising -
 // a missing sheet should show up as a missing sprite, not a dead scene script.
 
 int LuaAPI::Sprite_SheetIndex(lua_State* L) {
@@ -4735,7 +5043,7 @@ int LuaAPI::Sprite_BindToActor(lua_State* L) {
     GameObject* go = nullptr;
     if (lua.isTable(2)) {
         // An entity handle carries __cpp_ptr; an Actor.Find handle carries only
-        // __actor_id. Accept either — sprites are almost always bound to actors,
+        // __actor_id. Accept either - sprites are almost always bound to actors,
         // and reading __cpp_ptr off an actor table would (silently) bind to null,
         // leaving every sprite stacked at the origin and dragged only by the view
         // offset.
@@ -4886,6 +5194,157 @@ int LuaAPI::Sprite_Count(lua_State* L) {
     psyqo::Lua lua(L);
     lua.pushNumber(s_spriteSystem ? s_spriteSystem->spriteCount() : 0);
     return 1;
+}
+
+// ============================================================================
+// TILE
+// ============================================================================
+
+int LuaAPI::Tile_Walkable(lua_State* L) {
+    psyqo::Lua lua(L);
+    // No map means no walls: a scene without a tilemap keeps free movement, so
+    // the collision check callers make is a no-op there rather than a wall
+    // everywhere. Off the edge of a map that DOES exist is not walkable.
+    if (!s_tileSystem || !s_tileSystem->active()) {
+        lua.push(true);
+        return 1;
+    }
+    const int32_t px = static_cast<int32_t>(lua.checkNumber(1));
+    const int32_t pz = static_cast<int32_t>(lua.checkNumber(2));
+    lua.push(s_tileSystem->walkableAtPixel(px, pz));
+    return 1;
+}
+
+// Tile.RayClear(x0, z0, x1, z1) -> bool
+//
+// Is there an unobstructed straight line between two world pixels? This is the
+// primitive a game needs for line-of-sight, and it is native for the same reason
+// collision is: doing it in Lua costs one Tile.Walkable call per sample, which is
+// hundreds of Lua-to-C++ transitions per frame on a 33MHz CPU.
+//
+// A scene with no tilemap reports true - nothing exists to block a view - which
+// matches how Tile.Walkable and Tile.MoveActor degrade without a map.
+int LuaAPI::Tile_RayClear(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_tileSystem || !s_tileSystem->active()) {
+        lua.push(true);
+        return 1;
+    }
+    const int32_t x0 = static_cast<int32_t>(lua.checkNumber(1));
+    const int32_t z0 = static_cast<int32_t>(lua.checkNumber(2));
+    const int32_t x1 = static_cast<int32_t>(lua.checkNumber(3));
+    const int32_t z1 = static_cast<int32_t>(lua.checkNumber(4));
+    lua.push(s_tileSystem->sightClear(x0, z0, x1, z1));
+    return 1;
+}
+
+// Tile.MoveActor(actor, dx, dz) -> newX, newZ
+//
+// Move an actor by (dx, dz) pixels on the tile ground plane, clamped against the
+// map's walls in NATIVE code - the collision resolution belongs here, not in a
+// per-frame Lua walkability dance. Each axis is tested on its own so a wall stops
+// that direction while the actor keeps sliding along it, and X is resolved before
+// Z so corners read cleanly. With no tilemap the full move is applied, so a caller
+// can always route movement through this and get free movement where there is no
+// map and wall collision where there is. Returns the resulting pixel position.
+int LuaAPI::Tile_MoveActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) {
+        lua.push(nullptr);
+        return 1;
+    }
+
+    const uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 pos;
+    if (!s_sceneManager->getActorPosition(actorId, pos)) {
+        lua.push(nullptr);
+        return 1;
+    }
+
+    const int32_t dx = static_cast<int32_t>(lua.checkNumber(2));
+    const int32_t dz = static_cast<int32_t>(lua.checkNumber(3));
+
+    // Tile.MoveActor(actor, dx, dz [, ignoreWalls])
+    //
+    // The optional fourth argument moves the actor without consulting the
+    // tilemap at all. It exists because "solid to the world" is a property of
+    // the MOVER, not of the map: a ghost, a spectator camera or anything else
+    // that is present but not physical still wants the rest of this function -
+    // the actor lookup, the integer-pixel semantics, the untouched y - and
+    // reimplementing that in Lua to get around the collision check would mean
+    // two movement paths that have to be kept in step.
+    const bool ignoreWalls = lua.isBoolean(4) && lua.toBoolean(4);
+
+    const int32_t px = pos.x.integer();
+    const int32_t pz = pos.z.integer();
+    int32_t nx = px, nz = pz;
+
+    if (!ignoreWalls && s_tileSystem && s_tileSystem->active()) {
+        if (dx != 0 && s_tileSystem->walkableAtPixel(px + dx, pz)) nx = px + dx;
+        if (dz != 0 && s_tileSystem->walkableAtPixel(nx, pz + dz)) nz = pz + dz;
+    } else {
+        nx = px + dx;
+        nz = pz + dz;
+    }
+
+    if (nx != px || nz != pz) {
+        // Keep y untouched (a jumping/elevated actor must not be snapped down).
+        pos.x = psyqo::FixedPoint<12>(nx * 4096, psyqo::FixedPoint<12>::RAW);
+        pos.z = psyqo::FixedPoint<12>(nz * 4096, psyqo::FixedPoint<12>::RAW);
+        s_sceneManager->setActorPosition(actorId, pos);
+    }
+
+    lua.pushNumber(nx);
+    lua.pushNumber(nz);
+    return 2;
+}
+
+int LuaAPI::Tile_Active(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_tileSystem && s_tileSystem->active());
+    return 1;
+}
+
+int LuaAPI::Tile_MapSize(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_tileSystem || !s_tileSystem->active()) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 4;
+    }
+    lua.pushNumber(s_tileSystem->width());
+    lua.pushNumber(s_tileSystem->height());
+    lua.pushNumber(s_tileSystem->tileW());
+    lua.pushNumber(s_tileSystem->tileH());
+    return 4;
+}
+
+int LuaAPI::Tile_ObjectCount(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(s_tileSystem ? s_tileSystem->objectCount() : 0);
+    return 1;
+}
+
+// Tile.ObjectAt(i) -> kind, id, x, z  (1-based i; nil if out of range). The x/z
+// are the object tile's CENTRE in world pixels, the natural point to stand on or
+// to measure distance to.
+int LuaAPI::Tile_ObjectAt(lua_State* L) {
+    psyqo::Lua lua(L);
+    const int idx = static_cast<int>(lua.checkNumber(1)) - 1;  // Lua is 1-based
+    const TileObject* o = s_tileSystem ? s_tileSystem->object(idx) : nullptr;
+    if (!o) {
+        lua.push(nullptr);
+        return 1;
+    }
+    int32_t px = 0, pz = 0;
+    s_tileSystem->objectCenterPixel(idx, &px, &pz);
+    lua.pushNumber(o->kind);
+    lua.pushNumber(o->id);
+    lua.pushNumber(px);
+    lua.pushNumber(pz);
+    return 4;
 }
 
 }  // namespace psxsplash

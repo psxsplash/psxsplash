@@ -82,7 +82,11 @@ struct SPLASHPACKFileHeader {
     // 0 means "not authored": the runtime falls back to the derived hash, which
     // is what keeps pre-v22 packs on the network.
     uint32_t sceneHash;
-    uint32_t reservedV22;         // reserved / future use
+    // --- v23 ---
+    // Offset to the tilemap header (SPLASHPACKTilemap), or 0 if none. This is the
+    // word that was reservedV22: the header does not grow, and a v22 pack left it
+    // 0, so it reads as "no tilemap" without any version-size special case.
+    uint32_t tilemapTableOffset;
 };
 static_assert(sizeof(SPLASHPACKFileHeader) == 144, "SPLASHPACKFileHeader must be 144 bytes");
 
@@ -266,14 +270,14 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         }
     }
 
-    // Atlas metadata — v20: pixel data is in a separate .vram file.
+    // Atlas metadata - v20: pixel data is in a separate .vram file.
     // We still parse the metadata entries (to advance the cursor) since
     // tpage/clut coordinates are baked into the triangle data.
     for (uint16_t i = 0; i < header->textureAtlasCount; i++) {
         cursor += sizeof(psxsplash::SPLASHPACKTextureAtlas);
     }
 
-    // CLUT metadata — v20: CLUT data is in a separate .vram file.
+    // CLUT metadata - v20: CLUT data is in a separate .vram file.
     for (uint16_t i = 0; i < header->clutCount; i++) {
         cursor += sizeof(psxsplash::SPLASHPACKClut);
     }
@@ -404,7 +408,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                             }
                         }
                     }
-                    // If not found, target stays nullptr — track will be skipped at runtime
+                    // If not found, target stays nullptr - track will be skipped at runtime
                 }
             }
 
@@ -541,7 +545,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             animSet.boneCount       = *skinPtr++;
             animSet.clipCount       = *skinPtr++;
 
-            // Bone indices: polyCount × 3 bytes
+            // Bone indices: polyCount x 3 bytes
             uint16_t polyCount = 0;
             if (animSet.gameObjectIndex < setup.objects.size()) {
                 polyCount = setup.objects[animSet.gameObjectIndex]->polyCount;
@@ -573,7 +577,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                 clip.frameCount = *reinterpret_cast<uint16_t*>(skinPtr); skinPtr += 2;
                 clip.boneCount  = animSet.boneCount;
 
-                // Frame data: frameCount × boneCount × 24 bytes
+                // Frame data: frameCount x boneCount x 24 bytes
                 clip.frames = reinterpret_cast<const BakedBoneMatrix*>(skinPtr);
                 skinPtr += (uint32_t)clip.frameCount * (uint32_t)animSet.boneCount * sizeof(BakedBoneMatrix);
             }
@@ -625,6 +629,13 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.spriteAnimCount = header->spriteAnimCount;
         setup.spriteTableOffset = header->spriteTableOffset;
         setup.sceneHash = header->sceneHash;
+    }
+
+    // Tilemap (v23+). The header word is 0 on older packs, which the TileSystem
+    // reads as "no map" - so this needs no version gate beyond the field's
+    // meaning, but keep the explicit check for symmetry with the block above.
+    if (header->version >= 23) {
+        setup.tilemapTableOffset = header->tilemapTableOffset;
     }
 }
 

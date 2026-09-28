@@ -26,6 +26,8 @@ src/animation.cpp \
 src/uisystem.cpp \
 src/spritesystem.cpp \
 src/spritemath.cpp \
+src/tilesystem.cpp \
+src/tilemath.cpp \
 src/loadingscreen.cpp \
 src/memoverlay.cpp \
 src/musicmanager.cpp \

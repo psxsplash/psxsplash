@@ -35,7 +35,7 @@ void SkinMesh_Tick(SkinAnimState* state, lua_State* L, int32_t dt12) {
 
     if (state->currentFrame >= clip.frameCount) {
         if (state->loop || (clip.flags & 0x01)) {
-            // Looping — wrap
+            // Looping - wrap
             state->currentFrame = state->currentFrame % clip.frameCount;
         } else {
             // Stop at last frame
