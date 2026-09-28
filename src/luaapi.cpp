@@ -11,6 +11,8 @@
 
 #include "renderer.hh"
 
+#include <psyqo/atan2.hh>
+#include <psyqo/gte-math.hh>
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/fixed-point.hh>
@@ -827,26 +829,7 @@ int LuaAPI::Entity_GetRotationY(lua_State* L) {
     int32_t sinRaw = go->rotation.vs[0].z.raw();
     int32_t cosRaw = go->rotation.vs[0].x.raw();
     
-    // Fast atan2 approximation (linear in first octant, fold to full circle)
-    psyqo::Angle angle;
-    if (cosRaw == 0 && sinRaw == 0) {
-        angle.value = 0;
-    } else {
-        int32_t abs_s = sinRaw < 0 ? -sinRaw : sinRaw;
-        int32_t abs_c = cosRaw < 0 ? -cosRaw : cosRaw;
-        int32_t minV = abs_s < abs_c ? abs_s : abs_c;
-        int32_t maxV = abs_s > abs_c ? abs_s : abs_c;
-        int32_t a = (minV * 256) / maxV;  // [0, 256] for [0, π/4]
-        if (abs_s > abs_c) a = 512 - a;
-        if (cosRaw < 0) a = 1024 - a;
-        if (sinRaw < 0) a = -a;
-        angle.value = a;
-    }
-    
-    // Return as FixedPoint<12> (Angle is FixedPoint<10>, shift left 2 for fp12)
-    psyqo::FixedPoint<12> fp12;
-    fp12.value = angle.value << 2;
-    lua.push(fp12);
+    lua.push(LuaUtility::ToFp12(psyqo::atan2(sinRaw, cosRaw)));
     return 1;
 }
 
@@ -896,9 +879,11 @@ int LuaAPI::Entity_SetRotation(lua_State* L) {
     auto matY = psyqo::SoftMath::generateRotationMatrix33(ry, psyqo::SoftMath::Axis::Y, s_trig);
     auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, s_trig);
     auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, s_trig);
-    auto temp = psyqo::SoftMath::multiplyMatrix33(matY, matX);
-    go->rotation = psxsplash::transposeMatrix33(
-        psyqo::SoftMath::multiplyMatrix33(temp, matZ));
+    psyqo::Matrix33 temp;
+    psyqo::GteMath::multiplyMatrix33(matY, matX, &temp);
+    // Aliasing out onto an input is explicitly supported.
+    psyqo::GteMath::multiplyMatrix33(temp, matZ, &temp);
+    go->rotation = psxsplash::transposeMatrix33(temp);
 
     return 0;
 }
@@ -916,7 +901,7 @@ int LuaAPI::Entity_GetForward(lua_State* L) {
     if (!go) {
         psyqo::FixedPoint<12> zero(0);
         PushVec3(lua, zero, zero, zero);
-        return 0;
+        return 1;
     }
 
     psyqo::Vec3 directionVector = LuaUtility::GetForward(go->rotation);
@@ -937,7 +922,7 @@ int LuaAPI::Entity_GetRight(lua_State* L) {
     if (!go) {
         psyqo::FixedPoint<12> zero(0);
         PushVec3(lua, zero, zero, zero);
-        return 0;
+        return 1;
     }
 
     psyqo::Vec3 directionVector = LuaUtility::GetRight(go->rotation);
@@ -958,7 +943,7 @@ int LuaAPI::Entity_GetUp(lua_State* L) {
     if (!go) {
         psyqo::FixedPoint<12> zero(0);
         PushVec3(lua, zero, zero, zero);
-        return 0;
+        return 1;
     }
 
     psyqo::Vec3 directionVector = LuaUtility::GetUp(go->rotation);
@@ -1818,6 +1803,12 @@ static uint32_t s_frameCount = 0;
 
 void LuaAPI::IncrementFrameCount() {
     s_frameCount++;
+    // Advance the shared RNG once per frame so draws depend on timing. It is not
+    // multiplied into the seed: repeated even factors shift in zero bits until the
+    // xorshift state is 0, which it never leaves. m_randomGenerator is
+    // deliberately untouched: it is the explicitly-seeded, reproducible generator
+    // that Random.GeneratorSeed owns.
+    SceneManager::m_random.rand();
 }
 
 void LuaAPI::ResetFrameCount() {
@@ -2049,35 +2040,21 @@ int LuaAPI::Camera_LookAt(lua_State* L) {
     auto dy = ty - pos.y;
     auto dz = tz - pos.z;
 
-    // Compute horizontal distance for pitch calculation
-    auto horizDistSq = dx * dx + dz * dz;
-    int32_t hdsRaw = horizDistSq.raw();
-    uint32_t hn = (uint32_t)(hdsRaw > 0 ? hdsRaw : 1);
-    uint32_t horizGuess = hn;
-    for (int i = 0; i < 16; i++) {
-        if (horizGuess == 0) break;
-        horizGuess = (horizGuess + hn / horizGuess) / 2;
-    }
-    
-    // Yaw = atan2(dx, dz) — approximate with lookup or use psyqo trig
-    // For now, use a simple atan2 approximation in fp12 domain
-    // and set rotation via SetRotation (pitch, yaw, 0)
-    // Approximate: yaw is proportional to dx/dz in small-angle
-    // Full implementation requires psyqo Trig atan2 which is not trivially
-    // accessible here. Set rotation to face the target on the Y axis.
-    // This is a simplified look-at that only handles yaw.
-    psyqo::Angle yaw;
-    psyqo::Angle pitch;
-    
-    // Use scaled integer atan2 approximation
-    // atan2(dx, dz) in the range [-π, π]
-    // For PS1, the exact method depends on psyqo's Trig class.
-    // Returning luaError since we can't do a proper atan2 without Trig instance.
-    // Compromise: just set rotation angles directly
-    yaw.value = 0;
-    pitch.value = 0;
-    
-    // For a real implementation, Camera would need a LookAt method.
+    // Horizontal distance, for pitch. SoftMath::squareRoot keeps the fixed-point
+    // scale, so its result shares units with dy and atan2 sees a consistent pair.
+    auto horizDist = psyqo::SoftMath::squareRoot(dx * dx + dz * dz);
+
+    // Yaw: the engine's own forward vector is (sin(yaw), *, cos(yaw)) - see the
+    // line-of-sight direction in SceneManager - so yaw is atan2(dx, dz).
+    // Pitch: look-down decrements playerRotationX in Controls, so positive pitch
+    // is up. World Y points down, so a target above the camera has dy < 0 and
+    // wants atan2(-dy, horizDist).
+    psyqo::Angle yaw = psyqo::atan2(dx.raw(), dz.raw());
+    psyqo::Angle pitch = psyqo::atan2(-dy.raw(), horizDist.raw());
+
+    // Same entry point first-person aiming uses, so the result stays consistent
+    // with the player-driven camera by construction.
+    cam.SetRotation(pitch, yaw, psyqo::Angle());
     return 0;
 }
 
@@ -2286,7 +2263,10 @@ int LuaAPI::Convert_FpToInt(lua_State* L) {
         return 0;
     }
 
-    uint32_t numberInt = lua.toFixedPoint(1).raw();
+    // raw() is int32_t. Holding it in a uint32_t turned every negative fixed
+    // point into a large positive one. Convert_IntToFp is the matching RAW
+    // pass-through, so this stays raw() rather than becoming integer().
+    int32_t numberInt = lua.toFixedPoint(1).raw();
 
     lua.pushNumber(numberInt);
     return 1;
@@ -2477,10 +2457,12 @@ int LuaAPI::Math_Convert3DTo2D(lua_State* L)
 
     lua.pushNumber(screenX);
     lua.pushNumber(screenY);
+    // Third return, so a script can tell a point behind the camera from one that
+    // genuinely projects to (0,0). Extra results are discarded by callers that
+    // only unpack two, so existing scripts are unaffected.
+    lua.push(visible);
 
-    //printf("screenX: %d, screenY: %d \n", screenX, screenY);
-
-    return 2;
+    return 3;
 }
 
 // ============================================================================
@@ -2493,8 +2475,6 @@ int LuaAPI::Random_Number(lua_State* L) {
     if (!s_sceneManager || !lua.isNumber(1)) {
         return 0;
     }
-
-    SceneManager::m_random.multiplySeed(s_frameCount+1);
 
     uint32_t max = lua.toNumber(1);
     uint32_t value = s_sceneManager->m_random.number(max)+1;
@@ -2524,12 +2504,18 @@ int LuaAPI::Random_Range(lua_State* L) {
         return 0;
     }
 
-    SceneManager::m_random.multiplySeed(s_frameCount+1);
+    int32_t min = lua.toNumber(1);
+    int32_t max = lua.toNumber(2);
+    // Reversed bounds used to wrap: min == max + 1 makes difference 0xFFFFFFFF
+    // and difference + 1 exactly 0, so number() divided by zero. Bounds are
+    // signed, so a range spanning zero must be compared as such.
+    if (min > max) {
+        int32_t t = min;
+        min = max;
+        max = t;
+    }
+    uint32_t difference = uint32_t(max) - uint32_t(min);
 
-    uint32_t min = lua.toNumber(1);
-    uint32_t max = lua.toNumber(2);
-    uint32_t difference = max - min;
-    
     uint32_t value = s_sceneManager->m_random.number(difference+1) + min;
 
     lua.pushNumber(value);
@@ -2542,10 +2528,15 @@ int LuaAPI::Random_GeneratorRange(lua_State* L) {
     if (!s_sceneManager || !lua.isNumber(1) || !lua.isNumber(2)) {
         return 0;
     }
-    uint32_t min = lua.toNumber(1);
-    uint32_t max = lua.toNumber(2);
-    uint32_t difference = max - min;
-    
+    int32_t min = lua.toNumber(1);
+    int32_t max = lua.toNumber(2);
+    if (min > max) {
+        int32_t t = min;
+        min = max;
+        max = t;
+    }
+    uint32_t difference = uint32_t(max) - uint32_t(min);
+
     uint32_t value = s_sceneManager->m_randomGenerator.number(difference+1) + min;
 
     lua.pushNumber(value);

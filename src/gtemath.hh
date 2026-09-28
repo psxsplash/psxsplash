@@ -3,8 +3,6 @@
 #include <psyqo/matrix.hh>
 
 namespace psxsplash {
-void MatrixMultiplyGTE(const psyqo::Matrix33 &matA, const psyqo::Matrix33 &matB, psyqo::Matrix33 *result);
-
 /// Transpose a 3x3 matrix (swap rows and columns).
 inline psyqo::Matrix33 transposeMatrix33(const psyqo::Matrix33 &m) {
     psyqo::Matrix33 r;

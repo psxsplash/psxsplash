@@ -69,24 +69,6 @@ void LuaUtility::SetPosition(GameObject* go, psyqo::Vec3 newPos) {
      SetPosition(go, newPos.x,newPos.y,newPos.z);
 }
 
-psyqo::Angle LuaUtility::FastAtan2(int32_t sinVal, int32_t cosVal) {
-    psyqo::Angle result;
-    if (cosVal == 0 && sinVal == 0) { result.value = 0; return result; }
-
-    int32_t abs_s = sinVal < 0 ? -sinVal : sinVal;
-    int32_t abs_c = cosVal < 0 ? -cosVal : cosVal;
-
-    int32_t minV = abs_s < abs_c ? abs_s : abs_c;
-    int32_t maxV = abs_s > abs_c ? abs_s : abs_c;
-    int32_t angle = (minV * 256) / maxV;
-
-    if (abs_s > abs_c) angle = 512 - angle;
-    if (cosVal < 0) angle = 1024 - angle;
-    if (sinVal < 0) angle = -angle;
-
-    result.value = angle;
-    return result;
-}
 
 psyqo::FixedPoint<12> LuaUtility::ToFp12(psyqo::Angle a)
 {

@@ -3,6 +3,8 @@
 #include <psyqo-lua/lua.hh>
 
 #include <psyqo/alloc.h>
+#include <psyqo/atan2.hh>
+#include <psyqo/gte-math.hh>
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 #include <psyqo/xprintf.h>
@@ -10,6 +12,7 @@
 #include "gameobject.hh"
 #include "gtemath.hh"
 #include "luaapi.hh"  // IsFixedPointSafe
+#include "luautility.hh"  // ToFp12
 
 // OOM-guarded allocator for Lua. The linker redirects luaI_realloc
 // here instead of straight to psyqo_realloc, so we can log before
@@ -86,24 +89,6 @@ static int gameobjectSetActive(psyqo::Lua L) {
 
 static psyqo::Trig<> s_trig;
 
-static psyqo::Angle fastAtan2(int32_t sinVal, int32_t cosVal) {
-    psyqo::Angle result;
-    if (cosVal == 0 && sinVal == 0) { result.value = 0; return result; }
-
-    int32_t abs_s = sinVal < 0 ? -sinVal : sinVal;
-    int32_t abs_c = cosVal < 0 ? -cosVal : cosVal;
-
-    int32_t minV = abs_s < abs_c ? abs_s : abs_c;
-    int32_t maxV = abs_s > abs_c ? abs_s : abs_c;
-    int32_t angle = (minV * 256) / maxV;
-
-    if (abs_s > abs_c) angle = 512 - angle;
-    if (cosVal < 0) angle = 1024 - angle;
-    if (sinVal < 0) angle = -angle;
-
-    result.value = angle;
-    return result;
-}
 
 static int gameobjectGetRotation(psyqo::Lua L) {
     auto go = L.toUserdata<psxsplash::GameObject>(1);
@@ -118,18 +103,12 @@ static int gameobjectGetRotation(psyqo::Lua L) {
     int32_t sinZ = -go->rotation.vs[0].y.raw();
     int32_t cosZ = go->rotation.vs[0].x.raw();
 
-    auto toFP12 = [](psyqo::Angle a) -> psyqo::FixedPoint<12> {
-        psyqo::FixedPoint<12> fp;
-        fp.value = a.value << 2;
-        return fp;
-    };
-
     L.newTable();
-    L.push(toFP12(fastAtan2(sinX, cosX)));
+    L.push(psxsplash::LuaUtility::ToFp12(psyqo::atan2(sinX, cosX)));
     L.setField(2, "x");
-    L.push(toFP12(fastAtan2(sinY, cosY)));
+    L.push(psxsplash::LuaUtility::ToFp12(psyqo::atan2(sinY, cosY)));
     L.setField(2, "y");
-    L.push(toFP12(fastAtan2(sinZ, cosZ)));
+    L.push(psxsplash::LuaUtility::ToFp12(psyqo::atan2(sinZ, cosZ)));
     L.setField(2, "z");
 
     return 1;
@@ -160,9 +139,11 @@ static int gameobjectSetRotation(psyqo::Lua L) {
     auto matY = psyqo::SoftMath::generateRotationMatrix33(ry, psyqo::SoftMath::Axis::Y, s_trig);
     auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, s_trig);
     auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, s_trig);
-    auto temp = psyqo::SoftMath::multiplyMatrix33(matY, matX);
-    go->rotation = psxsplash::transposeMatrix33(
-        psyqo::SoftMath::multiplyMatrix33(temp, matZ));
+    psyqo::Matrix33 temp;
+    psyqo::GteMath::multiplyMatrix33(matY, matX, &temp);
+    // Aliasing out onto an input is explicitly supported.
+    psyqo::GteMath::multiplyMatrix33(temp, matZ, &temp);
+    go->rotation = psxsplash::transposeMatrix33(temp);
     return 0;
 }
 
@@ -171,11 +152,7 @@ static int gameobjectGetRotationY(psyqo::Lua L) {
     auto go = L.toUserdata<psxsplash::GameObject>(1);
     int32_t sinRaw = go->rotation.vs[0].z.raw();
     int32_t cosRaw = go->rotation.vs[0].x.raw();
-    psyqo::Angle angle = fastAtan2(sinRaw, cosRaw);
-    // Angle is FixedPoint<10> (pi-units). Convert to FixedPoint<12> for Lua.
-    psyqo::FixedPoint<12> fp12;
-    fp12.value = angle.value << 2;
-    L.push(fp12);
+    L.push(psxsplash::LuaUtility::ToFp12(psyqo::atan2(sinRaw, cosRaw)));
     return 1;
 }
 

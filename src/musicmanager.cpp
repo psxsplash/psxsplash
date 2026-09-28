@@ -73,10 +73,11 @@ void MusicManager::tellCDDA(lua_State* L) {
     }
 
     mCDRomDevice->getPlaybackLocation([L, cb](psyqo::CDRomDevice::PlaybackLocation* location) {
-        if (location && cb != LUA_NOREF) {
+        if (cb == LUA_NOREF) return;
+        psyqo::Lua luaState(L);
+        if (location) {
             psyqo::FixedPoint<12> loc((location->relative.m * 60) + location->relative.s,location->relative.f * 54);
 
-            psyqo::Lua luaState(L);
             luaState.rawGetI(LUA_REGISTRYINDEX, cb);
             if (luaState.isFunction(-1)) {
                 luaState.push(loc);
@@ -88,6 +89,11 @@ void MusicManager::tellCDDA(lua_State* L) {
                 luaState.pop();
             }
         }
+        // The callback runs exactly once on every path, including the immediate
+        // null-location one, so this is the only place the registry slot can be
+        // released. Releasing it only alongside a valid location leaks one slot
+        // per call whenever no CD action was in progress.
+        luaState.unref(LUA_REGISTRYINDEX, cb);
     });
 #endif // LOADER_CDROM
 }

@@ -361,7 +361,7 @@ private:
     // Math.Sin(value)
     static int Math_Sin(lua_State* L);
 
-    // Math.Convert3DTo2D(x, y, z)
+    // Math.Convert3DTo2D(x, y, z) -> screenX, screenY, visible
     static int Math_Convert3DTo2D(lua_State* L);
 
     // ========================================================================
