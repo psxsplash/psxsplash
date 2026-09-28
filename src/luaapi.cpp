@@ -1803,11 +1803,12 @@ static uint32_t s_frameCount = 0;
 
 void LuaAPI::IncrementFrameCount() {
     s_frameCount++;
-    // Reseed the shared RNG once per frame. Doing it per call instead meant two
-    // draws in one frame both folded in the same frame counter, correlating them.
-    // m_randomGenerator is deliberately untouched: it is the explicitly-seeded,
-    // reproducible generator that Random.GeneratorSeed owns.
-    SceneManager::m_random.multiplySeed(s_frameCount + 1);
+    // Advance the shared RNG once per frame so draws depend on timing. It is not
+    // multiplied into the seed: repeated even factors shift in zero bits until the
+    // xorshift state is 0, which it never leaves. m_randomGenerator is
+    // deliberately untouched: it is the explicitly-seeded, reproducible generator
+    // that Random.GeneratorSeed owns.
+    SceneManager::m_random.rand();
 }
 
 void LuaAPI::ResetFrameCount() {
@@ -2046,9 +2047,10 @@ int LuaAPI::Camera_LookAt(lua_State* L) {
     // Yaw: the engine's own forward vector is (sin(yaw), *, cos(yaw)) - see the
     // line-of-sight direction in SceneManager - so yaw is atan2(dx, dz).
     // Pitch: look-down decrements playerRotationX in Controls, so positive pitch
-    // is up, and a target above the camera wants atan2(+dy, horizDist).
+    // is up. World Y points down, so a target above the camera has dy < 0 and
+    // wants atan2(-dy, horizDist).
     psyqo::Angle yaw = psyqo::atan2(dx.raw(), dz.raw());
-    psyqo::Angle pitch = psyqo::atan2(dy.raw(), horizDist.raw());
+    psyqo::Angle pitch = psyqo::atan2(-dy.raw(), horizDist.raw());
 
     // Same entry point first-person aiming uses, so the result stays consistent
     // with the player-driven camera by construction.
@@ -2502,16 +2504,17 @@ int LuaAPI::Random_Range(lua_State* L) {
         return 0;
     }
 
-    uint32_t min = lua.toNumber(1);
-    uint32_t max = lua.toNumber(2);
+    int32_t min = lua.toNumber(1);
+    int32_t max = lua.toNumber(2);
     // Reversed bounds used to wrap: min == max + 1 makes difference 0xFFFFFFFF
-    // and difference + 1 exactly 0, so number() divided by zero.
+    // and difference + 1 exactly 0, so number() divided by zero. Bounds are
+    // signed, so a range spanning zero must be compared as such.
     if (min > max) {
-        uint32_t t = min;
+        int32_t t = min;
         min = max;
         max = t;
     }
-    uint32_t difference = max - min;
+    uint32_t difference = uint32_t(max) - uint32_t(min);
 
     uint32_t value = s_sceneManager->m_random.number(difference+1) + min;
 
@@ -2525,14 +2528,14 @@ int LuaAPI::Random_GeneratorRange(lua_State* L) {
     if (!s_sceneManager || !lua.isNumber(1) || !lua.isNumber(2)) {
         return 0;
     }
-    uint32_t min = lua.toNumber(1);
-    uint32_t max = lua.toNumber(2);
+    int32_t min = lua.toNumber(1);
+    int32_t max = lua.toNumber(2);
     if (min > max) {
-        uint32_t t = min;
+        int32_t t = min;
         min = max;
         max = t;
     }
-    uint32_t difference = max - min;
+    uint32_t difference = uint32_t(max) - uint32_t(min);
 
     uint32_t value = s_sceneManager->m_randomGenerator.number(difference+1) + min;
 

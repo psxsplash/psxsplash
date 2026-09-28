@@ -10,8 +10,6 @@ uint32_t Random::rand() {
     return x;
 }
 
-void Random::seed(uint32_t seed) { m_seed = INITIAL_SEED * seed; }
-
-void Random::multiplySeed(uint32_t multi){
-    m_seed *= multi;
-}
+// INITIAL_SEED is odd, so the product is 0 only for seed 0, and a zero state
+// would make xorshift return 0 forever.
+void Random::seed(uint32_t seed) { m_seed = seed ? INITIAL_SEED * seed : INITIAL_SEED; }
