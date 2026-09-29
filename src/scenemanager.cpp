@@ -1615,22 +1615,26 @@ bool psxsplash::SceneManager::canActorSeeActor(uint16_t observerActorId, uint16_
 
     if (dist > ag.visionRange.value) return false;
 
-    // FOV check via angular difference (avoids sin/cos, stays integer)
-    // visionCosAngle is repurposed as half-angle in psyqo::Angle half-circle units
-    // 0x7FFF = omnidirectional, otherwise abs(facingAngle - dirAngle) must be <= threshold
-    if (ag.visionCosAngle < 0x7FFF) {
+    // FOV check. visionCosAngle is the fp12 cosine of the half-FOV, as the
+    // splashpack stores it; -4096 (180 degrees) sees all around. The target is in
+    // view when cos(angle to target) >= visionCosAngle, i.e. when
+    // dot(forward, d) >= visionCosAngle * |d|. Forward is (sin(yaw), cos(yaw)),
+    // the same convention the agent's own facing is written with.
+    if (ag.visionCosAngle > -4096) {
         psyqo::Vec3 rotation;
         if (!getActorRotation(observerActorId, rotation)) return false;
 
-        psyqo::Angle dirAngle = s_fastAtan2(dx, dz);
-        // rotation.y stores a psyqo::Angle cast to FixedPoint<12> (lower 16 bits)
-        uint16_t facing16 = static_cast<uint16_t>(rotation.y.value);
-        uint16_t dir16    = static_cast<uint16_t>(dirAngle.value);
-        uint16_t rawDiff  = facing16 - dir16;
-        // Convert to abs signed diff in [0, 32767]
-        int16_t signedDiff = static_cast<int16_t>(rawDiff);
-        if (signedDiff < 0) signedDiff = -signedDiff;
-        if (signedDiff > ag.visionCosAngle) return false;
+        psyqo::Angle facing = static_cast<psyqo::Angle>(rotation.y);
+        int32_t fx = s_interactTrig.sin(facing).raw();
+        int32_t fz = s_interactTrig.cos(facing).raw();
+        // dist <= visionRange (uint16), so dx and dz fit in 17 bits and neither
+        // product below can overflow.
+        int32_t dot = fx * dx + fz * dz;
+        psyqo::FixedPoint<12> fdx, fdz;
+        fdx.value = dx;
+        fdz.value = dz;
+        int32_t len = psyqo::SoftMath::squareRoot(fdx * fdx + fdz * fdz).raw();
+        if (dot < ag.visionCosAngle * len) return false;
     }
 
     // Optional: nav region BFS depth check (0 = same/adjacent region only)

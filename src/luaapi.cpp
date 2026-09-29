@@ -2448,8 +2448,8 @@ int LuaAPI::Agent_GetVisionRange(lua_State* L) {
 }
 
 int LuaAPI::Agent_SetVisionAngle(lua_State* L) {
-    // Accepts half-angle in degrees (0-180). Converts to half-circle angle units.
-    // 0 deg = forward only (0 half-circle units), 180 deg = 32767 (all around)
+    // Accepts half-angle in degrees (0-180) and stores its fp12 cosine, the same
+    // unit the splashpack's visionCosAngle uses. 180 deg sees all around.
     psyqo::Lua lua(L);
     if (!s_sceneManager || !lua.isTable(1)) return 0;
 
@@ -2457,10 +2457,10 @@ int LuaAPI::Agent_SetVisionAngle(lua_State* L) {
     lua_Number halfAngleDeg = lua.toNumber(2);
     if (halfAngleDeg < 0)   halfAngleDeg = 0;
     if (halfAngleDeg > 180) halfAngleDeg = 180;
-    // Map 0..180 deg to 0..32767 (half psyqo Angle circle)
-    int16_t threshold = static_cast<int16_t>(static_cast<int32_t>(halfAngleDeg * 32767 / 180));
-    if (halfAngleDeg >= 180) threshold = 0x7FFF;  // omnidirectional
-    s_sceneManager->setActorVisionAngleCos(actorId, threshold);
+    psyqo::Angle halfAngle;
+    halfAngle.value = static_cast<int32_t>(halfAngleDeg * 1024 / 180);
+    int16_t cosThreshold = static_cast<int16_t>(s_trig.cos(halfAngle).raw());
+    s_sceneManager->setActorVisionAngleCos(actorId, cosThreshold);
     return 0;
 }
 
