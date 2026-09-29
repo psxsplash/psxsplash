@@ -590,6 +590,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(UI_SetProgressColors);
     L.setField(-2, "SetProgressColors");
 
+    L.push(UI_SetFrame);
+    L.setField(-2, "SetFrame");
+
+    L.push(UI_GetFrame);
+    L.setField(-2, "GetFrame");
+
     L.push(UI_GetElementType);
     L.setField(-2, "GetElementType");
 
@@ -3366,6 +3372,30 @@ int LuaAPI::UI_SetProgressColors(lua_State* L) {
     uint8_t fB  = static_cast<uint8_t>(lua.toNumber(7));
     s_uiSystem->setProgressColors(handle, bgR, bgG, bgB, fR, fG, fB);
     return 0;
+}
+
+int LuaAPI::UI_SetFrame(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_uiSystem || !lua.isNumber(1) || !lua.isNumber(2)) return 0;
+    int handle = static_cast<int>(lua.toNumber(1));
+    int frame = static_cast<int>(lua.toNumber(2));
+    if (frame < 0) frame = 0;
+    if (frame > 255) frame = 255;
+    s_uiSystem->setFrame(handle, static_cast<uint8_t>(frame));
+    return 0;
+}
+
+int LuaAPI::UI_GetFrame(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_uiSystem || !lua.isNumber(1)) {
+        // pushNumber, not push: push(int) resolves to push(bool) - see the note
+        // on every other integer return in this file.
+        lua.pushNumber(-1);
+        return 1;
+    }
+    int handle = static_cast<int>(lua.toNumber(1));
+    lua.pushNumber(static_cast<lua_Number>(s_uiSystem->getFrame(handle)));
+    return 1;
 }
 
 int LuaAPI::UI_GetElementType(lua_State* L) {
