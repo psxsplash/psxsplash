@@ -18,4 +18,5 @@ compile_commands.json
 LICENSEE.DAT
 *.iso
 system.cnf
-iso.xml
+iso.xml.xmake/
+build/
