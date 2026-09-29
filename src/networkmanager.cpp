@@ -603,6 +603,11 @@ void NetworkManager::buildAndSendSnapshot(SceneManager& sm) {
 
 void NetworkManager::preTick(SceneManager& sm, int32_t dt12) {
     if (m_state == State::Disconnected || m_state == State::VersionMismatch || m_state == State::SceneMismatch) {
+        // end() queues a Bye and goes straight to Disconnected. Keep servicing
+        // the transport until its TX ring is empty, or in polled mode the Bye
+        // never leaves.
+        Sio1& sio = Sio1::Get();
+        if (sio.txSpace() < sio.txCapacity()) sio.poll();
         return;
     }
 
