@@ -372,8 +372,9 @@ void SpriteSystem::renderSprite(SpriteInstance& s, int depth,
     const int16_t w = s.w ? s.w : (int16_t)sheet.cellW;
     const int16_t h = s.h ? s.h : (int16_t)sheet.cellH;
 
-    psyqo::Vertex clutPos = {{.x = (int16_t)sheet.clutX, .y = (int16_t)sheet.clutY}};
-    psyqo::PrimPieces::ClutIndex clutIdx(clutPos);
+    // clutX is already in 16-pixel units (the exporter's ClutPackingX), so use
+    // the two-argument constructor: the Vertex one divides x by 16 again.
+    psyqo::PrimPieces::ClutIndex clutIdx(sheet.clutX, sheet.clutY);
 
     // Prim::Sprite is a 1:1 blit: it cannot scale and it cannot flip. When the
     // sprite asks for either, fall back to a quad, which can do both and carries

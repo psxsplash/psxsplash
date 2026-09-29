@@ -154,8 +154,9 @@ void TileSystem::renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& o
     if (x1 > (int32_t)m_width - 1) x1 = (int32_t)m_width - 1;
     if (y1 > (int32_t)m_height - 1) y1 = (int32_t)m_height - 1;
 
-    psyqo::Vertex clutPos = {{.x = (int16_t)m_sheet.clutX, .y = (int16_t)m_sheet.clutY}};
-    psyqo::PrimPieces::ClutIndex clutIdx(clutPos);
+    // clutX is already in 16-pixel units (the exporter's ClutPackingX), so use
+    // the two-argument constructor: the Vertex one divides x by 16 again.
+    psyqo::PrimPieces::ClutIndex clutIdx(m_sheet.clutX, m_sheet.clutY);
 
     int emitted = 0;
     for (int32_t ty = y0; ty <= y1; ty++) {
