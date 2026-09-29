@@ -445,7 +445,8 @@ void psxsplash::Lua::RegisterGameObject(GameObject* go, uint16_t actorId) {
                 if (onEnableMethodWrapper.resolveGlobal(L))              eventMask |= EVENT_ON_ENABLE;
                 if (onDisableMethodWrapper.resolveGlobal(L))             eventMask |= EVENT_ON_DISABLE;
                 if (onButtonPressMethodWrapper.resolveGlobal(L))         eventMask |= EVENT_ON_BUTTON_PRESS;
-                if (onButtonReleaseMethodWrapper.resolveGlobal(L))       eventMask |= EVENT_ON_BUTTON_RELEASE;                // Agent events
+                if (onButtonReleaseMethodWrapper.resolveGlobal(L))       eventMask |= EVENT_ON_BUTTON_RELEASE;
+                // Agent events
                 if (onStateEnterMethodWrapper.resolveGlobal(L))     eventMask |= EVENT_ON_STATE_ENTER;
                 if (onStateExitMethodWrapper.resolveGlobal(L))      eventMask |= EVENT_ON_STATE_EXIT;
                 if (onTargetSeenMethodWrapper.resolveGlobal(L))     eventMask |= EVENT_ON_TARGET_SEEN;
