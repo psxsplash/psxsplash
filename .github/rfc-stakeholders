@@ -15,3 +15,6 @@ src/luaapi.hh        @CloudMracek
 # The splashpack binary format is the exporter/runtime contract.
 src/splashpack.cpp   @CloudMracek
 src/splashpack.hh    @CloudMracek
+
+# The network wire protocol is spoken by other builds and by servers.
+src/netprotocol.hh   @CloudMracek
