@@ -73,7 +73,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
     // Register the Lua API
-    LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem);
+    LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem,
+                        &m_spriteSystem, &m_tileSystem);
 
 #ifdef PSXSPLASH_PROFILER
     debug::Profiler::getInstance().initialize(s_font);
@@ -188,6 +189,31 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_skinnedMeshCount > 0 ? m_skinAnimSets : nullptr,
         m_skinnedMeshCount > 0 ? m_skinAnimStates : nullptr,
         m_skinnedMeshCount);
+
+    // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
+    // images and 3D textures, so there is nothing to upload here - only the
+    // sheet/anim tables to parse.
+    m_spriteSystem.init();
+    if (sceneSetup.spriteSheetCount > 0 && sceneSetup.spriteTableOffset != 0) {
+        m_spriteSystem.loadFromSplashpack(splashpackData, sceneSetup.spriteSheetCount,
+                                          sceneSetup.spriteAnimCount,
+                                          sceneSetup.spriteTableOffset);
+        Renderer::GetInstance().SetSpriteSystem(&m_spriteSystem);
+    } else {
+        Renderer::GetInstance().SetSpriteSystem(nullptr);
+    }
+
+    // Tilemap (v23+). It draws from one of the sprite sheets loaded just above,
+    // so this must come after the sprite system is populated. A scene with no
+    // tilemap leaves the offset 0 and the tile system inactive.
+    m_tileSystem.init();
+    if (sceneSetup.tilemapTableOffset != 0) {
+        m_tileSystem.loadFromSplashpack(splashpackData, sceneSetup.tilemapTableOffset,
+                                        &m_spriteSystem);
+        Renderer::GetInstance().SetTileSystem(&m_tileSystem);
+    } else {
+        Renderer::GetInstance().SetTileSystem(nullptr);
+    }
 
     // Initialize UI system (v13+)
     // Font pixel data is uploaded separately via uploadVramData() before InitializeScene.
@@ -440,6 +466,12 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     uint32_t animationTime = animationEnd - animationStart;
     psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_ANIMATION, animationTime);
 #endif
+
+    // Advance animations and let bound sprites follow their actors. Immediately
+    // before the draw, so a sprite never renders a frame behind the actor it is
+    // pinned to.
+    m_spriteSystem.update(m_dt12);
+
 
     uint32_t renderingStart = gpu.now();
     auto& renderer = psxsplash::Renderer::GetInstance();
@@ -1492,6 +1524,16 @@ void psxsplash::SceneManager::clearScene() {
 
     // Reset UI system (disconnect from renderer before splashpack data disappears)
     Renderer::GetInstance().SetUISystem(nullptr);
+
+    // Same for sprites: the sheet/anim names point into splashpack data, and the
+    // instances point at GameObjects that are about to go away.
+    Renderer::GetInstance().SetSpriteSystem(nullptr);
+    m_spriteSystem.init();
+
+    // Same for the tilemap: its cells and objects point straight into splashpack
+    // data, which is about to be freed and reloaded.
+    Renderer::GetInstance().SetTileSystem(nullptr);
+    m_tileSystem.init();
 
     // Reset room/portal pointers (they point into splashpack data which is being freed)
     m_rooms = nullptr;

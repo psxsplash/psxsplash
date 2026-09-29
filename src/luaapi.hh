@@ -31,6 +31,8 @@ class SceneManager;  // Forward declaration
 class CutscenePlayer;  // Forward declaration
 class AnimationPlayer;  // Forward declaration
 class UISystem;  // Forward declaration
+class SpriteSystem;  // Forward declaration
+class TileSystem;    // Forward declaration
 
 /**
  * Lua API - Provides game scripting functionality
@@ -47,7 +49,7 @@ class UISystem;  // Forward declaration
 class LuaAPI {
 public:
     // Initialize all API modules
-    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr);
+    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr, SpriteSystem* spriteSystem = nullptr, TileSystem* tileSystem = nullptr);
     
     // Called once per frame to advance the Lua frame counter
     static void IncrementFrameCount();
@@ -67,7 +69,49 @@ private:
     
     // UI system pointer (set during RegisterAll)
     static UISystem* s_uiSystem;
-    
+
+    // Sprite system pointer (set during RegisterAll)
+    static SpriteSystem* s_spriteSystem;
+
+    // Tile system pointer (set during RegisterAll)
+    static TileSystem* s_tileSystem;
+
+    // ========================================================================
+    // SPRITE API - 2D sprites (screen-space), authored sheets + animations
+    // ========================================================================
+
+    static int Sprite_SheetIndex(lua_State* L);
+    static int Sprite_AnimIndex(lua_State* L);
+    static int Sprite_Create(lua_State* L);
+    static int Sprite_Destroy(lua_State* L);
+    static int Sprite_SetPos(lua_State* L);
+    static int Sprite_SetWorldPos(lua_State* L);
+    static int Sprite_BindToActor(lua_State* L);
+    static int Sprite_SetFrame(lua_State* L);
+    static int Sprite_PlayAnim(lua_State* L);
+    static int Sprite_StopAnim(lua_State* L);
+    static int Sprite_SetFacingFromYaw(lua_State* L);
+    static int Sprite_SetVisible(lua_State* L);
+    static int Sprite_IsVisible(lua_State* L);
+    static int Sprite_SetFlip(lua_State* L);
+    static int Sprite_SetColor(lua_State* L);
+    static int Sprite_SetLayer(lua_State* L);
+    static int Sprite_SetSize(lua_State* L);
+    static int Sprite_SetIgnoreViewOffset(lua_State* L);
+    static int Sprite_SetViewOffset(lua_State* L);
+    static int Sprite_GetViewOffset(lua_State* L);
+    static int Sprite_Count(lua_State* L);
+
+    // Tile API
+    static int Tile_Walkable(lua_State* L);
+    static int Tile_RayClear(lua_State* L);
+    static int Tile_MoveActor(lua_State* L);
+    static int Tile_Active(lua_State* L);
+    static int Tile_MapSize(lua_State* L);
+    static int Tile_ObjectCount(lua_State* L);
+    static int Tile_ObjectAt(lua_State* L);
+
+
     // ========================================================================
     // ACTOR API - Player + object-backed actor handles
     // ========================================================================

@@ -18,6 +18,8 @@
 
 #include "gtemath.hh"
 #include "skinmesh.hh"
+#include "spritesystem.hh"
+#include "tilesystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -160,7 +162,9 @@ void psxsplash::Renderer::processTriangle(
 
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
     if (zIndex >= (int32_t)ORDERING_TABLE_SIZE) return;
-    if (zIndex < 1) zIndex = 1;
+    // Clamp above the reserved 2D bands, never to 0: geometry this close to the
+    // camera must not land in the slots the sprites and UI draw from.
+    if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
 
     psyqo::Vertex projected[3];
     read<Register::SXY0>(&projected[0].packed);
@@ -352,6 +356,10 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
             processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
+    // Sprites go in before the UI: both head-insert, so inserting the UI
+    // later is what keeps it on top within its band.
+    if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
+    if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
@@ -433,6 +441,10 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 
+    // Sprites go in before the UI: both head-insert, so inserting the UI
+    // later is what keeps it on top within its band.
+    if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
+    if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
@@ -1123,6 +1135,10 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 
+    // Sprites go in before the UI: both head-insert, so inserting the UI
+    // later is what keeps it on top within its band.
+    if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
+    if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);

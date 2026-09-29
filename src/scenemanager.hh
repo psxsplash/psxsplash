@@ -25,6 +25,8 @@
 #include "cutscene.hh"
 #include "animation.hh"
 #include "skinmesh.hh"
+#include "spritesystem.hh"
+#include "tilesystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -549,6 +551,8 @@ namespace psxsplash {
         int m_skinnedMeshCount = 0;
 
         UISystem m_uiSystem;
+        SpriteSystem m_spriteSystem;
+        TileSystem m_tileSystem;
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
 #endif

@@ -7,6 +7,8 @@
 #include "cutscene.hh"
 #include "animation.hh"
 #include "skinmesh.hh"
+#include "spritesystem.hh"
+#include "tilesystem.hh"
 #include "uisystem.hh"
 
 #include "renderer.hh"
@@ -28,6 +30,8 @@ SceneManager* LuaAPI::s_sceneManager = nullptr;
 CutscenePlayer* LuaAPI::s_cutscenePlayer = nullptr;
 AnimationPlayer* LuaAPI::s_animationPlayer = nullptr;
 UISystem* LuaAPI::s_uiSystem = nullptr;
+SpriteSystem* LuaAPI::s_spriteSystem = nullptr;
+TileSystem* LuaAPI::s_tileSystem = nullptr;
 
 // Scale factor: FixedPoint<12> stores 1.0 as raw 4096.
 // Lua scripts work in world-space units (1 = one unit), so we convert.
@@ -50,11 +54,13 @@ static psyqo::Trig<> s_trig;
 // REGISTRATION
 // ============================================================================
 
-void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem) {
+void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem, TileSystem* tileSystem) {
     s_sceneManager = scene;
     s_cutscenePlayer = cutscenePlayer;
     s_animationPlayer = animationPlayer;
     s_uiSystem = uiSystem;
+    s_spriteSystem = spriteSystem;
+    s_tileSystem = tileSystem;
     
     // ========================================================================
     // ACTOR API
@@ -751,6 +757,81 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "DrawTriangle");
 
     L.setGlobal("UI");
+
+    // ========================================================================
+    // SPRITE API
+    // ========================================================================
+    L.newTable();  // Sprite table
+
+    L.push(Sprite_SheetIndex);
+    L.setField(-2, "SheetIndex");
+    L.push(Sprite_AnimIndex);
+    L.setField(-2, "AnimIndex");
+    L.push(Sprite_Create);
+    L.setField(-2, "Create");
+    L.push(Sprite_Destroy);
+    L.setField(-2, "Destroy");
+    L.push(Sprite_SetPos);
+    L.setField(-2, "SetPos");
+    L.push(Sprite_SetWorldPos);
+    L.setField(-2, "SetWorldPos");
+    L.push(Sprite_BindToActor);
+    L.setField(-2, "BindToActor");
+    L.push(Sprite_SetFrame);
+    L.setField(-2, "SetFrame");
+    L.push(Sprite_PlayAnim);
+    L.setField(-2, "PlayAnim");
+    L.push(Sprite_StopAnim);
+    L.setField(-2, "StopAnim");
+    L.push(Sprite_SetFacingFromYaw);
+    L.setField(-2, "SetFacingFromYaw");
+    L.push(Sprite_SetVisible);
+    L.setField(-2, "SetVisible");
+    L.push(Sprite_IsVisible);
+    L.setField(-2, "IsVisible");
+    L.push(Sprite_SetFlip);
+    L.setField(-2, "SetFlip");
+    L.push(Sprite_SetColor);
+    L.setField(-2, "SetColor");
+    L.push(Sprite_SetLayer);
+    L.setField(-2, "SetLayer");
+    L.push(Sprite_SetSize);
+    L.setField(-2, "SetSize");
+    L.push(Sprite_SetIgnoreViewOffset);
+    L.setField(-2, "SetIgnoreViewOffset");
+    L.push(Sprite_SetViewOffset);
+    L.setField(-2, "SetViewOffset");
+    L.push(Sprite_GetViewOffset);
+    L.setField(-2, "GetViewOffset");
+    L.push(Sprite_Count);
+    L.setField(-2, "Count");
+
+    L.setGlobal("Sprite");
+
+    // ========================================================================
+    // TILE API
+    // ========================================================================
+    L.newTable();  // Tile table
+
+    L.push(Tile_Walkable);
+    L.setField(-2, "Walkable");
+    L.push(Tile_RayClear);
+    L.setField(-2, "RayClear");
+    L.push(Tile_MoveActor);
+    L.setField(-2, "MoveActor");
+    L.push(Tile_Active);
+    L.setField(-2, "Active");
+    L.push(Tile_MapSize);
+    L.setField(-2, "MapSize");
+    L.push(Tile_ObjectCount);
+    L.setField(-2, "ObjectCount");
+    L.push(Tile_ObjectAt);
+    L.setField(-2, "ObjectAt");
+
+    // No Tile.KIND here on purpose: the engine attaches no meaning to an object's
+    // kind byte. A game defines its own kind constants, and the values only have
+    // to agree with what its tilemap was painted with.
+    L.setGlobal("Tile");
 
     // ========================================================================
     // PLAYER API
@@ -4403,6 +4484,389 @@ int LuaAPI::Player_GetRotation(lua_State* L) {
         PushVec3(lua, psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0), psyqo::FixedPoint<12>(0));
     }
     return 1;
+}
+
+// ============================================================================
+// SPRITE API
+// ============================================================================
+//
+// Handles are ints into a fixed pool, not userdata: they survive being stashed
+// in a Lua table across a scene tick and cost nothing to pass around.
+//
+// Sheets and animations are authored into the splashpack, so a script names them
+// and gets an index. A name that does not exist returns -1 rather than raising -
+// a missing sheet should show up as a missing sprite, not a dead scene script.
+
+int LuaAPI::Sprite_SheetIndex(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem || !lua.isString(1)) {
+        lua.pushNumber(-1);
+        return 1;
+    }
+    lua.pushNumber(s_spriteSystem->sheetIndex(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Sprite_AnimIndex(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem || !lua.isString(1)) {
+        lua.pushNumber(-1);
+        return 1;
+    }
+    lua.pushNumber(s_spriteSystem->animIndex(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Sprite_Create(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) {
+        lua.pushNumber(-1);
+        return 1;
+    }
+    // Accept a sheet name or an index, so callers can skip the SheetIndex step.
+    int sheet = lua.isString(1) ? s_spriteSystem->sheetIndex(lua.toString(1))
+                                : static_cast<int>(lua.checkNumber(1));
+    lua.pushNumber(s_spriteSystem->create(sheet));
+    return 1;
+}
+
+int LuaAPI::Sprite_Destroy(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->destroy(static_cast<int>(lua.checkNumber(1)));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetPos(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setPos(static_cast<int>(lua.checkNumber(1)),
+                           static_cast<int16_t>(lua.checkNumber(2)),
+                           static_cast<int16_t>(lua.checkNumber(3)));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetWorldPos(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    psyqo::Vec3 p;
+    p.x = readFP(lua, 2);
+    p.y = readFP(lua, 3);
+    p.z = readFP(lua, 4);
+    s_spriteSystem->setWorldPos(static_cast<int>(lua.checkNumber(1)), p);
+    return 0;
+}
+
+int LuaAPI::Sprite_BindToActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    int id = static_cast<int>(lua.checkNumber(1));
+
+    GameObject* go = nullptr;
+    if (lua.isTable(2)) {
+        // An entity handle carries __cpp_ptr; an Actor.Find handle carries only
+        // __actor_id. Accept either - sprites are almost always bound to actors,
+        // and reading __cpp_ptr off an actor table would (silently) bind to null,
+        // leaving every sprite stacked at the origin and dragged only by the view
+        // offset.
+        lua.getField(2, "__cpp_ptr");
+        go = lua.toUserdata<GameObject>(-1);
+        lua.pop();
+        if (!go && s_sceneManager) {
+            go = s_sceneManager->getActorGameObject(ReadActorId(lua, 2));
+        }
+    }
+
+    // Default to the screen plane: world-space sprites are carried through the
+    // data model but not drawn yet.
+    SpritePlane plane = SpritePlane::Screen;
+    if (lua.isNumber(3) && static_cast<int>(lua.toNumber(3)) == 1) plane = SpritePlane::World;
+
+    int16_t offX = lua.isNumber(4) ? static_cast<int16_t>(lua.toNumber(4)) : 0;
+    int16_t offY = lua.isNumber(5) ? static_cast<int16_t>(lua.toNumber(5)) : 0;
+
+    s_spriteSystem->bindToActor(id, go, plane, offX, offY);
+    return 0;
+}
+
+int LuaAPI::Sprite_SetFrame(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setFrame(static_cast<int>(lua.checkNumber(1)),
+                             static_cast<uint8_t>(lua.checkNumber(2)));
+    return 0;
+}
+
+int LuaAPI::Sprite_PlayAnim(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    int id = static_cast<int>(lua.checkNumber(1));
+    int anim = lua.isString(2) ? s_spriteSystem->animIndex(lua.toString(2))
+                               : static_cast<int>(lua.checkNumber(2));
+    // Default to NOT restarting: re-issuing the same anim every frame (the
+    // natural way to write a movement script) must not pin it to frame 0.
+    bool restart = lua.isBoolean(3) ? lua.toBoolean(3) : false;
+    s_spriteSystem->playAnim(id, anim, restart);
+    return 0;
+}
+
+int LuaAPI::Sprite_StopAnim(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->stopAnim(static_cast<int>(lua.checkNumber(1)));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetFacingFromYaw(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    int id = static_cast<int>(lua.checkNumber(1));
+    int animBase = lua.isString(2) ? s_spriteSystem->animIndex(lua.toString(2))
+                                   : static_cast<int>(lua.checkNumber(2));
+    uint8_t dirCount = static_cast<uint8_t>(lua.checkNumber(3));
+
+    // Yaw arrives in the same units as Entity.SetRotationY: a Lua number where
+    // 1.0 is 180 degrees. Convert to the raw Angle the math expects.
+    psyqo::FixedPoint<12> fp12 = readFP(lua, 4);
+    int32_t yawRaw = fp12.value >> 2;
+
+    s_spriteSystem->setFacingFromYaw(id, animBase, dirCount, yawRaw);
+    return 0;
+}
+
+int LuaAPI::Sprite_SetVisible(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setVisible(static_cast<int>(lua.checkNumber(1)), lua.toBoolean(2));
+    return 0;
+}
+
+int LuaAPI::Sprite_IsVisible(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) {
+        lua.push(false);
+        return 1;
+    }
+    lua.push(s_spriteSystem->isVisible(static_cast<int>(lua.checkNumber(1))));
+    return 1;
+}
+
+int LuaAPI::Sprite_SetFlip(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setFlip(static_cast<int>(lua.checkNumber(1)), lua.toBoolean(2),
+                            lua.toBoolean(3));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetColor(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setColor(static_cast<int>(lua.checkNumber(1)),
+                             static_cast<uint8_t>(lua.checkNumber(2)),
+                             static_cast<uint8_t>(lua.checkNumber(3)),
+                             static_cast<uint8_t>(lua.checkNumber(4)));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetLayer(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setLayer(static_cast<int>(lua.checkNumber(1)),
+                             static_cast<uint8_t>(lua.checkNumber(2)));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetSize(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    // 0 means "the sheet's cell size", which is also the only size that takes
+    // the cheap 1:1 blit instead of a quad.
+    s_spriteSystem->setSize(static_cast<int>(lua.checkNumber(1)),
+                            static_cast<int16_t>(lua.checkNumber(2)),
+                            static_cast<int16_t>(lua.checkNumber(3)));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetIgnoreViewOffset(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setIgnoreViewOffset(static_cast<int>(lua.checkNumber(1)), lua.toBoolean(2));
+    return 0;
+}
+
+int LuaAPI::Sprite_SetViewOffset(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_spriteSystem) return 0;
+    s_spriteSystem->setViewOffset(static_cast<int16_t>(lua.checkNumber(1)),
+                                  static_cast<int16_t>(lua.checkNumber(2)));
+    return 0;
+}
+
+int LuaAPI::Sprite_GetViewOffset(lua_State* L) {
+    psyqo::Lua lua(L);
+    int16_t x = 0, y = 0;
+    if (s_spriteSystem) s_spriteSystem->getViewOffset(x, y);
+    lua.pushNumber(static_cast<lua_Number>(x));
+    lua.pushNumber(static_cast<lua_Number>(y));
+    return 2;
+}
+
+int LuaAPI::Sprite_Count(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(s_spriteSystem ? s_spriteSystem->spriteCount() : 0);
+    return 1;
+}
+
+// ============================================================================
+// TILE
+// ============================================================================
+
+int LuaAPI::Tile_Walkable(lua_State* L) {
+    psyqo::Lua lua(L);
+    // No map means no walls: a scene without a tilemap keeps free movement, so
+    // the collision check callers make is a no-op there rather than a wall
+    // everywhere. Off the edge of a map that DOES exist is not walkable.
+    if (!s_tileSystem || !s_tileSystem->active()) {
+        lua.push(true);
+        return 1;
+    }
+    const int32_t px = static_cast<int32_t>(lua.checkNumber(1));
+    const int32_t pz = static_cast<int32_t>(lua.checkNumber(2));
+    lua.push(s_tileSystem->walkableAtPixel(px, pz));
+    return 1;
+}
+
+// Tile.RayClear(x0, z0, x1, z1) -> bool
+//
+// Is there an unobstructed straight line between two world pixels? This is the
+// primitive a game needs for line-of-sight, and it is native for the same reason
+// collision is: doing it in Lua costs one Tile.Walkable call per sample, which is
+// hundreds of Lua-to-C++ transitions per frame on a 33MHz CPU.
+//
+// A scene with no tilemap reports true - nothing exists to block a view - which
+// matches how Tile.Walkable and Tile.MoveActor degrade without a map.
+int LuaAPI::Tile_RayClear(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_tileSystem || !s_tileSystem->active()) {
+        lua.push(true);
+        return 1;
+    }
+    const int32_t x0 = static_cast<int32_t>(lua.checkNumber(1));
+    const int32_t z0 = static_cast<int32_t>(lua.checkNumber(2));
+    const int32_t x1 = static_cast<int32_t>(lua.checkNumber(3));
+    const int32_t z1 = static_cast<int32_t>(lua.checkNumber(4));
+    lua.push(s_tileSystem->sightClear(x0, z0, x1, z1));
+    return 1;
+}
+
+// Tile.MoveActor(actor, dx, dz) -> newX, newZ
+//
+// Move an actor by (dx, dz) pixels on the tile ground plane, clamped against the
+// map's walls in NATIVE code - the collision resolution belongs here, not in a
+// per-frame Lua walkability dance. Each axis is tested on its own so a wall stops
+// that direction while the actor keeps sliding along it, and X is resolved before
+// Z so corners read cleanly. With no tilemap the full move is applied, so a caller
+// can always route movement through this and get free movement where there is no
+// map and wall collision where there is. Returns the resulting pixel position.
+int LuaAPI::Tile_MoveActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) {
+        lua.push(nullptr);
+        return 1;
+    }
+
+    const uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 pos;
+    if (!s_sceneManager->getActorPosition(actorId, pos)) {
+        lua.push(nullptr);
+        return 1;
+    }
+
+    const int32_t dx = static_cast<int32_t>(lua.checkNumber(2));
+    const int32_t dz = static_cast<int32_t>(lua.checkNumber(3));
+
+    // Tile.MoveActor(actor, dx, dz [, ignoreWalls])
+    //
+    // The optional fourth argument moves the actor without consulting the
+    // tilemap at all. It exists because "solid to the world" is a property of
+    // the MOVER, not of the map: a ghost, a spectator camera or anything else
+    // that is present but not physical still wants the rest of this function -
+    // the actor lookup, the integer-pixel semantics, the untouched y - and
+    // reimplementing that in Lua to get around the collision check would mean
+    // two movement paths that have to be kept in step.
+    const bool ignoreWalls = lua.isBoolean(4) && lua.toBoolean(4);
+
+    const int32_t px = pos.x.integer();
+    const int32_t pz = pos.z.integer();
+    int32_t nx = px, nz = pz;
+
+    if (!ignoreWalls && s_tileSystem && s_tileSystem->active()) {
+        if (dx != 0 && s_tileSystem->walkableAtPixel(px + dx, pz)) nx = px + dx;
+        if (dz != 0 && s_tileSystem->walkableAtPixel(nx, pz + dz)) nz = pz + dz;
+    } else {
+        nx = px + dx;
+        nz = pz + dz;
+    }
+
+    if (nx != px || nz != pz) {
+        // Keep y untouched (a jumping/elevated actor must not be snapped down).
+        pos.x = psyqo::FixedPoint<12>(nx * 4096, psyqo::FixedPoint<12>::RAW);
+        pos.z = psyqo::FixedPoint<12>(nz * 4096, psyqo::FixedPoint<12>::RAW);
+        s_sceneManager->setActorPosition(actorId, pos);
+    }
+
+    lua.pushNumber(nx);
+    lua.pushNumber(nz);
+    return 2;
+}
+
+int LuaAPI::Tile_Active(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_tileSystem && s_tileSystem->active());
+    return 1;
+}
+
+int LuaAPI::Tile_MapSize(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_tileSystem || !s_tileSystem->active()) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 4;
+    }
+    lua.pushNumber(s_tileSystem->width());
+    lua.pushNumber(s_tileSystem->height());
+    lua.pushNumber(s_tileSystem->tileW());
+    lua.pushNumber(s_tileSystem->tileH());
+    return 4;
+}
+
+int LuaAPI::Tile_ObjectCount(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(s_tileSystem ? s_tileSystem->objectCount() : 0);
+    return 1;
+}
+
+// Tile.ObjectAt(i) -> kind, id, x, z  (1-based i; nil if out of range). The x/z
+// are the object tile's CENTRE in world pixels, the natural point to stand on or
+// to measure distance to.
+int LuaAPI::Tile_ObjectAt(lua_State* L) {
+    psyqo::Lua lua(L);
+    const int idx = static_cast<int>(lua.checkNumber(1)) - 1;  // Lua is 1-based
+    const TileObject* o = s_tileSystem ? s_tileSystem->object(idx) : nullptr;
+    if (!o) {
+        lua.push(nullptr);
+        return 1;
+    }
+    int32_t px = 0, pz = 0;
+    s_tileSystem->objectCenterPixel(idx, &px, &pz);
+    lua.pushNumber(o->kind);
+    lua.pushNumber(o->id);
+    lua.pushNumber(px);
+    lua.pushNumber(pz);
+    return 4;
 }
 
 }  // namespace psxsplash
