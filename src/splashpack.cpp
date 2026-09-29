@@ -151,7 +151,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.objects.reserve(header->gameObjectCount);
     setup.colliders.reserve(header->colliderCount);
     setup.interactables.reserve(header->interactableCount);
-    setup.agents.reserve(header->agentCount);
+    // agentCount was pad_skin before v22, so an older pack carries no agents.
+    const uint16_t agentCount = header->version >= 22 ? header->agentCount : 0;
+    setup.agents.reserve(agentCount);
 
     uint8_t *cursor = data + splashpackHeaderSize(header->version);
 
@@ -201,7 +203,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         cursor += sizeof(psxsplash::Interactable);
     }
 
-    for (uint16_t i = 0; i < header->agentCount; i++) {
+    for (uint16_t i = 0; i < agentCount; i++) {
         psxsplash::SPLASHPACKAgentV2* agent = reinterpret_cast<psxsplash::SPLASHPACKAgentV2*>(cursor);
         setup.agents.push_back(agent);
         cursor += sizeof(psxsplash::SPLASHPACKAgentV2);
