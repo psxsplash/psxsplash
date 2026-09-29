@@ -100,7 +100,7 @@ void MainScene::start(StartReason reason) {
             task->resolve();
         })
         .butCatch([](psyqo::TaskQueue*) {
-            // FileLoader init failed — nothing we can do on PS1.
+            // FileLoader init failed - nothing we can do on PS1.
         })
         .run();
 }

@@ -285,7 +285,7 @@ void psxsplash::Controls::handleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
 }
 
 void psxsplash::Controls::sendMotorValues() {
-    // Skip SIO transaction when both motors are off — nothing to send.
+    // Skip SIO transaction when both motors are off - nothing to send.
     if (m_motorSmallCache == 0 && m_motorLargeCache == 0) return;
 
     using namespace psyqo::Hardware;

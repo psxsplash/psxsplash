@@ -5,7 +5,7 @@
 
 namespace psxsplash {
 
-// Safe clamping bounds for PS1 GPU rasterizer limits (1023×511 max vertex delta).
+// Safe clamping bounds for PS1 GPU rasterizer limits (1023x511 max vertex delta).
 
 static constexpr int16_t SAFE_MIN_X = -351;
 static constexpr int16_t SAFE_MAX_X =  672;

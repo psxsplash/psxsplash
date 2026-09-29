@@ -94,7 +94,7 @@ struct SplashpackSceneSetup {
     psyqo::FixedPoint<12, uint16_t> moveSpeed;       // Per-frame speed constant (fp12)
     psyqo::FixedPoint<12, uint16_t> sprintSpeed;     // Per-frame sprint constant (fp12)
     psyqo::FixedPoint<12, uint16_t> jumpVelocity;    // Per-second initial velocity (fp12)
-    psyqo::FixedPoint<12, uint16_t> gravity;          // Per-second² acceleration (fp12)
+    psyqo::FixedPoint<12, uint16_t> gravity;          // Per-second^2 acceleration (fp12)
     psyqo::FixedPoint<12, uint16_t> playerRadius;    // Collision radius (fp12)
 
     Cutscene loadedCutscenes[MAX_CUTSCENES];

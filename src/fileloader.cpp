@@ -1,7 +1,7 @@
 #include "fileloader.hh"
 #include <psyqo/xprintf.h>
 
-// ── Backend selection ────────────────────────────────────────────
+// -- Backend selection --------------------------------------------
 // LOADER_CDROM is defined by the Makefile when LOADER=cdrom.
 // Default (including PCDRV_SUPPORT=1) selects the PCdrv backend.
 #if defined(LOADER_CDROM)
@@ -12,7 +12,7 @@
 
 namespace psxsplash {
 
-// ── Singleton ────────────────────────────────────────────────────
+// -- Singleton ----------------------------------------------------
 FileLoader& FileLoader::Get() {
 #if defined(LOADER_CDROM)
     static FileLoaderCDRom instance;
@@ -22,7 +22,7 @@ FileLoader& FileLoader::Get() {
     return instance;
 }
 
-// ── Filename helpers ─────────────────────────────────────────────
+// -- Filename helpers ---------------------------------------------
 // PCdrv uses lowercase names matching the files SplashControlPanel
 // writes to PSXBuild/.  CDRom uses uppercase 8.3 ISO9660 names with
 // the mandatory ";1" version suffix.

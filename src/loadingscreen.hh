@@ -34,7 +34,7 @@ static_assert(sizeof(LoaderPackAtlas) == 12, "LoaderPackAtlas must be 12 bytes")
 
 struct LoaderPackClut {
     uint32_t clutDataOffset;  // absolute offset in file
-    uint16_t clutX;           // VRAM X (in 16-pixel units × 16)
+    uint16_t clutX;           // VRAM X (in 16-pixel units x 16)
     uint16_t clutY;           // VRAM Y
     uint16_t length;          // number of palette entries
     uint16_t pad;
@@ -57,7 +57,7 @@ public:
 
     /// Update the progress bar to the given percentage (0-100).
     /// Redraws the progress bar rectangles in both framebuffers.
-    /// Safe after data is freed — uses only cached layout values.
+    /// Safe after data is freed - uses only cached layout values.
     void updateProgress(psyqo::GPU& gpu, uint8_t percent);
 
     /// Returns true if a loading screen was loaded (even after data freed).

@@ -190,7 +190,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
                     track.uiHandle = static_cast<int16_t>(m_uiSystem.findCanvas(nameStr));
                 }
                 else {
-                    // Name is "canvasName/elementName" — find the '/' separator
+                    // Name is "canvasName/elementName" - find the '/' separator
                     const char* sep = nameStr;
                     while (*sep && *sep != '/') sep++;
                     if (*sep == '/') {
@@ -348,7 +348,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 95);
 
-    // v20: No more shrinkBuffer() — VRAM/SPU data is in separate files,
+    // v20: No more shrinkBuffer() - VRAM/SPU data is in separate files,
     // so the splashpack buffer IS the live data. No relocation needed.
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
@@ -920,7 +920,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     // drive reports position and the end-of-track IRQ through it).  While that
     // action is pending, any blocking data read aborts with "readSectorsBlocking
     // called with pending action".  So the drive must be brought to idle before
-    // loading any scene files — this must happen before the loading-screen read
+    // loading any scene files - this must happen before the loading-screen read
     // below.
     //
     // Getting there safely is fiddly.  The device exposes only isIdle()
@@ -930,7 +930,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     // with "stopCDDA called while not playing".  And MusicManager::isPlayingCDDA()
     // can't be trusted alone: it's set from a deferred callback, so it lags the
     // hardware.  So do it in two phases:
-    //   1. Pump until the drive settles into a definite state — either idle
+    //   1. Pump until the drive settles into a definite state - either idle
     //      (a startup that failed, or an in-flight pause/stop that finished) or
     //      steady playback.  isPlayingCDDA() flips true from the callback that
     //      fires exactly when the PLAYING state is entered, so it is a reliable
@@ -968,7 +968,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     }
 
     if (!isFirstScene) {
-        // Tear down EVERYTHING in the current scene first —
+        // Tear down EVERYTHING in the current scene first -
         // Lua VM, vector backing storage, audio.  This returns as much
         // heap memory as possible before any new allocation.
         clearScene();
@@ -983,7 +983,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     if (loading.isActive()) loading.updateProgress(gpu, 10);
 
-    // ── Step 1: Load VRAM data, upload to GPU, free buffer ──
+
     {
         char vramFilename[32];
         FileLoader::BuildVramFilename(sceneIndex, vramFilename, sizeof(vramFilename));
@@ -1013,7 +1013,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     if (loading.isActive()) loading.updateProgress(gpu, 25);
 
-    // ── Step 3: Load splashpack (live data only, stays resident) ──
+    // -- Step 3: Load splashpack (live data only, stays resident) --
     char filename[32];
     FileLoader::BuildSceneFilename(sceneIndex, filename, sizeof(filename));
 
