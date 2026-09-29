@@ -65,22 +65,16 @@ class Renderer final {
     //   SPRITE_DEPTH_BASE .. +LAYERS-1     screen-space sprites, layer 0 in front
     //   WORLD_DEPTH_MIN .. OT_SIZE-1       3D geometry
     //
-    // Cost: 9 of 16384 OT slots, and near-camera polygons clamp to
+    // Cost: WORLD_DEPTH_MIN (14) OT slots, and near-camera polygons clamp to
     // WORLD_DEPTH_MIN instead of 1 - which is what stops them fighting the HUD.
     static constexpr int UI_DEPTH_MAX = 1;
     static constexpr int SPRITE_DEPTH_BASE = UI_DEPTH_MAX + 1;
-    /// How many sprite layers content may use. A sprite whose layer is >= this is
-    /// SILENTLY DROPPED by SpriteSystem::render - there is no warning and no
-    /// counter, the sprite is simply never emitted.
+    /// How many sprite layers content may use. SpriteSystem::setLayer clamps a
+    /// higher layer to SPRITE_LAYERS - 1, so content that assigns more layers
+    /// than this gets them merged into the backmost one. Keep this above the
+    /// highest layer a game uses.
     ///
-    /// This was 8 while PSXSUS was already placing sprites on layers 8 (the
-    /// interact ring) and 9 (the task markers), so both were invisible on
-    /// hardware for as long as they existed. Keep this ABOVE the highest layer any
-    /// content assigns; the game's table is `_G.LAYER` in scene_game.lua, which
-    /// deliberately leaves gaps to slot new layers in, so leave headroom here too.
-    ///
-    /// Cost is one ordering-table slot per layer out of 16384, so headroom is
-    /// effectively free and running out is not.
+    /// Cost is one ordering-table slot per layer, so headroom is cheap.
     static constexpr int SPRITE_LAYERS = 12;
     static constexpr int WORLD_DEPTH_MIN = SPRITE_DEPTH_BASE + SPRITE_LAYERS;
 
