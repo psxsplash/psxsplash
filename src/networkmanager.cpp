@@ -641,10 +641,14 @@ void NetworkManager::preTick(SceneManager& sm, int32_t dt12) {
     }
 
     // Apply any received per-object state to the matching actor's Lua self.sync.
+    // Same authority rule as the snapshot's world objects: the host owns them,
+    // and only actors registered with Net.RegisterActor are replicated.
     while (m_objStateCount > 0) {
         PendingObjState& s = m_recvObjStates[m_objStateHead];
-        GameObject* go = sm.getActorGameObject(s.actorId);
-        if (go) sm.getLua().ApplyObjectSync(go, s.data, s.len);
+        if (!m_isHost && isNetworkedActor(s.actorId)) {
+            GameObject* go = sm.getActorGameObject(s.actorId);
+            if (go) sm.getLua().ApplyObjectSync(go, s.data, s.len);
+        }
         m_objStateHead = (m_objStateHead + 1) % c_objStateQueueLen;
         m_objStateCount--;
     }
