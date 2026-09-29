@@ -15,4 +15,6 @@
 #include <string.h>
 #define __builtin_memcpy memcpy
 #define __builtin_memcmp memcmp
+#include <intrin.h>
+#define PSXSPLASH_COMPILER_BARRIER() _ReadWriteBarrier()
 #endif

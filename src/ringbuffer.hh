@@ -2,6 +2,12 @@
 
 #include <stdint.h>
 
+// Keeps the compiler from moving memory accesses across it. tests/host/compat.hh
+// supplies the MSVC spelling.
+#ifndef PSXSPLASH_COMPILER_BARRIER
+#define PSXSPLASH_COMPILER_BARRIER() __asm__ volatile("" ::: "memory")
+#endif
+
 namespace psxsplash {
 
 /**
@@ -33,6 +39,10 @@ class RingBuffer {
     bool push(uint8_t b) {
         if (full()) return false;
         m_buf[m_head & (N - 1)] = b;
+        // m_buf is not volatile, so without a compiler barrier the byte store
+        // may be moved after the head store and the consumer can read a stale
+        // byte. MIPS I is in-order, so a compiler barrier is enough.
+        PSXSPLASH_COMPILER_BARRIER();
         m_head = m_head + 1;  // publish only after the byte is stored
         return true;
     }
@@ -41,6 +51,8 @@ class RingBuffer {
     bool pop(uint8_t& out) {
         if (empty()) return false;
         out = m_buf[m_tail & (N - 1)];
+        // Same the other way: the byte must be read before the slot is freed.
+        PSXSPLASH_COMPILER_BARRIER();
         m_tail = m_tail + 1;
         return true;
     }
