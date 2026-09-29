@@ -213,7 +213,7 @@ namespace psxsplash {
 
             psyqo::Vec3 actorPosition;
             if (!getActorPosition(actorId, actorPosition)) return NAV_NO_REGION;
-            return m_navRegions.findRegionClosest(actorPosition.x.value, actorPosition.y.value, actorPosition.z.value);
+            return m_navRegions.findRegionNearest(actorPosition.x.value, actorPosition.y.value, actorPosition.z.value);
         }
         bool getNavRegionCenter(uint16_t regionIndex, psyqo::Vec3& outPosition) const {
             int32_t x = 0;
@@ -239,7 +239,7 @@ namespace psxsplash {
             if (!m_navRegions.isLoaded()) return false;
 
             uint16_t startRegion = getActorNavRegion(actorId);
-            uint16_t endRegion = m_navRegions.findRegionClosest(targetPosition.x.value, targetPosition.y.value, targetPosition.z.value);
+            uint16_t endRegion = m_navRegions.findRegionNearest(targetPosition.x.value, targetPosition.y.value, targetPosition.z.value);
             if (startRegion == NAV_NO_REGION || endRegion == NAV_NO_REGION) return false;
 
             return m_navRegions.findPath(startRegion, endRegion, outPath);
