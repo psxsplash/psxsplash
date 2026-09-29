@@ -677,7 +677,11 @@ uint32_t psxsplash::Lua::SerializeObjectSync(GameObject* go, uint8_t* buf, uint3
 bool psxsplash::Lua::ApplyObjectSync(GameObject* go, const uint8_t* buf, uint32_t size) {
     auto L = m_state;
     const char* err = nullptr;
-    if (!LuaTableSerializer::deserialize(L, buf, size, &err)) return false;  // [value]
+    int top = L.getTop();
+    if (!LuaTableSerializer::deserialize(L, buf, size, &err)) {
+        L.setTop(top);  // drop whatever the partial decode left behind
+        return false;
+    }  // [value]
     PushGameObject(go);       // [value, self]
     if (!L.isTable(-1)) {
         L.pop(2);
