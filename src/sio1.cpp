@@ -139,7 +139,7 @@ constexpr uint32_t c_rxHeadroomMicros =
     (c_rxHeadroomBytes * c_bitsPerByte * 1000000u) / psxsplash::Sio1::c_defaultBaud;
 
 // How much headroom is ENOUGH depends on who dispatches the interrupt, which is
-// the whole reason the kernel is taken over. Under psyqo the handler is a direct
+// the whole reason to take the kernel over. Under psyqo the handler is a direct
 // assembly dispatch; under the BIOS it walks an event table with interrupts off.
 constexpr uint32_t c_requiredHeadroomMicros = psxsplash::c_takeOverKernel ? 150 : 600;
 
@@ -286,10 +286,10 @@ static_assert(c_rxDrainLimit > c_rxFifoDepth * 8,
               "from the RING, which is the only quantity that bounds a useful drain in both "
               "modes.");
 
-// Retail-kernel BIOS event for IRQ8 (SIO). Used ONLY on the fallback path now
-// that c_takeOverKernel is on: queueIRQHandler() hard-asserts on
-// `s_tookOverKernel` (psyqo kernel.cpp:189), so this route is what remains if the
-// kernel is left with the BIOS. Class ids are from psx-spx "kernelbios.md":
+// Retail-kernel BIOS event for IRQ8 (SIO). This is the route whenever the
+// kernel is left with the BIOS, which it is while c_takeOverKernel is false:
+// queueIRQHandler() hard-asserts on `s_tookOverKernel`, so it is only usable
+// after a takeover. Class ids are from psx-spx "kernelbios.md":
 // F000000Bh is IRQ8/SIO.
 constexpr uint32_t c_eventClassSio = 0xF000000Bu;
 
@@ -390,16 +390,16 @@ void Sio1::installIrqHandler() {
     if (m_irqInstalled) return;
 
     if (psyqo::Kernel::isKernelTakenOver()) {
-        // The fast path, and the reason the kernel is taken over at all: psyqo's
+        // The fast path, and the reason to take the kernel over at all: psyqo's
         // exception handler dispatches straight to this from a per-IRQ table,
         // instead of the BIOS walking its event list with interrupts disabled.
         // That blackout is what was overrunning the 8-byte RX FIFO - see
         // c_takeOverKernel. Kernel::IRQ::SIO is IRQ8, the same line.
         psyqo::Kernel::queueIRQHandler(psyqo::Kernel::IRQ::SIO, []() { Sio1::Get().handleRxIrq(); });
     } else {
-        // BIOS fallback. Works, but with the latency that made long frames
-        // unreliable on real hardware; kept so c_takeOverKernel can be flipped
-        // back without this file changing.
+        // BIOS path, taken while c_takeOverKernel is false. Works, but with
+        // the latency that made long frames unreliable at 115200, which is why
+        // c_defaultBaud is lower.
         uint32_t event = psyqo::Kernel::openEvent(c_eventClassSio, c_eventSpecHwIrq, c_eventModeCallback,
                                                   []() { Sio1::Get().handleRxIrq(); });
         syscall_enableEvent(event);
