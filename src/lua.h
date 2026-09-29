@@ -38,6 +38,14 @@ enum EventMask : uint32_t {
     EVENT_ON_DISABLE        = 1 << 8,
     EVENT_ON_BUTTON_PRESS   = 1 << 9,
     EVENT_ON_BUTTON_RELEASE = 1 << 10,
+    // Agent state-machine events (bits 11-17)
+    EVENT_ON_STATE_ENTER    = 1 << 11,
+    EVENT_ON_STATE_EXIT     = 1 << 12,
+    EVENT_ON_TARGET_SEEN    = 1 << 13,
+    EVENT_ON_TARGET_LOST    = 1 << 14,
+    EVENT_ON_TARGET_REACHED = 1 << 15,
+    EVENT_ON_PATROL_POINT   = 1 << 16,
+    EVENT_ON_PATH_BLOCKED   = 1 << 17,
 };
 
 class Lua {
@@ -48,7 +56,7 @@ class Lua {
 
     void LoadLuaFile(const char* code, size_t len, int index);
     void RegisterSceneScripts(int index);
-    void RegisterGameObject(GameObject* go);
+    void RegisterGameObject(GameObject* go, uint16_t actorId = 0xFFFF);
     void FireAllOnCreate(GameObject** objects, size_t count);
     void RelocateGameObjects(GameObject** objects, size_t count, intptr_t delta);
     
@@ -83,6 +91,16 @@ class Lua {
     void OnDisable(GameObject* go);
     void OnButtonPress(GameObject* go, int button);
     void OnButtonRelease(GameObject* go, int button);
+
+    // Agent state-machine event dispatchers
+    // newState / oldState are integer AgentState values
+    void OnAgentStateEnter(GameObject* go, int newState, int oldState);
+    void OnAgentStateExit(GameObject* go, int state);
+    void OnAgentTargetSeen(GameObject* go, GameObject* target);
+    void OnAgentTargetLost(GameObject* go, GameObject* target);
+    void OnAgentTargetReached(GameObject* go);
+    void OnAgentPatrolPoint(GameObject* go, int waypointIndex);
+    void OnAgentPathBlocked(GameObject* go);
 
   private:
     template <int methodId, typename methodName>
@@ -171,6 +189,14 @@ class Lua {
     [[no_unique_address]] FunctionWrapper<108, typestring_is("onDisable")> onDisableMethodWrapper;
     [[no_unique_address]] FunctionWrapper<109, typestring_is("onButtonPress")> onButtonPressMethodWrapper;
     [[no_unique_address]] FunctionWrapper<110, typestring_is("onButtonRelease")> onButtonReleaseMethodWrapper;
+    // Agent state-machine event wrappers (IDs 200-206)
+    [[no_unique_address]] FunctionWrapper<200, typestring_is("onStateEnter")>    onStateEnterMethodWrapper;
+    [[no_unique_address]] FunctionWrapper<201, typestring_is("onStateExit")>     onStateExitMethodWrapper;
+    [[no_unique_address]] FunctionWrapper<202, typestring_is("onTargetSeen")>    onTargetSeenMethodWrapper;
+    [[no_unique_address]] FunctionWrapper<203, typestring_is("onTargetLost")>    onTargetLostMethodWrapper;
+    [[no_unique_address]] FunctionWrapper<204, typestring_is("onTargetReached")> onTargetReachedMethodWrapper;
+    [[no_unique_address]] FunctionWrapper<205, typestring_is("onPatrolPoint")>   onPatrolPointMethodWrapper;
+    [[no_unique_address]] FunctionWrapper<206, typestring_is("onPathBlocked")>   onPathBlockedMethodWrapper;
     
     void PushGameObject(GameObject* go);
 

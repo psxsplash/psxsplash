@@ -9,8 +9,10 @@
 #include "streq.hh"
 #include "luaapi.hh"
 #include "loadingscreen.hh"
+#include "gtemath.hh"
 
 #include <psyqo/primitives/misc.hh>
+#include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 
 #if defined(LOADER_CDROM)
@@ -38,6 +40,27 @@ static constexpr int32_t PLAYER_RADIUS = 20;
 // Interaction system state
 static psyqo::Trig<> s_interactTrig;
 static int s_activePromptCanvas = -1;  // Currently shown prompt canvas index (-1 = none)
+
+static psyqo::Angle s_fastAtan2(int32_t sinVal, int32_t cosVal) {
+    psyqo::Angle result;
+    if (cosVal == 0 && sinVal == 0) {
+        result.value = 0;
+        return result;
+    }
+
+    int32_t absS = sinVal < 0 ? -sinVal : sinVal;
+    int32_t absC = cosVal < 0 ? -cosVal : cosVal;
+    int32_t minV = absS < absC ? absS : absC;
+    int32_t maxV = absS > absC ? absS : absC;
+    int32_t angle = (minV * 256) / maxV;
+
+    if (absS > absC) angle = 512 - angle;
+    if (cosVal < 0) angle = 1024 - angle;
+    if (sinVal < 0) angle = -angle;
+
+    result.value = angle;
+    return result;
+}
 
 void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingScreen* loading) {
     auto& gpu = Renderer::GetInstance().getGPU();
@@ -73,6 +96,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_cameraFollowsPlayer = m_navRegions.isLoaded();
     m_controlsEnabled[0] = true;
     m_controlsEnabled[1] = true;
+    m_cameraFollowActor = PLAYER_ACTOR_ID;
 
     // Scene type and render path
     m_sceneType = sceneSetup.sceneType;
@@ -103,6 +127,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // Audio clip names are stored in the splashpack. ADPCM data is loaded
     // separately via uploadSpuData() before InitializeScene() is called.
     m_audioClipNames = std::move(sceneSetup.audioClipNames);
+
+    initializeAgentStates(sceneSetup);
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 55);
 
@@ -252,9 +278,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     m_playerPosition = sceneSetup.playerStartPosition;
 
-    playerRotationX = 0.0_pi;
-    playerRotationY = 0.0_pi;
-    playerRotationZ = 0.0_pi;
+    playerRotationX = static_cast<psyqo::Angle>(static_cast<psyqo::FixedPoint<12>>(sceneSetup.playerStartRotation.x));
+    playerRotationY = static_cast<psyqo::Angle>(static_cast<psyqo::FixedPoint<12>>(sceneSetup.playerStartRotation.y));
+    playerRotationZ = static_cast<psyqo::Angle>(static_cast<psyqo::FixedPoint<12>>(sceneSetup.playerStartRotation.z));
 
     m_playerHeight = sceneSetup.playerHeight;
 
@@ -324,8 +350,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     L.OnSceneCreationStart();
 
-    for (auto object : m_gameObjects) {
-        L.RegisterGameObject(object);
+    for (size_t i = 0; i < m_gameObjects.size(); ++i) {
+        L.RegisterGameObject(m_gameObjects[i], static_cast<uint16_t>(i + 1));
     }
 
     // Fire all onCreate events AFTER all objects are registered,
@@ -352,6 +378,32 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // so the splashpack buffer IS the live data. No relocation needed.
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
+}
+
+void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint16_t actorId) {
+    if (!isValidActor(actorId)) return;
+
+    psyqo::Vec3 pos, rot;
+    getActorPosition(actorId, pos);
+    getActorRotation(actorId, rot);
+    psyqo::Angle rx = static_cast<psyqo::Angle>(rot.x);
+    psyqo::Angle ry = static_cast<psyqo::Angle>(rot.y);
+    psyqo::Angle rz = static_cast<psyqo::Angle>(rot.z);
+
+    // Reuse the player's movement handler on the bound actor's own transform.
+    // A non-player actor moves freely here (gravity/nav are player-only, applied
+    // later in GameTick); freecam=false keeps motion planar.
+    if (controllerIndex == 0)
+        m_controls[0].HandleControlsPlayer1(pos, rx, ry, rz, false, m_dt12);
+    else
+        m_controls[1].HandleControlsPlayer2(pos, rx, ry, rz, false, m_dt12);
+
+    setActorPosition(actorId, pos);
+    psyqo::Vec3 newRot;
+    newRot.x = static_cast<psyqo::FixedPoint<12>>(rx);
+    newRot.y = static_cast<psyqo::FixedPoint<12>>(ry);
+    newRot.z = static_cast<psyqo::FixedPoint<12>>(rz);
+    setActorRotation(actorId, newRot);
 }
 
 void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
@@ -562,22 +614,30 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     psyqo::Vec3 oldPlayerPosition = m_playerPosition;
 
     if (m_controlsEnabled[0]) {
-        m_controls[0].HandleControlsPlayer1(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
+        if (m_controlBoundActor[0] == PLAYER_ACTOR_ID) {
+            m_controls[0].HandleControlsPlayer1(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
 
-        // Jump input: Cross button triggers jump when grounded
-        if (m_isGrounded && m_controls[0].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
-            m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
-            m_isGrounded = false;
+            // Jump input: Cross button triggers jump when grounded
+            if (m_isGrounded && m_controls[0].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
+                m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
+                m_isGrounded = false;
+            }
+        } else {
+            driveActorWithController(0, m_controlBoundActor[0]);
         }
     }
 
     if (m_controlsEnabled[1]) {
-        m_controls[1].HandleControlsPlayer2(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
+        if (m_controlBoundActor[1] == PLAYER_ACTOR_ID) {
+            m_controls[1].HandleControlsPlayer2(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
 
-        // Jump input: Cross button triggers jump when grounded
-        if (m_isGrounded && m_controls[1].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
-            m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
-            m_isGrounded = false;
+            // Jump input: Cross button triggers jump when grounded
+            if (m_isGrounded && m_controls[1].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
+                m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
+                m_isGrounded = false;
+            }
+        } else {
+            driveActorWithController(1, m_controlBoundActor[1]);
         }
     }
 
@@ -683,16 +743,26 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_NAVMESH, navmeshTime);
 #endif
 
+    tickAgents();
+
     // Only snap camera to player when in player-follow mode and no
     // cutscene is actively controlling the camera. In free camera mode
     // (no nav regions / no PSXPlayer), the camera is driven entirely
     // by cutscenes and Lua. After a cutscene ends in free mode, the
     // camera stays at the last cutscene position.
     if (m_cameraFollowsPlayer && !(m_cutscenePlayer.isPlaying() && m_cutscenePlayer.hasCameraTracks())) {
-        m_currentCamera.SetPosition(static_cast<psyqo::FixedPoint<12>>(m_playerPosition.x),
-            static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y),
-            static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z));
-        m_currentCamera.SetRotation(playerRotationX, playerRotationY, playerRotationZ);
+        psyqo::Vec3 actorPos;
+        psyqo::Vec3 actorRot;
+        if (getActorPosition(m_cameraFollowActor, actorPos)) {
+            m_currentCamera.SetPosition(static_cast<psyqo::FixedPoint<12>>(actorPos.x),
+                                        static_cast<psyqo::FixedPoint<12>>(actorPos.y),
+                                        static_cast<psyqo::FixedPoint<12>>(actorPos.z));
+        }
+        if (getActorRotation(m_cameraFollowActor, actorRot)) {
+            m_currentCamera.SetRotation(static_cast<psyqo::Angle>(actorRot.x),
+                                        static_cast<psyqo::Angle>(actorRot.y),
+                                        static_cast<psyqo::Angle>(actorRot.z));
+        }
     }
 
     // Process pending scene transitions (at end of frame)
@@ -854,6 +924,218 @@ void psxsplash::SceneManager::processEnableDisableEvents() {
                 go->flagsAsInt &= ~0x01u;  // clear active
                 L.OnDisable(go);
             }
+        }
+    }
+}
+
+void psxsplash::SceneManager::initializeAgentStates(const SplashpackSceneSetup& sceneSetup) {
+    m_agentStates.resize(getActorCount());
+    m_defaultAgentMoveSpeed = sceneSetup.moveSpeed;
+    m_defaultAgentStopDistance.value = 64;
+
+    for (size_t i = 0; i < m_agentStates.size(); ++i) {
+        m_agentStates[i] = AgentRuntimeState{};
+        m_agentStates[i].moveSpeed = m_defaultAgentMoveSpeed;
+        m_agentStates[i].stopDistance = m_defaultAgentStopDistance;
+        m_agentStates[i].targetActorId = 0xFFFF;
+    }
+
+    if (!m_agentStates.empty()) {
+        auto& playerAgent = m_agentStates[PLAYER_ACTOR_ID];
+        playerAgent.flags = AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED;
+        playerAgent.moveSpeed = sceneSetup.moveSpeed;
+    }
+
+    // Walk through agents and their trailing waypoints together
+    const int32_t* waypointCursor = sceneSetup.agentWaypointData;
+
+    for (auto* cfg : sceneSetup.agents) {
+        if (!cfg) continue;
+        uint16_t actorId = static_cast<uint16_t>(cfg->gameObjectIndex + 1);
+        if (actorId >= m_agentStates.size()) {
+            // Still advance waypoint cursor even if agent is out of range
+            if (waypointCursor) waypointCursor += cfg->waypointCount * 3;
+            continue;
+        }
+
+        auto& agent = m_agentStates[actorId];
+        agent.flags |= AGENT_FLAG_REGISTERED;
+        if (cfg->flags & 0x01) agent.flags |= AGENT_FLAG_ENABLED;
+        if (cfg->flags & 0x02) agent.flags |= AGENT_FLAG_HAS_VISION;
+        if (cfg->flags & 0x04) agent.flags |= AGENT_FLAG_HAS_HEARING;
+        if (cfg->flags & 0x08) agent.flags |= AGENT_FLAG_HAS_PATROL;
+
+        agent.moveSpeed.value    = cfg->moveSpeed    != 0 ? cfg->moveSpeed    : m_defaultAgentMoveSpeed.value;
+        agent.stopDistance.value = cfg->stopDistance != 0 ? cfg->stopDistance : m_defaultAgentStopDistance.value;
+        agent.visionRange.value  = cfg->visionRange;
+        agent.visionCosAngle     = cfg->visionCosAngle;
+        agent.hearingRange.value = cfg->hearingRange;
+        agent.alertTimeoutFrames = cfg->alertTimeout;
+        agent.visionRegionDepth  = cfg->visionRegionDepth;
+
+        for (int s = 0; s < AGENT_STATE_COUNT; ++s)
+            agent.stateAnimClip[s] = cfg->stateAnimClip[s];
+
+        // Copy patrol waypoints from splashpack data
+        agent.waypointCount = cfg->waypointCount < 8 ? cfg->waypointCount : 8;
+        if (waypointCursor) {
+            for (uint8_t w = 0; w < agent.waypointCount; ++w) {
+                agent.waypoints[w].x.value = waypointCursor[w * 3 + 0];
+                agent.waypoints[w].y.value = waypointCursor[w * 3 + 1];
+                agent.waypoints[w].z.value = waypointCursor[w * 3 + 2];
+            }
+            waypointCursor += cfg->waypointCount * 3;
+        }
+    }
+}
+
+void psxsplash::SceneManager::tickAgents() {
+    if (!m_navRegions.isLoaded() || m_agentStates.empty()) return;
+
+    for (uint16_t actorId = 0; actorId < m_agentStates.size(); ++actorId) {
+        auto& agent = m_agentStates[actorId];
+        if ((agent.flags & (AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED)) !=
+            (AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED)) {
+            continue;
+        }
+        if (!isValidActor(actorId)) continue;
+        // Don't run agent AI on the player while any controller drives it.
+        if (actorId == PLAYER_ACTOR_ID && (m_controlsEnabled[0] || m_controlsEnabled[1])) continue;
+
+        // Tick state timer
+        if (agent.stateTimer < 0xFFFF) ++agent.stateTimer;
+
+        // Vision + hearing checks (throttled)
+        tickAgentVisionHearing(actorId, agent);
+
+        // State machine: may update movement target or flags
+        tickAgentStateMachine(actorId, agent);
+
+        // ----- Movement update (only when MOVING flag set) -----
+        if ((agent.flags & AGENT_FLAG_MOVING) == 0) continue;
+
+        if (agent.flags & AGENT_FLAG_TARGET_ACTOR) {
+            if (!isValidActor(agent.targetActorId) || !getActorPosition(agent.targetActorId, agent.targetPosition)) {
+                stopActor(actorId);
+                continue;
+            }
+            if (agent.repathCounter == 0) {
+                if (!rebuildAgentPath(actorId, agent)) {
+                    stopActor(actorId);
+                    continue;
+                }
+                agent.repathCounter = AGENT_REPATH_INTERVAL;
+            } else {
+                --agent.repathCounter;
+            }
+        } else if (agent.path.stepCount <= 0 && !rebuildAgentPath(actorId, agent)) {
+            stopActor(actorId);
+            continue;
+        }
+
+        psyqo::Vec3 actorPosition;
+        psyqo::Vec3 waypoint;
+        if (!getActorPosition(actorId, actorPosition) || !getAgentWaypoint(actorId, agent, waypoint)) {
+            stopActor(actorId);
+            continue;
+        }
+
+        int32_t dx = waypoint.x.value - actorPosition.x.value;
+        int32_t dz = waypoint.z.value - actorPosition.z.value;
+        int32_t adx = dx < 0 ? -dx : dx;
+        int32_t adz = dz < 0 ? -dz : dz;
+        int32_t distance = adx > adz ? adx : adz;
+        int32_t stopDistance = agent.stopDistance.value;
+
+        if (distance <= stopDistance) {
+            if (agent.currentPathIndex > 0 && agent.currentPathIndex < agent.path.stepCount - 1) {
+                ++agent.currentPathIndex;
+            } else if ((agent.flags & AGENT_FLAG_TARGET_ACTOR) == 0) {
+                // Reached final position
+                if (agent.currentState == AGENT_STATE_PATROL) {
+                    // Advance patrol
+                    uint8_t prevWp = agent.waypointIndex;
+                    agent.waypointIndex = static_cast<uint8_t>((agent.waypointIndex + 1) % agent.waypointCount);
+                    GameObject* go = getActorGameObject(actorId);
+                    if (go) L.OnAgentPatrolPoint(go, prevWp);
+                    // Start moving to next waypoint
+                    if (agent.waypointCount > 0) {
+                        agent.targetPosition = agent.waypoints[agent.waypointIndex];
+                        agent.path.stepCount = 0;
+                        agent.currentPathIndex = 0;
+                        agent.repathCounter = 0;
+                    }
+                } else if (agent.currentState == AGENT_STATE_INVESTIGATE ||
+                           agent.currentState == AGENT_STATE_SEEK ||
+                           agent.currentState == AGENT_STATE_WANDER) {
+                    // Fire target reached for non-patrol goals
+                    GameObject* go = getActorGameObject(actorId);
+                    if (go) L.OnAgentTargetReached(go);
+                    stopActor(actorId);
+                } else {
+                    stopActor(actorId);
+                }
+            }
+            continue;
+        }
+
+        int32_t step = static_cast<int32_t>(((int64_t)agent.moveSpeed.value * m_dt12) >> 12);
+        if (step <= 0) step = 1;
+
+        // FLEE: invert movement direction
+        if (agent.currentState == AGENT_STATE_FLEE) {
+            dx = -dx; dz = -dz;
+            adx = dx < 0 ? -dx : dx;
+            adz = dz < 0 ? -dz : dz;
+        }
+
+        int32_t moveX = 0;
+        int32_t moveZ = 0;
+        if (distance <= step) {
+            moveX = dx;
+            moveZ = dz;
+        } else if (adx >= adz && adx > 0) {
+            moveX = dx < 0 ? -step : step;
+            moveZ = (dz * step) / adx;
+        } else if (adz > 0) {
+            moveZ = dz < 0 ? -step : step;
+            moveX = (dx * step) / adz;
+        }
+
+        int32_t newX = actorPosition.x.value + moveX;
+        int32_t newZ = actorPosition.z.value + moveZ;
+        int32_t newY = actorPosition.y.value;
+
+        uint16_t currentRegion = getActorNavRegion(actorId);
+        uint16_t nextRegion = m_navRegions.findRegionClosest(newX, actorPosition.y.value, newZ);
+        if (nextRegion == NAV_NO_REGION) {
+            if (currentRegion != NAV_NO_REGION) {
+                m_navRegions.clampToRegion(newX, newZ, currentRegion);
+                nextRegion = currentRegion;
+            }
+        }
+
+        if (nextRegion != NAV_NO_REGION) {
+            int32_t floorY = m_navRegions.getFloorY(newX, newZ, nextRegion);
+            newY = (actorId == PLAYER_ACTOR_ID) ? (floorY - m_playerHeight.raw()) : floorY;
+        }
+
+        psyqo::Vec3 newPosition;
+        newPosition.x.value = newX;
+        newPosition.y.value = newY;
+        newPosition.z.value = newZ;
+        setActorPosition(actorId, newPosition);
+
+        psyqo::Vec3 newRotation;
+        if (getActorRotation(actorId, newRotation)) {
+            psyqo::Angle facing = s_fastAtan2(moveX, moveZ);
+            newRotation.y = static_cast<psyqo::FixedPoint<12>>(facing);
+            setActorRotation(actorId, newRotation);
+        }
+
+        if (actorId == PLAYER_ACTOR_ID) {
+            m_velocityY = 0;
+            m_isGrounded = true;
         }
     }
 }
@@ -1194,6 +1476,7 @@ void psxsplash::SceneManager::clearScene() {
     { eastl::vector<const char*>    tmp; tmp.swap(m_objectNames); }
     { eastl::vector<const char*>    tmp; tmp.swap(m_audioClipNames); }
     { eastl::vector<Interactable*>  tmp; tmp.swap(m_interactables); }
+    { eastl::vector<SceneManager::AgentRuntimeState> tmp; tmp.swap(m_agentStates); }
 
     // 3. Reset hardware / subsystems
     m_audio.reset();           // Free SPU RAM and stop all voices
@@ -1222,6 +1505,8 @@ void psxsplash::SceneManager::clearScene() {
     m_roomPortalRefs = nullptr;
     m_roomPortalRefCount = 0;
     m_sceneType = 0;
+    m_defaultAgentMoveSpeed.value = 0;
+    m_defaultAgentStopDistance.value = 0;
 }
 
 // ============================================================================
@@ -1260,4 +1545,268 @@ int psxsplash::SceneManager::findSkinAnimByObjectName(const char* name) const {
         }
     }
     return -1;
+}
+
+// ============================================================================
+// AGENT STATE MACHINE
+// ============================================================================
+
+static int findSkinAnimByObjectIndex(const psxsplash::SkinAnimSet* sets, int count, uint16_t goIndex) {
+    for (int i = 0; i < count; i++) {
+        if (sets[i].gameObjectIndex == goIndex) return i;
+    }
+    return -1;
+}
+
+void psxsplash::SceneManager::setActorAgentState(uint16_t actorId, AgentState newState) {
+    if (actorId >= m_agentStates.size()) return;
+    auto& agent = m_agentStates[actorId];
+    AgentState oldState = agent.currentState;
+    if (oldState == newState) return;
+
+    GameObject* go = getActorGameObject(actorId);
+
+    // Fire exit on old state
+    if (go) L.OnAgentStateExit(go, static_cast<int>(oldState));
+
+    agent.previousState = oldState;
+    agent.currentState  = newState;
+    agent.stateTimer    = 0;
+
+    // Apply animation for new state
+    applyAgentStateAnimation(actorId, agent, newState);
+
+    // Fire enter on new state
+    if (go) L.OnAgentStateEnter(go, static_cast<int>(newState), static_cast<int>(oldState));
+}
+
+void psxsplash::SceneManager::applyAgentStateAnimation(uint16_t actorId, AgentRuntimeState& agent, AgentState newState) {
+    if (actorId == PLAYER_ACTOR_ID || actorId == 0xFFFF) return;
+    uint8_t clipIndex = agent.stateAnimClip[static_cast<int>(newState)];
+    if (clipIndex == 0xFF) return;
+    uint16_t goIndex = static_cast<uint16_t>(actorId - 1);
+    int si = findSkinAnimByObjectIndex(m_skinAnimSets, m_skinnedMeshCount, goIndex);
+    if (si < 0) return;
+    auto& state = m_skinAnimStates[si];
+    auto& set   = m_skinAnimSets[si];
+    if (clipIndex >= set.clipCount) return;
+    state.currentClip   = clipIndex;
+    state.currentFrame  = 0;
+    state.subFrame      = 0;
+    state.playing       = true;
+    state.loop          = (set.clips[clipIndex].flags & 0x01) != 0;
+}
+
+bool psxsplash::SceneManager::canActorSeeActor(uint16_t observerActorId, uint16_t targetActorId) const {
+    if (observerActorId >= m_agentStates.size()) return false;
+    const auto& ag = m_agentStates[observerActorId];
+    if ((ag.flags & AGENT_FLAG_HAS_VISION) == 0 || ag.visionRange.value == 0) return false;
+    if (!isValidActor(targetActorId)) return false;
+
+    psyqo::Vec3 observerPos, targetPos;
+    if (!getActorPosition(observerActorId, observerPos)) return false;
+    if (!getActorPosition(targetActorId, targetPos)) return false;
+
+    int32_t dx = targetPos.x.value - observerPos.x.value;
+    int32_t dz = targetPos.z.value - observerPos.z.value;
+    int32_t adx = dx < 0 ? -dx : dx;
+    int32_t adz = dz < 0 ? -dz : dz;
+    int32_t dist = adx > adz ? adx : adz;  // Chebyshev
+
+    if (dist > ag.visionRange.value) return false;
+
+    // FOV check via angular difference (avoids sin/cos, stays integer)
+    // visionCosAngle is repurposed as half-angle in psyqo::Angle half-circle units
+    // 0x7FFF = omnidirectional, otherwise abs(facingAngle - dirAngle) must be <= threshold
+    if (ag.visionCosAngle < 0x7FFF) {
+        psyqo::Vec3 rotation;
+        if (!getActorRotation(observerActorId, rotation)) return false;
+
+        psyqo::Angle dirAngle = s_fastAtan2(dx, dz);
+        // rotation.y stores a psyqo::Angle cast to FixedPoint<12> (lower 16 bits)
+        uint16_t facing16 = static_cast<uint16_t>(rotation.y.value);
+        uint16_t dir16    = static_cast<uint16_t>(dirAngle.value);
+        uint16_t rawDiff  = facing16 - dir16;
+        // Convert to abs signed diff in [0, 32767]
+        int16_t signedDiff = static_cast<int16_t>(rawDiff);
+        if (signedDiff < 0) signedDiff = -signedDiff;
+        if (signedDiff > ag.visionCosAngle) return false;
+    }
+
+    // Optional: nav region BFS depth check (0 = same/adjacent region only)
+    if (ag.visionRegionDepth > 0 && m_navRegions.isLoaded()) {
+        NavPath checkPath;
+        if (findActorPathToPosition(observerActorId, targetPos, checkPath)) {
+            // stepCount == 1 means same region, 2 means one hop, etc.
+            if (checkPath.stepCount > static_cast<int>(ag.visionRegionDepth) + 1) return false;
+        }
+    }
+
+    return true;
+}
+
+bool psxsplash::SceneManager::canActorHearActor(uint16_t observerActorId, uint16_t targetActorId) const {
+    if (observerActorId >= m_agentStates.size()) return false;
+    const auto& ag = m_agentStates[observerActorId];
+    if ((ag.flags & AGENT_FLAG_HAS_HEARING) == 0 || ag.hearingRange.value == 0) return false;
+    if (!isValidActor(targetActorId)) return false;
+
+    psyqo::Vec3 observerPos, targetPos;
+    if (!getActorPosition(observerActorId, observerPos)) return false;
+    if (!getActorPosition(targetActorId, targetPos)) return false;
+
+    int32_t dx = targetPos.x.value - observerPos.x.value;
+    int32_t dz = targetPos.z.value - observerPos.z.value;
+    int32_t adx = dx < 0 ? -dx : dx;
+    int32_t adz = dz < 0 ? -dz : dz;
+    int32_t dist = adx > adz ? adx : adz;
+
+    return dist <= ag.hearingRange.value;
+}
+
+void psxsplash::SceneManager::tickAgentVisionHearing(uint16_t actorId, AgentRuntimeState& agent) {
+    if ((agent.flags & (AGENT_FLAG_HAS_VISION | AGENT_FLAG_HAS_HEARING)) == 0) return;
+
+    // Throttle: check every 3 frames
+    if (agent.visionCheckCounter > 0) {
+        --agent.visionCheckCounter;
+        // Keep alertCountdown ticking even when not running a full vision check
+        if (agent.alertCountdown > 0) {
+            --agent.alertCountdown;
+            if (agent.alertCountdown == 0 && (agent.flags & AGENT_FLAG_TARGET_SEEN)) {
+                agent.flags &= ~AGENT_FLAG_TARGET_SEEN;
+                // Fire target-lost event
+                uint16_t lostTarget = agent.targetActorId != 0xFFFF ? agent.targetActorId : PLAYER_ACTOR_ID;
+                GameObject* go = getActorGameObject(actorId);
+                if (go) {
+                    GameObject* targetGo = (lostTarget == PLAYER_ACTOR_ID) ? nullptr : getActorGameObject(lostTarget);
+                    L.OnAgentTargetLost(go, targetGo);
+                }
+            }
+        }
+        return;
+    }
+    agent.visionCheckCounter = 3;
+
+    // Determine which actor to sense (designated target, or player as default)
+    uint16_t senseTarget = (agent.targetActorId != 0xFFFF && isValidActor(agent.targetActorId))
+                           ? agent.targetActorId
+                           : PLAYER_ACTOR_ID;
+
+    bool canSee  = (agent.flags & AGENT_FLAG_HAS_VISION)  ? canActorSeeActor(actorId, senseTarget)  : false;
+    bool canHear = (agent.flags & AGENT_FLAG_HAS_HEARING) ? canActorHearActor(actorId, senseTarget) : false;
+    bool sensed  = canSee || canHear;
+
+    bool wasSeen = (agent.flags & AGENT_FLAG_TARGET_SEEN) != 0;
+
+    if (sensed) {
+        // Record last known position
+        psyqo::Vec3 targetPos;
+        if (getActorPosition(senseTarget, targetPos)) agent.lastKnownPos = targetPos;
+
+        // Reset alert countdown
+        agent.alertCountdown = agent.alertTimeoutFrames;
+
+        if (!wasSeen) {
+            // Newly seen/heard - fire event
+            agent.flags |= AGENT_FLAG_TARGET_SEEN;
+            GameObject* go = getActorGameObject(actorId);
+            if (go && canSee) {
+                GameObject* targetGo = (senseTarget == PLAYER_ACTOR_ID) ? nullptr : getActorGameObject(senseTarget);
+                L.OnAgentTargetSeen(go, targetGo);
+            }
+        }
+    } else {
+        // Not currently sensed - decrement alert countdown
+        if (agent.alertCountdown > 0) {
+            --agent.alertCountdown;
+            if (agent.alertCountdown == 0 && wasSeen) {
+                agent.flags &= ~AGENT_FLAG_TARGET_SEEN;
+                GameObject* go = getActorGameObject(actorId);
+                if (go) {
+                    GameObject* targetGo = (senseTarget == PLAYER_ACTOR_ID) ? nullptr : getActorGameObject(senseTarget);
+                    L.OnAgentTargetLost(go, targetGo);
+                }
+            }
+        }
+    }
+}
+
+void psxsplash::SceneManager::tickAgentStateMachine(uint16_t actorId, AgentRuntimeState& agent) {
+    switch (agent.currentState) {
+        case AGENT_STATE_IDLE:
+            // If patrol is enabled and waypoints are available, transition to patrol
+            if ((agent.flags & AGENT_FLAG_HAS_PATROL) && agent.waypointCount > 0) {
+                setActorAgentState(actorId, AGENT_STATE_PATROL);
+            }
+            break;
+
+        case AGENT_STATE_PATROL:
+            // Ensure movement is active toward current waypoint
+            if ((agent.flags & AGENT_FLAG_MOVING) == 0 && agent.waypointCount > 0) {
+                agent.targetPosition = agent.waypoints[agent.waypointIndex];
+                agent.flags &= ~AGENT_FLAG_TARGET_ACTOR;
+                agent.flags |= AGENT_FLAG_MOVING;
+                agent.path.stepCount = 0;
+                agent.repathCounter  = 0;
+            }
+            break;
+
+        case AGENT_STATE_SEEK:
+            // Ensure we track targetActorId if set
+            if (agent.targetActorId != 0xFFFF && (agent.flags & AGENT_FLAG_MOVING) == 0) {
+                agent.flags |= AGENT_FLAG_MOVING | AGENT_FLAG_TARGET_ACTOR;
+                agent.repathCounter = 0;
+            }
+            break;
+
+        case AGENT_STATE_FLEE:
+            // Flee: move away from target - set target to opposite direction every N frames
+            if (agent.targetActorId != 0xFFFF) {
+                agent.flags |= AGENT_FLAG_MOVING | AGENT_FLAG_TARGET_ACTOR;
+                agent.repathCounter = 0;
+            }
+            break;
+
+        case AGENT_STATE_INVESTIGATE:
+            // Navigate to last known position
+            if ((agent.flags & AGENT_FLAG_MOVING) == 0) {
+                psyqo::Vec3 zero = {};
+                // lastKnownPos should have been set when target was last seen
+                agent.targetPosition = agent.lastKnownPos;
+                agent.flags &= ~AGENT_FLAG_TARGET_ACTOR;
+                agent.flags |= AGENT_FLAG_MOVING;
+                agent.path.stepCount = 0;
+                agent.repathCounter  = 0;
+            }
+            break;
+
+        case AGENT_STATE_WANDER: {
+            // Pick a random reachable region center every ~60 frames if not moving
+            if (agent.stateTimer % 60 == 0 || (agent.flags & AGENT_FLAG_MOVING) == 0) {
+                uint16_t agentRegion = getActorNavRegion(actorId);
+                if (agentRegion != NAV_NO_REGION) {
+                    // Wander to a random portal neighbor
+                    psyqo::Vec3 wanderTarget;
+                    if (getNavRegionCenter(agentRegion, wanderTarget)) {
+                        // Offset by random small distance
+                        wanderTarget.x.value += static_cast<int32_t>(m_random.rand() % 4096) - 2048;
+                        wanderTarget.z.value += static_cast<int32_t>(m_random.rand() % 4096) - 2048;
+                        agent.targetPosition = wanderTarget;
+                        agent.flags &= ~AGENT_FLAG_TARGET_ACTOR;
+                        agent.flags |= AGENT_FLAG_MOVING;
+                        agent.path.stepCount = 0;
+                        agent.repathCounter  = 0;
+                    }
+                }
+            }
+            break;
+        }
+
+        case AGENT_STATE_ATTACK:
+        case AGENT_STATE_CUSTOM:
+        default:
+            // All Lua-driven; C++ does nothing automatic.
+            break;
+    }
 }
