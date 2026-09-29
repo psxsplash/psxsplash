@@ -10,6 +10,7 @@ A change to anything a game or the exporter depends on:
 
 - the Lua API: functions and tables scripts call (`src/luaapi.*`);
 - the splashpack binary format read at runtime (`src/splashpack.*`);
+- the network wire protocol (`src/netprotocol.hh`), which other builds and servers speak;
 - build knobs and command-line flags, such as `OT_SIZE` and `BUMP_SIZE`.
 
 A bugfix that makes the code do what its contract already promises does not need one, and neither
