@@ -70,7 +70,7 @@ include third_party/nugget/psyqo-lua/psyqo-lua.mk
 include third_party/nugget/psyqo/psyqo.mk
 
 # Redirect Lua's allocator through our OOM-guarded wrapper
-LDFLAGS := $(subst psyqo_realloc,lua_oom_realloc,$(LDFLAGS))
+LDFLAGS := $(subst luaI_realloc=libc_realloc,luaI_realloc=lua_oom_realloc,$(LDFLAGS))
 
 # NOPARSER=1  → Use precompiled bytecode, strip Lua parser from runtime (~25KB savings)
 ifeq ($(NOPARSER),1)

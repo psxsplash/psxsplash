@@ -15,7 +15,7 @@
 #include "luautility.hh"  // ToFp12
 
 // OOM-guarded allocator for Lua. The linker redirects luaI_realloc
-// here instead of straight to psyqo_realloc, so we can log before
+// here instead of straight to libc_realloc, so we can log before
 // returning NULL.
 extern "C" void *lua_oom_realloc(void *ptr, size_t size) {
     void *result = psyqo_realloc(ptr, size);
