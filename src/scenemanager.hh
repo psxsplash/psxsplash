@@ -483,6 +483,16 @@ namespace psxsplash {
         void requestSceneLoad(int sceneIndex);
         int getCurrentSceneIndex() const { return m_currentSceneIndex; }
 
+        /// Authored network scene id from the splashpack (v22+), or 0 when the
+        /// pack predates it / the exporter left it unset. 0 means the caller
+        /// should fall back to the derived hash.
+        uint32_t getAuthoredSceneHash() const { return m_authoredSceneHash; }
+
+        // Most recent gpu.now() timestamp (a free-running hardware timer sample).
+        // Differs across independently-booted consoles, so it seeds the network
+        // host-election tiebreak.
+        uint32_t getFrameTimestamp() const { return m_lastFrameTime; }
+
         /// Load a scene by index.  This is the ONE canonical load path used by
         /// both the initial boot (main.cpp) and runtime scene transitions.
         /// Blanks the screen, shows a loading screen, tears down the old scene,
@@ -553,6 +563,7 @@ namespace psxsplash {
         UISystem m_uiSystem;
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
+        uint32_t m_authoredSceneHash = 0;
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
 #endif

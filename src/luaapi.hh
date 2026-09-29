@@ -191,6 +191,29 @@ private:
     static int Agent_SetPatrolEnabled(lua_State* L);
 
     // ========================================================================
+    // NET API (serial multiplayer)
+    // ========================================================================
+    static int Net_Connect(lua_State* L);
+    static int Net_Disconnect(lua_State* L);
+    static int Net_IsConnected(lua_State* L);
+    static int Net_IsHost(lua_State* L);
+    static int Net_State(lua_State* L);
+    static int Net_Stats(lua_State* L);
+    static int Net_LocalSlot(lua_State* L);
+    static int Net_PlayerCount(lua_State* L);
+    static int Net_SetLocalAvatar(lua_State* L);
+    static int Net_SetReplicationEnabled(lua_State* L);
+    static int Net_SetRemoteAvatar(lua_State* L);
+    static int Net_RegisterActor(lua_State* L);
+    static int Net_UnregisterActor(lua_State* L);
+    static int Net_Send(lua_State* L);
+    static int Net_SyncActor(lua_State* L);
+    static int Net_SendData(lua_State* L);
+    static int Net_ReliableQueueDepth(lua_State* L);
+    static int Net_SetPersistent(lua_State* L);
+    static int Net_IsPersistent(lua_State* L);
+
+    // ========================================================================
     // ENTITY API
     // ========================================================================
     

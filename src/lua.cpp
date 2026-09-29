@@ -12,6 +12,7 @@
 #include "gameobject.hh"
 #include "gtemath.hh"
 #include "luaapi.hh"  // IsFixedPointSafe
+#include "luatableserializer.hh"
 #include "luautility.hh"  // ToFp12
 
 // OOM-guarded allocator for Lua. The linker redirects luaI_realloc
@@ -355,6 +356,8 @@ void psxsplash::Lua::RegisterSceneScripts(int index) {
     }
     onSceneCreationStartFunctionWrapper.resolveGlobal(L);
     onSceneCreationEndFunctionWrapper.resolveGlobal(L);
+    onNetEventFunctionWrapper.resolveGlobal(L);
+    onNetDataFunctionWrapper.resolveGlobal(L);
     L.pop(3);
     // empty stack
 }
@@ -650,4 +653,38 @@ void psxsplash::Lua::PushGameObject(GameObject* go) {
         L.pop();
         L.push(); // push nil so the caller always gets a value
     }
+}
+
+uint32_t psxsplash::Lua::SerializeObjectSync(GameObject* go, uint8_t* buf, uint32_t cap) {
+    auto L = m_state;
+    PushGameObject(go);       // [self]
+    if (!L.isTable(-1)) {
+        L.pop(1);
+        return 0;
+    }
+    L.getField(-1, "sync");   // [self, self.sync]
+    if (!L.isTable(-1)) {
+        L.pop(2);
+        return 0;
+    }
+    uint32_t outSize = 0;
+    const char* err = nullptr;
+    bool ok = LuaTableSerializer::serialize(L, -1, buf, cap, &outSize, &err);
+    L.pop(2);                 // pop sync + self
+    return ok ? outSize : 0;
+}
+
+bool psxsplash::Lua::ApplyObjectSync(GameObject* go, const uint8_t* buf, uint32_t size) {
+    auto L = m_state;
+    const char* err = nullptr;
+    if (!LuaTableSerializer::deserialize(L, buf, size, &err)) return false;  // [value]
+    PushGameObject(go);       // [value, self]
+    if (!L.isTable(-1)) {
+        L.pop(2);
+        return false;
+    }
+    L.copy(-2);               // [value, self, value]
+    L.setField(-2, "sync");   // self.sync = value (pops the copy) -> [value, self]
+    L.pop(2);                 // clean the stack
+    return true;
 }

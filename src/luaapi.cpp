@@ -7,9 +7,11 @@
 #include "cutscene.hh"
 #include "animation.hh"
 #include "skinmesh.hh"
+#include "sio1.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
 #include "uisystem.hh"
+#include "networkmanager.hh"
 
 #include "renderer.hh"
 
@@ -192,6 +194,52 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "SetPatrolEnabled");
 
     L.setGlobal("Agent");
+
+    // ========================================================================
+    // NET API (serial multiplayer over SIO1)
+    // ========================================================================
+    L.newTable();  // Net table
+
+    L.push(Net_Connect);
+    L.setField(-2, "Connect");
+    L.push(Net_Disconnect);
+    L.setField(-2, "Disconnect");
+    L.push(Net_IsConnected);
+    L.setField(-2, "IsConnected");
+    L.push(Net_IsHost);
+    L.setField(-2, "IsHost");
+    L.push(Net_State);
+    L.setField(-2, "State");
+    L.push(Net_Stats);
+    L.setField(-2, "Stats");
+    L.push(Net_LocalSlot);
+    L.setField(-2, "LocalSlot");
+    L.push(Net_PlayerCount);
+    L.setField(-2, "PlayerCount");
+    L.push(Net_SetLocalAvatar);
+    L.setField(-2, "SetLocalAvatar");
+    L.push(Net_SetReplicationEnabled);
+    L.setField(-2, "SetReplicationEnabled");
+    L.push(Net_SetRemoteAvatar);
+    L.setField(-2, "SetRemoteAvatar");
+    L.push(Net_RegisterActor);
+    L.setField(-2, "RegisterActor");
+    L.push(Net_UnregisterActor);
+    L.setField(-2, "UnregisterActor");
+    L.push(Net_Send);
+    L.setField(-2, "Send");
+    L.push(Net_SyncActor);
+    L.setField(-2, "SyncActor");
+    L.push(Net_SendData);
+    L.setField(-2, "SendData");
+    L.push(Net_ReliableQueueDepth);
+    L.setField(-2, "ReliableQueueDepth");
+    L.push(Net_SetPersistent);
+    L.setField(-2, "SetPersistent");
+    L.push(Net_IsPersistent);
+    L.setField(-2, "IsPersistent");
+
+    L.setGlobal("Net");
 
     // ========================================================================
     // ENTITY API
@@ -2053,6 +2101,397 @@ void LuaAPI::IncrementFrameCount() {
     // deliberately untouched: it is the explicitly-seeded, reproducible generator
     // that Random.GeneratorSeed owns.
     SceneManager::m_random.rand();
+}
+
+// ============================================================================
+// NET API IMPLEMENTATION (serial multiplayer over SIO1)
+// ============================================================================
+
+int LuaAPI::Net_Connect(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push(false);
+        return 1;
+    }
+    // Scene identity: both consoles running the same scene agree on this, so a
+    // mismatch (different scene/build) is detected during the handshake.
+    //
+    // Prefer the authored id (splashpack v22+). The derived fallback below is
+    // wrong in two ways that only bite once a scene is edited: it collides
+    // between scenes that happen to share an actor count, and it CHANGES when
+    // anyone adds an object - silently splitting a room across two builds.
+    uint32_t sceneHash = s_sceneManager->getAuthoredSceneHash();
+    if (sceneHash == 0) {
+        uint32_t sceneIndex = static_cast<uint32_t>(s_sceneManager->getCurrentSceneIndex());
+        uint32_t actorCount = static_cast<uint32_t>(s_sceneManager->getActorCount());
+        sceneHash = (sceneIndex * 2654435761u) ^ (actorCount * 40503u) ^ 0x5A5A0000u;
+    }
+    // Host-election entropy: a hardware timer sample that differs per console.
+    uint32_t seed = s_sceneManager->getFrameTimestamp() ^ (s_frameCount << 3) ^ SceneManager::m_random.rand();
+
+    // Net.Connect([baud[, rxMode]]).
+    //
+    // rxMode: 0/nil = Auto (polled under Redux, interrupt on hardware), 1 =
+    // Polled, 2 = Interrupt. The override exists because Auto's hardware choice
+    // is the one path that cannot be tested without a console: if a real machine
+    // sits at "connecting" forever, forcing Polled says whether the RX interrupt
+    // is at fault, and forcing Interrupt under an emulator says the opposite.
+    // The default MUST come from Sio1, not a literal. This line held its own copy
+    // of 115200, so changing Sio1::c_defaultBaud silently did nothing: the console
+    // kept transmitting at the old rate while the bridge moved to the new one, and
+    // a baud mismatch presents as a completely dead link with no diagnostic. One
+    // number, one place.
+    const uint32_t baud = lua.isNumber(1) ? static_cast<uint32_t>(lua.toNumber(1)) : Sio1::c_defaultBaud;
+    Sio1::RxMode rxMode = Sio1::RxMode::Auto;
+    if (lua.isNumber(2)) {
+        const int m = static_cast<int>(lua.toNumber(2));
+        if (m == 1) rxMode = Sio1::RxMode::Polled;
+        else if (m == 2) rxMode = Sio1::RxMode::Interrupt;
+    }
+    NetworkManager::Get().begin(sceneHash, seed, baud, rxMode);
+    lua.push(true);
+    return 1;
+}
+
+int LuaAPI::Net_Disconnect(lua_State* L) {
+    (void)L;
+    NetworkManager::Get().end();
+    return 0;
+}
+
+int LuaAPI::Net_IsConnected(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(NetworkManager::Get().isConnected());
+    return 1;
+}
+
+int LuaAPI::Net_IsHost(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(NetworkManager::Get().isHost());
+    return 1;
+}
+
+int LuaAPI::Net_State(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(static_cast<int>(NetworkManager::Get().state())));
+    return 1;
+}
+
+/// Net.Stats() -> table of link counters.
+///
+/// These counters all existed already and NONE of them were reachable. That gap
+/// is why a dead serial link is so hard to diagnose: on real hardware
+/// `Debug.Log` writes to the BIOS TTY, which on a retail console goes nowhere, so
+/// a game that cannot read these numbers has literally no way to report what the
+/// link is doing. The only symptom available was "the screen still says
+/// connecting" - which turned out to be a frozen frame, not a status.
+///
+/// Reading the table, when the console will not connect:
+///   rxIrqs 0 + bytesRx 0  -> the RX interrupt never fired (event/mask problem)
+///   bytesRx rising, frames 0 -> bytes arrive but no frame ever completes
+///   frames rising, still connecting -> handshake rejected; check magic/version
+///   serialErrors rising   -> the 8-byte hardware FIFO is overrunning
+///   crcErrors/resyncs rising -> corruption on the wire; baud or grounding
+///   rxHighWater near rxCapacity -> poll() is not keeping up; the frame rate has
+///                            fallen far enough that the ring cannot span a frame,
+///                            and the largest messages are being shredded first
+#include <psyqo/alloc.h>
+
+namespace {
+// Heap bytes in use, in KB. Same computation the optional memory overlay does
+// (memoverlay.cpp), lifted out from behind its build flag so a RUNNING game can
+// report it -- a leak that only shows up after many minutes of play is exactly
+// the kind that a debug-only overlay never catches.
+extern "C" {
+extern char __heap_start;
+extern char __stack_start;
+}
+uint32_t HeapUsedKB() {
+    void* heapEnd = psyqo_heap_end();
+    if (heapEnd == nullptr) return 0;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(&__heap_start);
+    const uintptr_t end = reinterpret_cast<uintptr_t>(heapEnd);
+    if (end < base) return 0;
+    return static_cast<uint32_t>((end - base) / 1024);
+}
+}  // namespace
+
+int LuaAPI::Net_Stats(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto& sio = Sio1::Get();
+    const auto& link = NetworkManager::Get().link();
+
+    lua.newTable();
+    auto field = [&lua](const char* name, uint32_t v) {
+        lua.pushNumber(static_cast<lua_Number>(v));
+        lua.setField(-2, name);
+    };
+    field("bytesRx", sio.bytesReceived());
+    field("bytesTx", sio.bytesSent());
+    field("rxIrqs", sio.rxInterrupts());
+    field("rxOverflows", sio.rxOverflows());
+    // Early warning where rxOverflows is a post-mortem: this is how close the ring
+    // came to filling, so "one hitch away from loss" is visible before any byte is
+    // actually dropped. Compare against rxCapacity.
+    field("rxHighWater", sio.rxHighWater());
+    field("rxCapacity", sio.rxCapacity());
+    // The OUTGOING side. txPending pinned near txCapacity means the console is
+    // producing faster than the cable carries - which for a long time it was, by a
+    // factor of about a hundred, with nothing on screen to say so.
+    field("txPending", sio.txPending());
+    field("txHighWater", sio.txHighWater());
+    field("txCapacity", sio.txCapacity());
+    field("txRejected", sio.txRejected());
+    field("snapshotsDropped", NetworkManager::Get().snapshotsDropped());
+
+    // MEASURED, not configured - the distinction that this whole stack lacked.
+    //
+    // Every number above describes what the driver was TOLD to do or what it
+    // counted while doing it. These four describe what the link actually is. Their
+    // absence is why two separate week-long hunts ended in guesswork: with a
+    // receive path silently capped at 480 B/s, every counter here still read
+    // perfectly healthy, and nothing anywhere held a figure that could contradict
+    // the assumption.
+    //
+    // Read them together. goodput far below what the wire should carry means the
+    // bottleneck is on this side; rtt far above the wire's own latency means it is
+    // queueing somewhere; peerGoodput disagreeing with goodput means the two ends
+    // do not agree about the link, which is the most useful signal of the four.
+    // rttSamples == 0 means the peer never answered, so rtt and rto are defaults.
+    const auto& measured = NetworkManager::Get().link();
+    field("goodput", measured.goodputBytesPerSecond());
+    field("inbound", measured.inboundBytesPerSecond());
+    field("rttMillis", measured.rttMillis());
+    field("rtoMillis", measured.rtoMillis());
+    field("rttSamples", measured.rttSamples());
+    field("peerGoodput", measured.peerGoodput());
+    field("peerRttMillis", measured.peerRttMillis());
+    // Saturation, split by consequence. latestDeferred means position updates are
+    // being held back to keep the queue shallow -- the system working. pingDeferred
+    // means the link could not even fit its own measurement probe, which is how a
+    // saturated console ends up reporting NO PONG forever.
+    field("latestDeferred", measured.latestDeferred());
+    field("pingDeferred", measured.pingDeferred());
+    // The two numbers that separate "packets are not arriving" from "packets are
+    // arriving and playback is wrong" -- the only two explanations for choppy
+    // remote movement, and guessing between them costs a disc to test.
+    // HEAP USED, in KB. Not a network number, and deliberately on the same line.
+    //
+    // "It freezes after many minutes" is the signature of something accumulating,
+    // and on a 2MB console with no virtual memory the first candidate is the heap.
+    // The engine already computed this for its optional overlay (memoverlay.cpp)
+    // but behind a build flag and never where a running game could show it, so a
+    // slow leak has never once been observable in play. If this number climbs and
+    // the console dies near the ceiling, that is the answer; if it is flat, the
+    // whole family of leak theories is dead and worth eliminating cheaply.
+    field("heapKB", HeapUsedKB());
+    // PAD INITS, and it belongs beside heapKB for exactly the same reason: it is
+    // the other thing that used to accumulate until the console died.
+    //
+    // MUST READ 2 AND STAY THERE for the whole boot -- one per player, registered
+    // once. It is not a trend line, it is an assertion with a known answer, which
+    // is what makes it readable at a glance on a screen that is the only channel
+    // this machine has.
+    //
+    // It used to read 2 x (scene loads). psyqo::AdvancedPad::initialize() appends a
+    // readPad() callback to the kernel's per-frame list, nothing can remove one,
+    // and SceneManager::InitializeScene called it for both players on every scene
+    // load -- so the console permanently gained two more blocking, bit-banged SIO0
+    // pad polls per frame on every transition. Combined with the missing timeout in
+    // the pad wait and the ~150us blackout of an SIO1 interrupt, that is what froze
+    // real consoles: later and later into a session, and never on an emulator.
+    // See Controls::Init in controls.hh.
+    field("padInits", Controls::padInitCount());
+    // RX REVIVALS: times the receive interrupt was found dead and restarted.
+    //
+    // The single most diagnostic number this console can report. psyqo's pad driver
+    // clears the controller interrupt with a read-modify-write on I_STAT, which can
+    // acknowledge OUR pending SIO1 interrupt by accident - and since SIO_STAT.9 is
+    // sticky while I_STAT.8 is edge-triggered, that kill is permanent unless
+    // something re-creates the edge. Sio1::rearmRx() does, and counts it here.
+    //
+    // 0 means the race never fired this session. Climbing, with the game still
+    // playing, means it fired and was repaired in flight - which is the direct
+    // confirmation that this was the fault all along.
+    field("rxRevivals", sio.rxRevivals());
+    field("snapsPerSec", NetworkManager::Get().snapshotsPerSecond());
+    field("lerpMs", NetworkManager::Get().lerpIntervalMillis());
+    // So a console/bridge baud mismatch can be SEEN. A mismatch is otherwise
+    // silent - it presents as framing errors, i.e. as a dead link - and there is
+    // no way to read the console's setting off the outside of the machine.
+    field("baud", sio.baud());
+    // Non-zero means the driver caught its own interrupt handler running away and
+    // demoted RX to polling to keep the console alive. The link is degraded from
+    // that moment on, so this must be visible rather than inferred from symptoms.
+    field("irqStorms", sio.irqStorms());
+    field("txSpinTimeouts", sio.txSpinTimeouts());
+    // Split, because they are three unrelated faults that were reported as one
+    // number called "OVERRUN" -- a diagnosis rather than a measurement, and it
+    // cost several hardware runs chasing latency that may not have been the issue.
+    //   OE = we were too slow to drain the FIFO (latency)
+    //   FE = bit timing disagreement or a marginal signal (cable/baud/grounding)
+    field("serialErrors", sio.serialErrors());
+    field("rxOverrunErrors", sio.rxOverrunErrors());
+    field("rxFramingErrors", sio.rxFramingErrors());
+    field("rxParityErrors", sio.rxParityErrors());
+    field("rxDrainOverruns", sio.rxDrainOverruns());
+    field("acksDeferred", link.acksDeferred());
+    field("frames", link.framesReceived());
+    field("crcErrors", link.crcErrors());
+    field("resyncs", link.resyncs());
+    field("queueDepth", NetworkManager::Get().reliableQueueDepth());
+    // Which RX path actually resolved, so "works in Redux, dead on console" is
+    // visible rather than inferred.
+    field("rxMode", static_cast<uint32_t>(sio.rxMode()));
+    return 1;
+}
+
+int LuaAPI::Net_LocalSlot(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(NetworkManager::Get().localSlot()));
+    return 1;
+}
+
+int LuaAPI::Net_PlayerCount(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(NetworkManager::Get().playerCount()));
+    return 1;
+}
+
+int LuaAPI::Net_SetLocalAvatar(lua_State* L) {
+    psyqo::Lua lua(L);
+    uint16_t actorId = ReadActorId(lua, 1);
+    NetworkManager::Get().setLocalAvatarActor(actorId);
+    return 0;
+}
+
+/// Net.SetReplicationEnabled(bool) -- whether this scene replicates its avatar.
+///
+/// A menu, a lobby or a cutscene has no avatar worth sending, and sending anyway
+/// is not free. A console in an avatar-less scene was measured spending 894 B/s,
+/// essentially its entire outbound budget at that frame rate -- broadcasting a
+/// player that did not exist, while the reliable message it was waiting for queued
+/// behind that traffic.
+///
+/// Defaults to true, so an existing game that never calls this is unaffected.
+int LuaAPI::Net_SetReplicationEnabled(lua_State* L) {
+    psyqo::Lua lua(L);
+    NetworkManager::Get().setReplicationEnabled(lua.toBoolean(1));
+    return 0;
+}
+
+int LuaAPI::Net_SetRemoteAvatar(lua_State* L) {
+    psyqo::Lua lua(L);
+    uint8_t slot = static_cast<uint8_t>(lua.checkNumber(1));
+    uint16_t actorId = ReadActorId(lua, 2);
+    NetworkManager::Get().setRemoteAvatarActor(slot, actorId);
+    return 0;
+}
+
+int LuaAPI::Net_RegisterActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    uint16_t actorId = ReadActorId(lua, 1);
+    lua.push(NetworkManager::Get().registerNetworkedActor(actorId));
+    return 1;
+}
+
+int LuaAPI::Net_UnregisterActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    uint16_t actorId = ReadActorId(lua, 1);
+    NetworkManager::Get().unregisterNetworkedActor(actorId);
+    return 0;
+}
+
+int LuaAPI::Net_Send(lua_State* L) {
+    psyqo::Lua lua(L);
+    // Net.Send(eventId [, arg]) -> bool. Reliable; peers receive onNetEvent(id, arg).
+    int32_t eventId = static_cast<int32_t>(lua.checkNumber(1));
+    int32_t arg = lua.isNoneOrNil(2) ? 0 : static_cast<int32_t>(lua.checkNumber(2));
+    lua.push(NetworkManager::Get().sendGameEvent(eventId, arg));
+    return 1;
+}
+
+int LuaAPI::Net_SyncActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    // Net.SyncActor(actor) -> bool. Reliably replicates that (object-backed)
+    // actor's `self.sync` table to peers, keyed by actorId. Call after mutating
+    // self.sync. The player actor has no object/table and cannot be synced this
+    // way (use Net.Send for player-specific state).
+    if (!s_sceneManager) {
+        lua.push(false);
+        return 1;
+    }
+    uint16_t actorId = ReadActorId(lua, 1);
+    GameObject* go = s_sceneManager->getActorGameObject(actorId);
+    if (!go) {
+        lua.push(false);
+        return 1;
+    }
+    uint8_t buf[256];  // [actorId:2][serialized self.sync up to 254]
+    buf[0] = static_cast<uint8_t>(actorId & 0xFF);
+    buf[1] = static_cast<uint8_t>(actorId >> 8);
+    uint32_t blobSize = s_sceneManager->getLua().SerializeObjectSync(go, buf + 2, sizeof(buf) - 2);
+    if (blobSize == 0) {
+        lua.push(false);  // no self.sync table, or it exceeds the size budget
+        return 1;
+    }
+    bool ok = NetworkManager::Get().sendObjectState(buf, static_cast<uint16_t>(2 + blobSize));
+    lua.push(ok);
+    return 1;
+}
+
+int LuaAPI::Net_SendData(lua_State* L) {
+    psyqo::Lua lua(L);
+    // Net.SendData(str) -> bool. Sends an opaque payload reliably and in order;
+    // the peer's scene script receives it as onNetData(str). The engine never
+    // interprets the bytes - this is where a game puts its own protocol (room
+    // lists, roles, votes). Unlike Net.Send(id, arg) it can carry strings.
+    //
+    // Returns false if the payload is too large or the reliable queue is full.
+    // CHECK IT: a dropped payload is otherwise silent. Net.ReliableQueueDepth()
+    // lets a caller back off before that happens.
+    size_t len = 0;
+    const char* data = lua.toString(1, &len);
+    if (!data || len == 0 || len > net::c_maxEventPayload) {
+        lua.push(false);
+        return 1;
+    }
+    // toString with a length is binary-safe: Lua strings are counted, not
+    // NUL-terminated, so payloads may contain embedded zeros.
+    bool ok = NetworkManager::Get().sendAppData(reinterpret_cast<const uint8_t*>(data),
+                                                static_cast<uint16_t>(len));
+    lua.push(ok);
+    return 1;
+}
+
+int LuaAPI::Net_ReliableQueueDepth(lua_State* L) {
+    psyqo::Lua lua(L);
+    // Net.ReliableQueueDepth() -> queued, capacity. The reliable channel is
+    // stop-and-wait, so a burst can saturate it; compare these before sending a
+    // batch rather than discovering the refusal one packet at a time.
+    lua.pushNumber(static_cast<int>(NetworkManager::Get().reliableQueueDepth()));
+    lua.pushNumber(static_cast<int>(net::NetLink::reliableQueueCapacity()));
+    return 2;
+}
+
+int LuaAPI::Net_SetPersistent(lua_State* L) {
+    psyqo::Lua lua(L);
+    // Net.SetPersistent(bool). Keep the network session (our slot, the link)
+    // alive across the next Scene.Load(). Scene-scoped bindings - avatar
+    // mappings, networked-actor registry - are still dropped, because actorIds
+    // mean different objects in a different scene.
+    //
+    // Call this before Scene.Load() when handing over from a lobby scene to a
+    // game scene. Then call Net.Connect() again in the new scene: it re-Hellos
+    // with a rebind flag and reclaims the SAME slot instead of joining afresh.
+    NetworkManager::Get().setPersistent(lua.toBoolean(1));
+    return 0;
+}
+
+int LuaAPI::Net_IsPersistent(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(NetworkManager::Get().isPersistent());
+    return 1;
 }
 
 void LuaAPI::ResetFrameCount() {
