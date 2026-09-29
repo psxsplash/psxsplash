@@ -5,6 +5,8 @@
 #include <psyqo/hardware/cpu.hh>
 #include <psyqo/hardware/cdrom.hh>
 
+#include "irqack.hh"
+
 namespace psxsplash {
 
 class CDRomHelper {
@@ -41,8 +43,11 @@ class CDRomHelper {
             psyqo::Hardware::CDRom::Cause = 0x18;
         while (psyqo::Hardware::CDRom::Ctrl.access() & 0x20)
             psyqo::Hardware::CDRom::Response;  // drain FIFO
-        psyqo::Hardware::CPU::IReg.clear(
-            psyqo::Hardware::CPU::IRQ::CDRom);
+        // ackIrq(), NOT IReg.clear(): the latter is a read-modify-write on I_STAT,
+        // which acknowledges every bit that was not already pending when it read -
+        // including SIO1's, whose loss is permanent because I_STAT.8 is
+        // edge-triggered and SIO_STAT.9 is sticky. See irqack.hh.
+        ackIrq(psyqo::Hardware::CPU::IRQ::CDRom);
     }
 };
 
