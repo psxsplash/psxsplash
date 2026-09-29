@@ -19,3 +19,5 @@ LICENSEE.DAT
 *.iso
 system.cnf
 iso.xml
+.xmake/
+build/
