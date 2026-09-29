@@ -431,13 +431,9 @@ void UISystem::renderOT(psyqo::GPU& gpu,
     // one bucket the LAST fragment inserted is the FIRST the GPU draws - and the
     // first thing drawn is the thing everything else paints over. Inserting in
     // natural order therefore puts element 0 in FRONT and the highest sortOrder
-    // BEHIND, which is the exact opposite of what this file used to claim, of
-    // what make_scenes.py authors against, and of what anyone who has used Unity
-    // UI expects. It went unnoticed only because no two visible canvases in
-    // PSXSUS overlapped.
+    // BEHIND, the opposite of what Unity UI does.
     //
-    // Walking backwards restores the intuitive contract, which is now the
-    // documented one:
+    // Walking backwards gives the documented contract:
     //   * higher sortOrder = in front,
     //   * later sibling in the hierarchy = in front.
     // (m_canvases is pre-sorted ascending by sortOrder at load.)
