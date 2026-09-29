@@ -224,6 +224,8 @@ void NetworkManager::onHelloAck(const HelloAckPayload& ack) {
         m_state = State::SceneMismatch;
         return;
     }
+    // yourSlot indexes the per-slot tables; an out-of-range one is a bad ack.
+    if (ack.yourSlot >= c_maxSlots) return;
     m_localSlot = ack.yourSlot;
     m_hostSlot = ack.hostSlot;
     m_isHost = (ack.yourSlot == ack.hostSlot);
@@ -403,6 +405,9 @@ void NetworkManager::applyPendingSnapshot(SceneManager& sm) {
     int32_t originX = 0, originY = 0, originZ = 0;
     if (compact) {
         if (len < off + c_snapOriginBytes) return;
+        // The sender never picks more than 15 (see netprotocol.hh), and a larger
+        // shift of an int32 is undefined.
+        if (posShift > 15) return;
         __builtin_memcpy(&originX, p + off + 0, 4);
         __builtin_memcpy(&originY, p + off + 4, 4);
         __builtin_memcpy(&originZ, p + off + 8, 4);
