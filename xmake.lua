@@ -1,3 +1,8 @@
+-- The Makefile builds everything with -Os; match it, psxsplash has to fit a
+-- scene in 2 MB of RAM.
+add_cxflags("-Os", {force = true})
+add_cflags("-Os", {force = true})
+
 
 includes("third_party/nugget/psyqo-lua")
 
