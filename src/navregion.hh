@@ -147,6 +147,12 @@ public:
     /// Find which region contains a point (brute-force, for initialization).
     uint16_t findRegionClosest(int32_t x, int32_t y, int32_t z) const;
 
+    /// findRegionClosest, falling back to the region whose centroid is nearest in
+    /// XZ when the point is on no region. Never NAV_NO_REGION while any region
+    /// exists, so it is for agent pathing only: the player's movement relies on
+    /// findRegionClosest returning NAV_NO_REGION to walk off an edge.
+    uint16_t findRegionNearest(int32_t x, int32_t y, int32_t z) const;
+
     /// Compute a simple centroid/floor point for a region.
     bool getRegionCenter(uint16_t regionIndex, int32_t& outX, int32_t& outY, int32_t& outZ) const;
 

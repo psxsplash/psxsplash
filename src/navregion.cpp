@@ -178,10 +178,16 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
             }
         }
     }
-    if(best < m_header.regionCount && shortestDistance <= NAV_ATTACH_DISTANCE)
+    if(best >= m_header.regionCount || shortestDistance > NAV_ATTACH_DISTANCE)
     {
-        return best;
+        return NAV_NO_REGION;
     }
+    return best;
+}
+
+uint16_t NavRegionSystem::findRegionNearest(int32_t x, int32_t y, int32_t z) const {
+    uint16_t closest = findRegionClosest(x, y, z);
+    if (closest != NAV_NO_REGION) return closest;
 
     // Fallback: actor is outside all region polygons (e.g. spawned at edge).
     // Return the nearest region by centroid XZ distance so agents can still path.
