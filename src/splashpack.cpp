@@ -69,7 +69,7 @@ struct SPLASHPACKFileHeader {
     uint16_t roomPortalRefCount;
     uint32_t animationTableOffset;
     uint16_t skinnedMeshCount;
-    uint16_t pad_skin;
+    uint16_t agentCount;
     uint32_t skinTableOffset;
     // --- v21 additions (appended; existing fields above are unchanged) ---
     uint32_t memcardTableOffset;  // offset to SPLASHPACKMemcard, or 0 if none
@@ -130,6 +130,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.objects.reserve(header->gameObjectCount);
     setup.colliders.reserve(header->colliderCount);
     setup.interactables.reserve(header->interactableCount);
+    setup.agents.reserve(header->agentCount);
 
     // v21 grew the header by 8 bytes; v20 packs still have a 120-byte header.
     uint8_t *cursor = data + (header->version >= 21 ? sizeof(SPLASHPACKFileHeader) : kSplashpackHeaderSizeV20);
@@ -178,6 +179,20 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         psxsplash::Interactable *interactable = reinterpret_cast<psxsplash::Interactable *>(cursor);
         setup.interactables.push_back(interactable);
         cursor += sizeof(psxsplash::Interactable);
+    }
+
+    for (uint16_t i = 0; i < header->agentCount; i++) {
+        psxsplash::SPLASHPACKAgentV2* agent = reinterpret_cast<psxsplash::SPLASHPACKAgentV2*>(cursor);
+        setup.agents.push_back(agent);
+        cursor += sizeof(psxsplash::SPLASHPACKAgentV2);
+    }
+    // Patrol waypoints (all agents, packed): waypointCount * 3 * 4 bytes per agent
+    setup.agentWaypointData = reinterpret_cast<const int32_t*>(cursor);
+    {
+        uint32_t totalWaypoints = 0;
+        for (auto* ag : setup.agents)
+            totalWaypoints += ag ? ag->waypointCount : 0;
+        cursor += totalWaypoints * 3 * sizeof(int32_t);
     }
 
     // Skip over legacy world collision data if present in older binaries

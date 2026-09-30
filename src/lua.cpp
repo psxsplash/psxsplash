@@ -359,7 +359,7 @@ void psxsplash::Lua::RegisterSceneScripts(int index) {
     // empty stack
 }
 
-void psxsplash::Lua::RegisterGameObject(GameObject* go) {
+void psxsplash::Lua::RegisterGameObject(GameObject* go, uint16_t actorId) {
     uint8_t* ptr = reinterpret_cast<uint8_t*>(go);
     auto L = m_state;
     L.push(ptr);
@@ -369,6 +369,11 @@ void psxsplash::Lua::RegisterGameObject(GameObject* go) {
     L.push(ptr);
     // (1) go (2) {} (3) go
     L.setField(-2, "__cpp_ptr");
+    // Store actor ID so Actor/Agent APIs work when self is passed
+    if (actorId != 0xFFFF) {
+        L.pushNumber(actorId);
+        L.setField(-2, "__actor_id");
+    }
     // (1) go (2) { __cpp_ptr = go }
     L.rawGetI(LUA_REGISTRYINDEX, m_metatableReference);
     // (1) go (2) { __cpp_ptr = go } (3) metatable
@@ -441,7 +446,14 @@ void psxsplash::Lua::RegisterGameObject(GameObject* go) {
                 if (onDisableMethodWrapper.resolveGlobal(L))             eventMask |= EVENT_ON_DISABLE;
                 if (onButtonPressMethodWrapper.resolveGlobal(L))         eventMask |= EVENT_ON_BUTTON_PRESS;
                 if (onButtonReleaseMethodWrapper.resolveGlobal(L))       eventMask |= EVENT_ON_BUTTON_RELEASE;
-
+                // Agent events
+                if (onStateEnterMethodWrapper.resolveGlobal(L))     eventMask |= EVENT_ON_STATE_ENTER;
+                if (onStateExitMethodWrapper.resolveGlobal(L))      eventMask |= EVENT_ON_STATE_EXIT;
+                if (onTargetSeenMethodWrapper.resolveGlobal(L))     eventMask |= EVENT_ON_TARGET_SEEN;
+                if (onTargetLostMethodWrapper.resolveGlobal(L))     eventMask |= EVENT_ON_TARGET_LOST;
+                if (onTargetReachedMethodWrapper.resolveGlobal(L))  eventMask |= EVENT_ON_TARGET_REACHED;
+                if (onPatrolPointMethodWrapper.resolveGlobal(L))    eventMask |= EVENT_ON_PATROL_POINT;
+                if (onPathBlockedMethodWrapper.resolveGlobal(L))    eventMask |= EVENT_ON_PATH_BLOCKED;
                 L.pop(2); // pop nil and env
             } else {
                 printf("Lua error: %s\n", L.toString(-1));
@@ -549,6 +561,45 @@ void psxsplash::Lua::OnButtonRelease(GameObject* go, int button) {
 void psxsplash::Lua::OnUpdate(GameObject* go, int32_t dt12) {
     if (!hasEvent(go, EVENT_ON_UPDATE)) return;
     onUpdateMethodWrapper.callMethod(*this, go, dt12);
+}
+
+// ============================================================================
+// AGENT STATE-MACHINE EVENTS
+// ============================================================================
+
+void psxsplash::Lua::OnAgentStateEnter(GameObject* go, int newState, int oldState) {
+    if (!hasEvent(go, EVENT_ON_STATE_ENTER)) return;
+    onStateEnterMethodWrapper.callMethod(*this, go, newState, oldState);
+}
+
+void psxsplash::Lua::OnAgentStateExit(GameObject* go, int state) {
+    if (!hasEvent(go, EVENT_ON_STATE_EXIT)) return;
+    onStateExitMethodWrapper.callMethod(*this, go, state);
+}
+
+void psxsplash::Lua::OnAgentTargetSeen(GameObject* go, GameObject* target) {
+    if (!hasEvent(go, EVENT_ON_TARGET_SEEN)) return;
+    onTargetSeenMethodWrapper.callMethod(*this, go, target);
+}
+
+void psxsplash::Lua::OnAgentTargetLost(GameObject* go, GameObject* target) {
+    if (!hasEvent(go, EVENT_ON_TARGET_LOST)) return;
+    onTargetLostMethodWrapper.callMethod(*this, go, target);
+}
+
+void psxsplash::Lua::OnAgentTargetReached(GameObject* go) {
+    if (!hasEvent(go, EVENT_ON_TARGET_REACHED)) return;
+    onTargetReachedMethodWrapper.callMethod(*this, go);
+}
+
+void psxsplash::Lua::OnAgentPatrolPoint(GameObject* go, int waypointIndex) {
+    if (!hasEvent(go, EVENT_ON_PATROL_POINT)) return;
+    onPatrolPointMethodWrapper.callMethod(*this, go, waypointIndex);
+}
+
+void psxsplash::Lua::OnAgentPathBlocked(GameObject* go) {
+    if (!hasEvent(go, EVENT_ON_PATH_BLOCKED)) return;
+    onPathBlockedMethodWrapper.callMethod(*this, go);
 }
 
 void psxsplash::Lua::RelocateGameObjects(GameObject** objects, size_t count, intptr_t delta) {

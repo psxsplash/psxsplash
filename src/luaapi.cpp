@@ -57,6 +57,137 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     s_uiSystem = uiSystem;
     
     // ========================================================================
+    // ACTOR API
+    // ========================================================================
+    L.newTable();  // Actor table
+
+    L.push(Actor_GetPlayer);
+    L.setField(-2, "GetPlayer");
+
+    L.push(Actor_Find);
+    L.setField(-2, "Find");
+
+    L.push(Actor_FindByIndex);
+    L.setField(-2, "FindByIndex");
+
+    L.push(Actor_GetCount);
+    L.setField(-2, "GetCount");
+
+    L.push(Actor_IsPlayer);
+    L.setField(-2, "IsPlayer");
+
+    L.push(Actor_GetName);
+    L.setField(-2, "GetName");
+
+    L.push(Actor_GetPosition);
+    L.setField(-2, "GetPosition");
+
+    L.push(Actor_GetPositionXZ);
+    L.setField(-2, "GetPositionXZ");
+
+    L.push(Actor_SetPosition);
+    L.setField(-2, "SetPosition");
+
+    L.push(Actor_GetRotation);
+    L.setField(-2, "GetRotation");
+
+    L.push(Actor_SetRotation);
+    L.setField(-2, "SetRotation");
+
+    L.push(Actor_GetEntity);
+    L.setField(-2, "GetEntity");
+
+    L.push(Actor_GetNavRegion);
+    L.setField(-2, "GetNavRegion");
+
+    L.push(Actor_FindPath);
+    L.setField(-2, "FindPath");
+
+    L.setGlobal("Actor");
+
+    // ========================================================================
+    // AGENT API
+    // ========================================================================
+    L.newTable();
+
+    L.push(Agent_IsAgent);
+    L.setField(-2, "IsAgent");
+
+    L.push(Agent_SetEnabled);
+    L.setField(-2, "SetEnabled");
+
+    L.push(Agent_IsEnabled);
+    L.setField(-2, "IsEnabled");
+
+    L.push(Agent_MoveTo);
+    L.setField(-2, "MoveTo");
+
+    L.push(Agent_SetTarget);
+    L.setField(-2, "SetTarget");
+
+    L.push(Agent_Stop);
+    L.setField(-2, "Stop");
+
+    L.push(Agent_IsMoving);
+    L.setField(-2, "IsMoving");
+
+    L.push(Agent_GetTarget);
+    L.setField(-2, "GetTarget");
+
+    L.push(Agent_SetSpeed);
+    L.setField(-2, "SetSpeed");
+
+    L.push(Agent_GetSpeed);
+    L.setField(-2, "GetSpeed");
+
+    // State machine
+    L.push(Agent_GetState);
+    L.setField(-2, "GetState");
+
+    L.push(Agent_SetState);
+    L.setField(-2, "SetState");
+
+    // Vision / hearing
+    L.push(Agent_CanSee);
+    L.setField(-2, "CanSee");
+
+    L.push(Agent_CanHear);
+    L.setField(-2, "CanHear");
+
+    L.push(Agent_SetVisionRange);
+    L.setField(-2, "SetVisionRange");
+
+    L.push(Agent_GetVisionRange);
+    L.setField(-2, "GetVisionRange");
+
+    L.push(Agent_SetVisionAngle);
+    L.setField(-2, "SetVisionAngle");
+
+    L.push(Agent_SetHearingRange);
+    L.setField(-2, "SetHearingRange");
+
+    L.push(Agent_GetHearingRange);
+    L.setField(-2, "GetHearingRange");
+
+    L.push(Agent_SetAlertTimeout);
+    L.setField(-2, "SetAlertTimeout");
+
+    L.push(Agent_GetLastKnownPos);
+    L.setField(-2, "GetLastKnownPos");
+
+    // Patrol waypoints
+    L.push(Agent_AddWaypoint);
+    L.setField(-2, "AddWaypoint");
+
+    L.push(Agent_ClearWaypoints);
+    L.setField(-2, "ClearWaypoints");
+
+    L.push(Agent_SetPatrolEnabled);
+    L.setField(-2, "SetPatrolEnabled");
+
+    L.setGlobal("Agent");
+
+    // ========================================================================
     // ENTITY API
     // ========================================================================
     L.newTable();  // Entity table
@@ -210,6 +341,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Input_GetAnalogPlayer2);
     L.setField(-2, "GetAnalogPlayer2");
 
+    L.push(Input_BindToActor);
+    L.setField(-2, "BindToActor");
+    L.push(Input_GetBoundActor);
+    L.setField(-2, "GetBoundActor");
+
     // Register button constants
     RegisterInputConstants(L);
     
@@ -259,6 +395,15 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Camera_FollowPsxPlayer);
     L.setField(-2, "FollowPsxPlayer");
+
+    L.push(Camera_SetFollowTarget);
+    L.setField(-2, "SetFollowTarget");
+
+    L.push(Camera_GetFollowTarget);
+    L.setField(-2, "GetFollowTarget");
+
+    L.push(Camera_ClearFollowTarget);
+    L.setField(-2, "ClearFollowTarget");
 
     L.push(Camera_LookAt);
     L.setField(-2, "LookAt");
@@ -1795,6 +1940,24 @@ int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
     return 2;
 }
 
+int LuaAPI::Input_BindToActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    // Input.BindToActor(player, actor) - player is 1 or 2. Bind to the player
+    // actor (Actor.GetPlayer()) to restore default player locomotion.
+    int player = static_cast<int>(lua.checkNumber(1)) - 1;
+    uint16_t actorId = ReadActorId(lua, 2);
+    if (s_sceneManager) s_sceneManager->setControlBoundActor(player, actorId);
+    return 0;
+}
+
+int LuaAPI::Input_GetBoundActor(lua_State* L) {
+    psyqo::Lua lua(L);
+    int player = static_cast<int>(lua.checkNumber(1)) - 1;
+    uint16_t actorId = s_sceneManager ? s_sceneManager->getControlBoundActor(player) : 0;
+    lua.pushNumber(static_cast<lua_Number>(actorId));
+    return 1;
+}
+
 // ============================================================================
 // TIMER API IMPLEMENTATION
 // ============================================================================
@@ -1813,6 +1976,563 @@ void LuaAPI::IncrementFrameCount() {
 
 void LuaAPI::ResetFrameCount() {
     s_frameCount = 0;
+}
+
+void LuaAPI::PushActor(psyqo::Lua& L, uint16_t actorId) {
+    L.newTable();
+    L.pushNumber(actorId);
+    L.setField(-2, "__actor_id");
+}
+
+uint16_t LuaAPI::ReadActorId(psyqo::Lua& L, int idx) {
+    if (!L.isTable(idx)) return 0xFFFF;
+    L.getField(idx, "__actor_id");
+    if (!L.isNumber(-1)) {
+        L.pop();
+        return 0xFFFF;
+    }
+    uint16_t actorId = static_cast<uint16_t>(L.toNumber(-1));
+    L.pop();
+    return actorId;
+}
+
+// ============================================================================
+// ACTOR API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Actor_GetPlayer(lua_State* L) {
+    psyqo::Lua lua(L);
+    PushActor(lua, SceneManager::PLAYER_ACTOR_ID);
+    return 1;
+}
+
+int LuaAPI::Actor_Find(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = 0xFFFF;
+    if (lua.isNumber(1)) {
+        actorId = static_cast<uint16_t>(lua.toNumber(1));
+        if (!s_sceneManager->isValidActor(actorId)) actorId = 0xFFFF;
+    } else if (lua.isString(1)) {
+        actorId = s_sceneManager->findActorByName(lua.toString(1));
+    }
+
+    if (actorId == 0xFFFF) {
+        lua.push();
+        return 1;
+    }
+
+    PushActor(lua, actorId);
+    return 1;
+}
+
+int LuaAPI::Actor_FindByIndex(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isNumber(1)) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = static_cast<uint16_t>(lua.toNumber(1));
+    if (!s_sceneManager->isValidActor(actorId)) {
+        lua.push();
+        return 1;
+    }
+
+    PushActor(lua, actorId);
+    return 1;
+}
+
+int LuaAPI::Actor_GetCount(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(s_sceneManager ? static_cast<lua_Number>(s_sceneManager->getActorCount()) : 0);
+    return 1;
+}
+
+int LuaAPI::Actor_IsPlayer(lua_State* L) {
+    psyqo::Lua lua(L);
+    uint16_t actorId = ReadActorId(lua, 1);
+    lua.push(actorId == SceneManager::PLAYER_ACTOR_ID);
+    return 1;
+}
+
+int LuaAPI::Actor_GetName(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    const char* name = s_sceneManager->getActorName(actorId);
+    if (name) lua.push(name);
+    else lua.push();
+    return 1;
+}
+
+/// Actor.GetPositionXZ(actor) -> x, z as plain integer PIXELS (or nil).
+///
+/// The allocation-free alternative to Actor.GetPosition, for the 2D case.
+///
+/// GetPosition costs FOUR Lua tables and three Lua calls every time: one for the
+/// vector plus one metatable-carrying FixedPoint per component (psyqo-lua's
+/// push(FixedPoint) runs the FixedPoint constructor). A 2D game reading ten
+/// avatars' positions each frame was generating well over a thousand tables a
+/// second purely to throw them away - and psyqo-lua's collector runs on a 33MHz
+/// R3000 with no tuning.
+///
+/// Every 2D caller then immediately did the same dance on the way out, reading
+/// `._raw` and shifting down 12 by hand because FixedPoint's :toNumber() is
+/// unreachable (the metatable sets no __index). This returns what they actually
+/// wanted in the first place: two numbers, no garbage.
+int LuaAPI::Actor_GetPositionXZ(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 position;
+    if (!s_sceneManager->getActorPosition(actorId, position)) {
+        lua.push();
+        return 1;
+    }
+
+    // .integer() truncates toward zero; the Lua helpers this replaces floored.
+    // For the screen-plane coordinates this serves, positions are >= 0 in
+    // practice and both agree, but do the arithmetic shift explicitly so a map
+    // authored across the origin does not shift by a pixel.
+    lua.pushNumber(static_cast<lua_Number>(position.x.value >> 12));
+    lua.pushNumber(static_cast<lua_Number>(position.z.value >> 12));
+    return 2;
+}
+
+int LuaAPI::Actor_GetPosition(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 position;
+    if (!s_sceneManager->getActorPosition(actorId, position)) {
+        lua.push();
+        return 1;
+    }
+
+    PushVec3(lua, position.x, position.y, position.z);
+    return 1;
+}
+
+int LuaAPI::Actor_SetPosition(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isTable(2)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::FixedPoint<12> x, y, z;
+    ReadVec3(lua, 2, x, y, z);
+    s_sceneManager->setActorPosition(actorId, psyqo::Vec3{x, y, z});
+    return 0;
+}
+
+int LuaAPI::Actor_GetRotation(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 rotation;
+    if (!s_sceneManager->getActorRotation(actorId, rotation)) {
+        lua.push();
+        return 1;
+    }
+
+    PushVec3(lua, rotation.x, rotation.y, rotation.z);
+    return 1;
+}
+
+int LuaAPI::Actor_SetRotation(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isTable(2)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::FixedPoint<12> x, y, z;
+    ReadVec3(lua, 2, x, y, z);
+    s_sceneManager->setActorRotation(actorId, psyqo::Vec3{x, y, z});
+    return 0;
+}
+
+int LuaAPI::Actor_GetEntity(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    GameObject* go = s_sceneManager->getActorGameObject(actorId);
+    if (!go) {
+        lua.push();
+        return 1;
+    }
+
+    lua.push(reinterpret_cast<uint8_t*>(go));
+    lua.rawGet(LUA_REGISTRYINDEX);
+    if (lua.isTable(-1)) return 1;
+    lua.pop();
+    lua.push();
+    return 1;
+}
+
+int LuaAPI::Actor_GetNavRegion(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    uint16_t region = s_sceneManager->getActorNavRegion(actorId);
+    if (region == NAV_NO_REGION) {
+        lua.push();
+        return 1;
+    }
+
+    lua.pushNumber(region);
+    return 1;
+}
+
+int LuaAPI::Actor_FindPath(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || lua.isNoneOrNil(2)) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    if (!s_sceneManager->isValidActor(actorId) || !s_sceneManager->isNavLoaded()) {
+        lua.push();
+        return 1;
+    }
+
+    psyqo::Vec3 targetPosition;
+    NavPath path;
+    bool hasPath = false;
+
+    if (lua.isTable(2)) {
+        uint16_t targetActorId = ReadActorId(lua, 2);
+        if (targetActorId != 0xFFFF) {
+            hasPath = s_sceneManager->findActorPath(actorId, targetActorId, path);
+            if (!s_sceneManager->getActorPosition(targetActorId, targetPosition)) {
+                lua.push();
+                return 1;
+            }
+        } else {
+            ReadVec3(lua, 2, targetPosition.x, targetPosition.y, targetPosition.z);
+            hasPath = s_sceneManager->findActorPathToPosition(actorId, targetPosition, path);
+        }
+    }
+
+    if (!hasPath || path.stepCount <= 0) {
+        lua.push();
+        return 1;
+    }
+
+    lua_newtable(L);
+    int waypointIndex = 1;
+
+    for (int i = 1; i < path.stepCount; ++i) {
+        psyqo::Vec3 regionCenter;
+        if (!s_sceneManager->getNavRegionCenter(path.regions[i], regionCenter)) continue;
+        PushVec3(lua, regionCenter.x, regionCenter.y, regionCenter.z);
+        lua_rawseti(L, -2, waypointIndex++);
+    }
+
+    PushVec3(lua, targetPosition.x, targetPosition.y, targetPosition.z);
+    lua_rawseti(L, -2, waypointIndex++);
+    return 1;
+}
+
+// ============================================================================
+// AGENT API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Agent_IsAgent(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push(false);
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    lua.push(s_sceneManager->isActorAgent(actorId));
+    return 1;
+}
+
+int LuaAPI::Agent_SetEnabled(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isBoolean(2)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    s_sceneManager->setActorAgentEnabled(actorId, lua.toBoolean(2));
+    return 0;
+}
+
+int LuaAPI::Agent_IsEnabled(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push(false);
+        return 1;
+    }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    lua.push(s_sceneManager->isActorAgentEnabled(actorId));
+    return 1;
+}
+
+int LuaAPI::Agent_MoveTo(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || lua.isNoneOrNil(2)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    if (lua.isTable(2)) {
+        uint16_t targetActorId = ReadActorId(lua, 2);
+        if (targetActorId != 0xFFFF) {
+            s_sceneManager->moveActorToActor(actorId, targetActorId);
+            return 0;
+        }
+
+        psyqo::FixedPoint<12> x, y, z;
+        ReadVec3(lua, 2, x, y, z);
+        s_sceneManager->moveActorToPosition(actorId, psyqo::Vec3{x, y, z});
+    }
+    return 0;
+}
+
+int LuaAPI::Agent_SetTarget(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isTable(2)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    uint16_t targetActorId = ReadActorId(lua, 2);
+    if (targetActorId != 0xFFFF) {
+        s_sceneManager->moveActorToActor(actorId, targetActorId);
+    }
+    return 0;
+}
+
+int LuaAPI::Agent_Stop(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    s_sceneManager->stopActor(ReadActorId(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Agent_IsMoving(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push(false);
+        return 1;
+    }
+
+    lua.push(s_sceneManager->isActorMoving(ReadActorId(lua, 1)));
+    return 1;
+}
+
+int LuaAPI::Agent_GetTarget(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t targetActor = 0xFFFF;
+    if (!s_sceneManager->getActorTarget(ReadActorId(lua, 1), targetActor)) {
+        lua.push();
+        return 1;
+    }
+
+    PushActor(lua, targetActor);
+    return 1;
+}
+
+int LuaAPI::Agent_SetSpeed(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    s_sceneManager->setActorMoveSpeed(ReadActorId(lua, 1), readFP(lua, 2));
+    return 0;
+}
+
+int LuaAPI::Agent_GetSpeed(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.pushNumber(0);
+        return 1;
+    }
+
+    psyqo::FixedPoint<12> speed = s_sceneManager->getActorMoveSpeed(ReadActorId(lua, 1));
+    lua.pushNumber(static_cast<lua_Number>(speed.value) / kFixedScale);
+    return 1;
+}
+
+// ============================================================================
+// AGENT STATE MACHINE IMPLEMENTATIONS
+// ============================================================================
+
+int LuaAPI::Agent_GetState(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.pushNumber(0); return 1; }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    lua.pushNumber(static_cast<int>(s_sceneManager->getActorAgentState(actorId)));
+    return 1;
+}
+
+int LuaAPI::Agent_SetState(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    int stateInt = static_cast<int>(lua.toNumber(2));
+    if (stateInt < 0 || stateInt >= static_cast<int>(psxsplash::SceneManager::AGENT_STATE_COUNT)) return 0;
+    s_sceneManager->setActorAgentState(actorId, static_cast<psxsplash::SceneManager::AgentState>(stateInt));
+    return 0;
+}
+
+int LuaAPI::Agent_CanSee(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.push(false); return 1; }
+
+    uint16_t observerId = ReadActorId(lua, 1);
+    uint16_t targetId   = ReadActorId(lua, 2);
+    lua.push(s_sceneManager->canActorSeeActor(observerId, targetId));
+    return 1;
+}
+
+int LuaAPI::Agent_CanHear(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.push(false); return 1; }
+
+    uint16_t observerId = ReadActorId(lua, 1);
+    uint16_t targetId   = ReadActorId(lua, 2);
+    lua.push(s_sceneManager->canActorHearActor(observerId, targetId));
+    return 1;
+}
+
+int LuaAPI::Agent_SetVisionRange(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    s_sceneManager->setActorVisionRange(actorId, readFP(lua, 2));
+    return 0;
+}
+
+int LuaAPI::Agent_GetVisionRange(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.pushNumber(0); return 1; }
+
+    psyqo::FixedPoint<12> r = s_sceneManager->getActorVisionRange(ReadActorId(lua, 1));
+    lua.pushNumber(static_cast<lua_Number>(r.value) / kFixedScale);
+    return 1;
+}
+
+int LuaAPI::Agent_SetVisionAngle(lua_State* L) {
+    // Accepts half-angle in degrees (0-180) and stores its fp12 cosine, the same
+    // unit the splashpack's visionCosAngle uses. 180 deg sees all around.
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    lua_Number halfAngleDeg = lua.toNumber(2);
+    if (halfAngleDeg < 0)   halfAngleDeg = 0;
+    if (halfAngleDeg > 180) halfAngleDeg = 180;
+    psyqo::Angle halfAngle;
+    halfAngle.value = static_cast<int32_t>(halfAngleDeg * 1024 / 180);
+    int16_t cosThreshold = static_cast<int16_t>(s_trig.cos(halfAngle).raw());
+    s_sceneManager->setActorVisionAngleCos(actorId, cosThreshold);
+    return 0;
+}
+
+int LuaAPI::Agent_SetHearingRange(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    s_sceneManager->setActorHearingRange(actorId, readFP(lua, 2));
+    return 0;
+}
+
+int LuaAPI::Agent_GetHearingRange(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.pushNumber(0); return 1; }
+
+    psyqo::FixedPoint<12> r = s_sceneManager->getActorHearingRange(ReadActorId(lua, 1));
+    lua.pushNumber(static_cast<lua_Number>(r.value) / kFixedScale);
+    return 1;
+}
+
+int LuaAPI::Agent_SetAlertTimeout(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    uint16_t frames  = static_cast<uint16_t>(static_cast<int>(lua.toNumber(2)));
+    s_sceneManager->setActorAlertTimeout(actorId, frames);
+    return 0;
+}
+
+int LuaAPI::Agent_GetLastKnownPos(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) { lua.push(); return 1; }
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::Vec3 pos;
+    if (!s_sceneManager->getActorLastKnownPos(actorId, pos)) {
+        lua.push();
+        return 1;
+    }
+    PushVec3(lua, pos.x, pos.y, pos.z);
+    return 1;
+}
+
+int LuaAPI::Agent_AddWaypoint(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isTable(2)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    psyqo::FixedPoint<12> x, y, z;
+    ReadVec3(lua, 2, x, y, z);
+    s_sceneManager->addActorWaypoint(actorId, psyqo::Vec3{x, y, z});
+    return 0;
+}
+
+int LuaAPI::Agent_ClearWaypoints(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    s_sceneManager->clearActorWaypoints(ReadActorId(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Agent_SetPatrolEnabled(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    bool enabled     = lua.toBoolean(2);
+    s_sceneManager->setActorPatrolEnabled(actorId, enabled);
+    return 0;
 }
 
 int LuaAPI::Timer_GetFrameCount(lua_State* L) {
@@ -2012,7 +2732,45 @@ int LuaAPI::Camera_FollowPsxPlayer(lua_State* L) {
     psyqo::Lua lua(L);
 
     if (s_sceneManager && lua.isBoolean(1)) {
-        s_sceneManager->setCameraFollowPlayer(lua.toBoolean(1)); 
+        s_sceneManager->setCameraFollowPlayer(lua.toBoolean(1));
+        if (lua.toBoolean(1)) {
+            s_sceneManager->setCameraFollowActor(SceneManager::PLAYER_ACTOR_ID);
+        }
+    }
+    return 0;
+}
+
+int LuaAPI::Camera_SetFollowTarget(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isTable(1)) return 0;
+
+    uint16_t actorId = ReadActorId(lua, 1);
+    s_sceneManager->setCameraFollowActor(actorId);
+    return 0;
+}
+
+int LuaAPI::Camera_GetFollowTarget(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager) {
+        lua.push();
+        return 1;
+    }
+
+    uint16_t actorId = s_sceneManager->getCameraFollowActor();
+    if (!s_sceneManager->isValidActor(actorId)) {
+        lua.push();
+        return 1;
+    }
+
+    PushActor(lua, actorId);
+    return 1;
+}
+
+int LuaAPI::Camera_ClearFollowTarget(lua_State* L) {
+    psyqo::Lua lua(L);
+    (void)lua;
+    if (s_sceneManager) {
+        s_sceneManager->setCameraFollowPlayer(false);
     }
     return 0;
 }
