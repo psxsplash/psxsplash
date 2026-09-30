@@ -44,6 +44,26 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     L.Reset();
 
+    // Deliberately NO m_audio.initHardware() here.
+    //
+    // The SPU is already programmed: our only caller is LoadScene, whose Step 2
+    // calls m_audio.init() before uploading the ADPCM, and nothing between that
+    // and this point touches an SPU register (SilenceDrive only masks CD-ROM
+    // IRQs). A second call is not the free idempotent re-programming it looks
+    // like.
+    //
+    // psyqo::SPU::initialize() ends with
+    // `dmaWrite(0x1000, &DUMMY_SAMPLE, 16, 4)`, and dmaWrite counts its size in
+    // WORDS, not bytes - so that DMA is 64 bytes wide, not 16. It runs off the
+    // end of the dummy sample straight into 0x1010, which is SPU_RAM_START, and
+    // replaces the first three ADPCM blocks of clip 0 - uploaded seconds
+    // earlier in Step 2 - with whatever rodata follows DUMMY_SAMPLE.
+    //
+    // Only clip 0 is in range, which is why this hid for so long: every other
+    // clip in the scene plays perfectly and Audio.Play still returns a real
+    // voice. Clip 0 emits a few milliseconds of decoded garbage - an audible
+    // click - until a stray loop-end flag in that garbage kills the voice.
+
 #ifdef LOADER_CDROM
     m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(
         psxsplash::FileLoader::Get()).getCDRomDevice());
@@ -997,8 +1017,33 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
     if (loading.isActive()) loading.updateProgress(gpu, 20);
 
-    // ── Step 2: Load SPU data, upload to SPU RAM, free buffer ──
-    // Must init audio before uploading ADPCM data so SPU RAM is ready.
+    // -- Step 2: Load SPU data, upload to SPU RAM, free buffer --
+    //
+    // The position of this block is load-bearing in BOTH directions, and moving
+    // it either way produces a bug that looks nothing like a misplaced upload.
+    //
+    // It must come AFTER m_audio.init(), which does two unrelated jobs - it
+    // programs the SPU, and it empties the clip table:
+    //
+    //     m_nextAddr = SPU_RAM_START;
+    //     for (i) m_clips[i].loaded = false;
+    //
+    // An init() after the upload marks every clip UNLOADED one call after it was
+    // loaded, and the failure is near-undiagnosable: clip NAMES and clip SAMPLES
+    // live in two independent tables, so m_audioClipNames stays intact, every
+    // Audio.Find resolves and every "is that clip on the disc" check passes,
+    // while Audio.Play hits !m_clips[i].loaded and returns -1 in silence.
+    //
+    // It must also come BEFORE CDRomHelper::SilenceDrive() below, because this
+    // is a CD-ROM READ. SilenceDrive sets CDRom::CauseMask = 0, so the drive
+    // controller stops asserting its IRQ line entirely; psyqo's BlockingAction
+    // destructor then spins on `while (device->m_state != 0)` waiting for a
+    // completion IRQ that can no longer arrive, and the console hangs on a black
+    // screen with nothing in the log. Worse, by then the title screen's
+    // onSceneCreationEnd has already started CD-DA, so the read can instead trip
+    // "readSectorsBlocking called with pending action".
+    //
+    // In short: after m_audio.init(), before SilenceDrive(), before Lua runs.
     m_audio.init();
     {
         char spuFilename[32];
@@ -1056,7 +1101,8 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     m_currentSceneData = newData;
     m_currentSceneIndex = sceneIndex;
 
-    // Initialize with new data (creates fresh Lua VM inside)
+    // Initialize with new data (creates fresh Lua VM inside).
+    // Audio is already uploaded by this point - see Step 2 above.
     InitializeScene(newData, loading.isActive() ? &loading : nullptr);
 }
 
