@@ -691,7 +691,7 @@ int LuaAPI::Entity_Find(lua_State* L) {
     }
 
     // Accept number (index) or string (name lookup) for backwards compat
-    // Check isNumber FIRST — in Lua, numbers pass isString too.
+    // Check isNumber FIRST - in Lua, numbers pass isString too.
     if (lua.isNumber(1)) {
         int index = static_cast<int>(lua.toNumber(1));
         GameObject* go = s_sceneManager->getGameObject(static_cast<uint16_t>(index));
@@ -865,7 +865,7 @@ int LuaAPI::Entity_SetRotation(lua_State* L) {
     if (!go) return 0;
 
 
-    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
+    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90 deg)
     // This matches psyqo::Angle convention used by the engine.
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 2, x, y, z);
@@ -1869,7 +1869,7 @@ int LuaAPI::Camera_SetRotation(lua_State* L) {
     
     if (!s_sceneManager || !lua.isTable(1)) return 0;
     
-    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90°)
+    // Accept three angles in pi-units (e.g., 0.5 = π/2 = 90 deg)
     // This matches psyqo::Angle convention used by the engine.
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 1, x, y, z);
@@ -2653,7 +2653,7 @@ int LuaAPI::Persist_Set(lua_State* L) {
         }
     }
     
-    return 0;  // No room — silently fail
+    return 0;  // No room - silently fail
 }
 
 void LuaAPI::PersistClear() {

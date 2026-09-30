@@ -36,7 +36,7 @@ struct MemoryCardConfig {
  *
  * Every operation returns a static error string (null on success) so that the
  * Lua layer can report exactly what went wrong; nothing fails silently. Saving
- * and loading are blocking operations — they are meant to run at a deliberate
+ * and loading are blocking operations - they are meant to run at a deliberate
  * save point, not in the middle of gameplay.
  */
 class MemoryCardManager {

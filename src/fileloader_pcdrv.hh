@@ -6,7 +6,7 @@
 namespace psxsplash {
 
 /**
- * FileLoaderPCdrv — loads files via the PCdrv protocol.
+ * FileLoaderPCdrv - loads files via the PCdrv protocol.
  *
  * Works transparently in two modes (handled by pcdrv_handler.hh):
  *   - Emulator mode: break instructions intercepted by PCSX-Redux
@@ -15,10 +15,10 @@ namespace psxsplash {
  */
 class FileLoaderPCdrv final : public FileLoader {
   public:
-    // ── prepare: no-op for PCdrv ──────────────────────────────────
+    // -- prepare: no-op for PCdrv ----------------------------------
     void prepare() override {}
 
-    // ── scheduleInit ──────────────────────────────────────────────
+    // -- scheduleInit ----------------------------------------------
     psyqo::TaskQueue::Task scheduleInit() override {
         return psyqo::TaskQueue::Task([this](psyqo::TaskQueue::Task* task) {
 
@@ -29,7 +29,7 @@ class FileLoaderPCdrv final : public FileLoader {
         });
     }
 
-    // ── scheduleLoadFile ──────────────────────────────────────────
+    // -- scheduleLoadFile ------------------------------------------
     psyqo::TaskQueue::Task scheduleLoadFile(
         const char* filename, uint8_t*& outBuffer, int& outSize) override
     {
@@ -40,12 +40,12 @@ class FileLoaderPCdrv final : public FileLoader {
             });
     }
 
-    // ── LoadFileSync ──────────────────────────────────────────────
+    // -- LoadFileSync ----------------------------------------------
     uint8_t* LoadFileSync(const char* filename, int& outSize) override {
         return doLoad(filename, outSize);
     }
 
-    // ── FreeFile ──────────────────────────────────────────────────
+    // -- FreeFile --------------------------------------------------
     void FreeFile(uint8_t* data) override { delete[] data; }
 
     const char* Name() const override { return "pcdrv"; }

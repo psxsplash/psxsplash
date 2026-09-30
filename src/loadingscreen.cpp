@@ -15,9 +15,9 @@ static constexpr int16_t kBuffer1Y = 256;
 
 // This file has duplicate code from UISystem... This is terrible...
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Load
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 bool LoadingScreen::load(psyqo::GPU& gpu, psyqo::Font<>& systemFont, int sceneIndex) {
     // Build filename using the active backend's naming convention
     char filename[32];
@@ -70,9 +70,9 @@ bool LoadingScreen::load(psyqo::GPU& gpu, psyqo::Font<>& systemFont, int sceneIn
     return true;
 }
 
-// ────────────────────────────────────────────────────────────────
-// Upload atlas/CLUT data to VRAM (RAM → VRAM blit)
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
+// Upload atlas/CLUT data to VRAM (RAM -> VRAM blit)
+// ----------------------------------------------------------------
 void LoadingScreen::uploadTextures(psyqo::GPU& gpu) {
     auto* header = reinterpret_cast<const LoaderPackHeader*>(m_data);
 
@@ -104,9 +104,9 @@ void LoadingScreen::uploadTextures(psyqo::GPU& gpu) {
     }
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Find progress bar
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 void LoadingScreen::findProgressBar() {
     m_hasProgressBar = false;
 
@@ -125,10 +125,10 @@ void LoadingScreen::findProgressBar() {
     }
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Draw a filled rectangle (immediate mode, no DMA chain).
-// Coordinates are logical — DrawingOffset shifts them to the target buffer.
-// ────────────────────────────────────────────────────────────────
+// Coordinates are logical - DrawingOffset shifts them to the target buffer.
+// ----------------------------------------------------------------
 void LoadingScreen::drawRect(psyqo::GPU& gpu, int16_t x, int16_t y,
                               int16_t w, int16_t h,
                               uint8_t r, uint8_t g, uint8_t b) {
@@ -141,11 +141,11 @@ void LoadingScreen::drawRect(psyqo::GPU& gpu, int16_t x, int16_t y,
     gpu.sendPrimitive(rect);
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Draw a textured image (two triangles, sendPrimitive).
 // GouraudTexturedTriangle carries its own TPage attribute.
 // DrawingOffset shifts logical coordinates to the correct framebuffer.
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 void LoadingScreen::drawImage(psyqo::GPU& gpu, int handle,
                                int16_t x, int16_t y, int16_t w, int16_t h,
                                uint8_t r, uint8_t g, uint8_t b) {
@@ -202,16 +202,16 @@ void LoadingScreen::drawImage(psyqo::GPU& gpu, int handle,
     }
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Draw custom-font text via sendPrimitive (TPage + Sprite per glyph).
 // DrawingOffset shifts logical coordinates to the correct framebuffer.
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 void LoadingScreen::drawCustomText(psyqo::GPU& gpu, int handle,
                                     int16_t x, int16_t y,
                                     uint8_t r, uint8_t g, uint8_t b) {
     uint8_t fontIdx = m_ui.getTextFontIndex(handle);
     if (fontIdx == 0) return; // system font, not custom
-    const UIFontDesc* fd = m_ui.getFontDesc(fontIdx - 1); // 1-based → 0-based
+    const UIFontDesc* fd = m_ui.getFontDesc(fontIdx - 1); // 1-based -> 0-based
     if (!fd) return;
 
     const char* text = m_ui.getText(handle);
@@ -267,10 +267,10 @@ void LoadingScreen::drawCustomText(psyqo::GPU& gpu, int handle,
     }
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Render ALL elements to ONE framebuffer at the given VRAM Y offset.
 // Uses DrawingOffset so all draw functions use logical coordinates.
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 void LoadingScreen::renderToBuffer(psyqo::GPU& gpu, int16_t yOffset) {
     // Configure GPU drawing area for this framebuffer
     gpu.sendPrimitive(psyqo::Prim::DrawingAreaStart(psyqo::Vertex{{.x = 0, .y = yOffset}}));
@@ -333,9 +333,9 @@ void LoadingScreen::renderToBuffer(psyqo::GPU& gpu, int16_t yOffset) {
     }
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Render to both framebuffers, then FREE all loaded data
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 void LoadingScreen::renderInitialAndFree(psyqo::GPU& gpu) {
     if (!m_data) return;
 
@@ -343,22 +343,22 @@ void LoadingScreen::renderInitialAndFree(psyqo::GPU& gpu) {
     renderToBuffer(gpu, 0);
     gpu.pumpCallbacks();
 
-    // Render to framebuffer 1 (Y = 256 — psyqo's hardcoded buffer-1 offset)
+    // Render to framebuffer 1 (Y = 256 - psyqo's hardcoded buffer-1 offset)
     renderToBuffer(gpu, kBuffer1Y);
     gpu.pumpCallbacks();
 
     // Restore normal scissor for the active framebuffer
     gpu.enableScissor();
 
-    // FREE all loaded data — the splashpack needs this memory
+    // FREE all loaded data - the splashpack needs this memory
     FileLoader::Get().FreeFile(m_data);
     m_data = nullptr;
     m_dataSize = 0;
 }
 
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 // Update progress bar in BOTH framebuffers
-// ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------
 void LoadingScreen::updateProgress(psyqo::GPU& gpu, uint8_t percent) {
     if (!m_hasProgressBar || !m_active) return;
     if (percent > 100) percent = 100;

@@ -51,7 +51,7 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
 
     uint8_t* ptr = data + tableOffset;
 
-    // ── Parse font descriptors (112 bytes each, before canvas data) ──
+    // -- Parse font descriptors (112 bytes each, before canvas data) --
     // Layout: glyphW(1) glyphH(1) vramX(2) vramY(2) textureH(2)
     //         dataOffset(4) dataSize(4) advanceWidths(96)
     if (fontCount > UI_MAX_FONTS - 1) fontCount = UI_MAX_FONTS - 1;
@@ -76,7 +76,7 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
     // Canvas descriptors follow immediately after font descriptors.
     // Font pixel data is in the dead zone (at absolute offsets in the descriptors).
 
-    // ── Parse canvas descriptors ──
+    // -- Parse canvas descriptors --
     if (canvasCount == 0) return;
     if (canvasCount > UI_MAX_CANVASES) canvasCount = UI_MAX_CANVASES;
 

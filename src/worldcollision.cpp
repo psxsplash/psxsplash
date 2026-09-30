@@ -13,7 +13,7 @@ namespace psxsplash {
 static constexpr int FRAC_BITS = 12;
 static constexpr int32_t FP_ONE = 1 << FRAC_BITS;  // 4096
 
-// Multiply two 20.12 values → 20.12
+// Multiply two 20.12 values -> 20.12
 static inline int32_t fpmul(int32_t a, int32_t b) {
     return (int32_t)(((int64_t)a * b) >> FRAC_BITS);
 }
@@ -228,12 +228,12 @@ int32_t WorldCollision::sphereVsTriangle(int32_t cx, int32_t cy, int32_t cz,
     int32_t closestX, closestY, closestZ;
 
     if (u >= 0 && v >= 0 && w >= 0) {
-        // Point is inside triangle — closest point is the plane projection
+        // Point is inside triangle - closest point is the plane projection
         closestX = cx - fpmul(dist, tri.nx);
         closestY = cy - fpmul(dist, tri.ny);
         closestZ = cz - fpmul(dist, tri.nz);
     } else {
-        // Point is outside triangle — find closest point on edges/vertices
+        // Point is outside triangle - find closest point on edges/vertices
         // Check all 3 edges and pick the closest point
 
         // v1 = v0 + e1, v2 = v0 + e2
@@ -264,20 +264,20 @@ int32_t WorldCollision::sphereVsTriangle(int32_t cx, int32_t cy, int32_t cz,
             oz = az + fpmul(t, abz);
         };
 
-        // Edge v0→v1
+        // Edge v0->v1
         int32_t ex, ey, ez;
         closestOnSeg(tri.v0x, tri.v0y, tri.v0z, v1x, v1y, v1z, ex, ey, ez);
         int32_t dx = cx - ex, dy = cy - ey, dz = cz - ez;
         int32_t dsq = lengthSq(dx, dy, dz);
         if (dsq < bestDistSq) { bestDistSq = dsq; closestX = ex; closestY = ey; closestZ = ez; }
 
-        // Edge v0→v2
+        // Edge v0->v2
         closestOnSeg(tri.v0x, tri.v0y, tri.v0z, v2x, v2y, v2z, ex, ey, ez);
         dx = cx - ex; dy = cy - ey; dz = cz - ez;
         dsq = lengthSq(dx, dy, dz);
         if (dsq < bestDistSq) { bestDistSq = dsq; closestX = ex; closestY = ey; closestZ = ez; }
 
-        // Edge v1→v2
+        // Edge v1->v2
         closestOnSeg(v1x, v1y, v1z, v2x, v2y, v2z, ex, ey, ez);
         dx = cx - ex; dy = cy - ey; dz = cz - ez;
         dsq = lengthSq(dx, dy, dz);
@@ -344,7 +344,7 @@ int32_t WorldCollision::rayVsTriangle(int32_t ox, int32_t oy, int32_t oz,
     if (a > -COLLISION_EPSILON && a < COLLISION_EPSILON)
         return -1; // Ray parallel to triangle
 
-    // f = 1/a — we'll defer the division by working with a as denominator
+    // f = 1/a - we'll defer the division by working with a as denominator
     // s = O - v0
     int32_t sx = ox - tri.v0x;
     int32_t sy = oy - tri.v0y;
@@ -428,7 +428,7 @@ psyqo::Vec3 WorldCollision::moveAndSlide(const psyqo::Vec3& oldPos,
                 const auto& tri = m_triangles[mesh.firstTriangle + ti];
                 triTests++;
 
-                // Skip floor and ceiling triangles — Y is resolved by nav regions.
+                // Skip floor and ceiling triangles - Y is resolved by nav regions.
                 // In PS1 space (Y-down): floor normals have ny < 0, ceiling ny > 0.
                 // If |ny| > walkable slope threshold, it's a floor/ceiling, not a wall.
                 int32_t absNy = tri.ny >= 0 ? tri.ny : -tri.ny;
