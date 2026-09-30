@@ -4,6 +4,8 @@
 #include <psyqo/hardware/sio.hh>
 #include <psyqo/vector.hh>
 
+#include "irqack.hh"
+
 namespace {
 
 using namespace psyqo::Hardware;
@@ -19,9 +21,32 @@ void flushRxBuffer() {
     }
 }
 
+// Acknowledge the CONTROLLER interrupt without collateral damage.
+//
+// `IReg.clear()` is a read-modify-write on I_STAT (hwregs.hh, operator&=), and
+// I_STAT is acknowledge-by-writing-ZERO - so it writes a zero back into every bit
+// that was not pending at the moment it read. If the SIO1 receive interrupt asserts
+// inside that window, this call acknowledges it by accident, and because
+// SIO_STAT.9 is sticky while I_STAT.8 is edge-triggered, no further edge is ever
+// generated: the link's receive interrupt is dead for the rest of the session. See
+// Sio1::rearmRx() for the full mechanism and the hardware references.
+//
+// psyqo's AdvancedPad does the same thing and cannot be edited here, which is why
+// Sio1::rearmRx() exists to undo it. But there is no reason for THIS driver to be a
+// second source of the same fault: with interrupts off, nothing can assert between
+// the read and the write, so the window closes completely.
+//
+// The critical section this used to hold is gone, and so is the MAIN THREAD ONLY
+// restriction that came with it: `ackIrq` writes I_STAT without reading it, so there
+// is no read-modify-write to protect. `I_STAT = ~bit` is "acknowledge this bit,
+// leave every other pending", which is what the critical section was buying at the
+// cost of disabling interrupts and of being unusable from a handler. Immune by
+// construction rather than by timing, and one store instead of three. See irqack.hh.
+inline void ackControllerIrq() { psxsplash::ackIrq(CPU::IRQ::Controller); }
+
 uint8_t transceive(uint8_t dataOut) {
     SIO::Ctrl |= SIO::Control::CTRL_ERRRES;
-    CPU::IReg.clear(CPU::IRQ::Controller);
+    ackControllerIrq();
     SIO::Data = dataOut;
     while (!(SIO::Stat & SIO::Status::STAT_RXRDY));
     return SIO::Data;
