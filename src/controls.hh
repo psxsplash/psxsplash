@@ -128,6 +128,40 @@ class Controls {
         m_motorLargeCache = 0;
     }
 
+    /// Bracket psyqo's per-frame pad poll, which is the one place in the whole
+    /// program that can destroy the SIO1 receive interrupt. Call Begin BEFORE the
+    /// first Init() and End AFTER the last one; both are once-per-boot no-ops
+    /// afterwards.
+    ///
+    /// WHY THE PAD POLL, of all things, is a network hazard: psyqo's
+    /// AdvancedPad::transceive() clears the CONTROLLER interrupt before every pad
+    /// byte, and psyqo implements that as a read-modify-write on I_STAT. I_STAT is
+    /// acknowledge-by-writing-zero, so it writes back a zero for every bit that was
+    /// not pending when it read - including ours, if SIO1 asserted in between. And
+    /// because SIO_STAT.9 is sticky while I_STAT.8 is edge-triggered, that
+    /// acknowledgement is FINAL: no further edge is ever generated and the receive
+    /// interrupt is dead for the session. Full mechanism on Sio1::rearmRx().
+    ///
+    /// THE FIRST VERSION OF THIS MASKED IRQ8 ACROSS THE POLL, AND THAT WAS WORSE
+    /// THAN NOTHING. I_MASK gates DISPATCH; it does not stop I_STAT.8 being set. So
+    /// masking simply left our pending bit latched for the whole poll, maximally
+    /// exposed to the very read-modify-writes that clear it. It is recorded here
+    /// because it looks like an obvious fix and is the opposite of one.
+    ///
+    /// What actually works is to drain the FIFO going in and re-arm the interrupt
+    /// coming out, so a destroyed edge is recreated before it can cost a byte. The
+    /// arithmetic is what makes this exact rather than hopeful: a pad poll is ~9
+    /// bytes at SIO0's 250kHz plus setup, about 380us, twice (one per player) -
+    /// ~760us. At 57600 that is 4.4 bytes arriving into an 8-byte FIFO that Begin
+    /// just emptied. **The FIFO cannot overflow inside the window**, so re-arming
+    /// immediately after it means no byte is ever lost, even when the race fires.
+    ///
+    /// Both halves are no-ops in RxMode::Polled, which is what PCSX-Redux resolves
+    /// to: there is no interrupt there to lose, and Sio1::rearmRx() returns
+    /// immediately. The emulator's behaviour is unchanged by any of this.
+    static void ShieldPadPollBegin();
+    static void ShieldPadPollEnd();
+
     /// How many times a Controls instance has actually handed SIO0 to AdvancedPad
     /// since boot -- i.e. how many entries this class has added to the kernel's
     /// per-frame callback list, which nothing can ever remove.
@@ -147,6 +181,11 @@ class Controls {
     bool m_padInitialized = false;
     bool m_analogForced = false;
     static uint32_t s_padInitCount;
+
+    // See ShieldPadPollBegin/End. The registrations are once-per-boot for the same
+    // reason Init() is: addOnFrame has no removal API.
+    static bool s_shieldBeginInstalled;
+    static bool s_shieldEndInstalled;
 
     // Which physical controller this instance drives. Set by the PlayerN entry
     // points; defaults to player 1 (controller in port 1).

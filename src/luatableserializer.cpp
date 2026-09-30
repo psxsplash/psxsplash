@@ -195,6 +195,11 @@ bool readTable(psyqo::Lua& lua, Reader& r, int depth, const char** outError) {
         }
         if (!readValue(lua, r, depth + 1, outError)) return false;  // key
         if (!readValue(lua, r, depth + 1, outError)) return false;  // value
+        // setTable raises on a nil key, and this runs outside a protected call.
+        if (lua.isNil(-2)) {
+            *outError = "nil table key";
+            return false;
+        }
         lua.setTable(tableIdx);                                     // t[key] = value
     }
     return true;

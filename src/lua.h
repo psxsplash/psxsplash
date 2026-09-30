@@ -62,6 +62,13 @@ class Lua {
     
     // Get the underlying psyqo::Lua state for API registration
     psyqo::Lua& getState() { return m_state; }
+
+    // Serialize a GameObject's `self.sync` table into buf (integer-only tagged
+    // blob). Returns bytes written, or 0 if there is no sync table / on error.
+    uint32_t SerializeObjectSync(GameObject* go, uint8_t* buf, uint32_t cap);
+    // Deserialize a blob (from SerializeObjectSync) into a GameObject's
+    // `self.sync` table. Returns true on success.
+    bool ApplyObjectSync(GameObject* go, const uint8_t* buf, uint32_t size);
     
     /**
      * Check if a GameObject handles a specific event.
@@ -76,6 +83,16 @@ class Lua {
     }
     void OnSceneCreationEnd() {
         onSceneCreationEndFunctionWrapper.callFunction(*this);
+    }
+    // Reliable network event delivered to the scene script (serial multiplayer).
+    void OnNetEvent(int eventId, int arg) {
+        onNetEventFunctionWrapper.callFunction(*this, eventId, arg);
+    }
+    // Reliable opaque application payload delivered to the scene script as a
+    // binary string. The engine assigns it no meaning; games layer their own
+    // protocol (lobbies, room lists, roles, votes) on top.
+    void OnNetData(const uint8_t* data, uint16_t len) {
+        onNetDataFunctionWrapper.callFunction(*this, LuaBytes{data, len});
     }
     
     // Event dispatchers - these check the bitmask before calling Lua    
@@ -103,6 +120,15 @@ class Lua {
     void OnAgentPathBlocked(GameObject* go);
 
   private:
+    // A length-counted byte range destined for Lua. Lua strings are binary-safe
+    // (counted, not NUL-terminated), so this carries arbitrary payloads -
+    // including embedded zeros - through the same variadic pushArgs path as
+    // every other argument type, with no special-casing at the call site.
+    struct LuaBytes {
+        const uint8_t* data;
+        uint16_t len;
+    };
+
     template <int methodId, typename methodName>
     struct FunctionWrapper;
     template <int methodId, char... C>
@@ -132,6 +158,9 @@ class Lua {
         }
         static void push(psxsplash::Lua& lua, GameObject* go) { lua.PushGameObject(go); }
         static void push(psxsplash::Lua& lua, int val) { lua.m_state.pushNumber(val); }
+        static void push(psxsplash::Lua& lua, LuaBytes bytes) {
+            lua.m_state.push(reinterpret_cast<const char*>(bytes.data), bytes.len);
+        }
         
         template <typename... Args>
         static void callMethod(psxsplash::Lua& lua, GameObject* go, Args... args) {
@@ -173,9 +202,11 @@ class Lua {
         }
     };
 
-    // Scene-level events (methodId 1-2)
+    // Scene-level events (methodId 1-4)
     [[no_unique_address]] FunctionWrapper<1, typestring_is("onSceneCreationStart")> onSceneCreationStartFunctionWrapper;
     [[no_unique_address]] FunctionWrapper<2, typestring_is("onSceneCreationEnd")> onSceneCreationEndFunctionWrapper;
+    [[no_unique_address]] FunctionWrapper<3, typestring_is("onNetEvent")> onNetEventFunctionWrapper;
+    [[no_unique_address]] FunctionWrapper<4, typestring_is("onNetData")> onNetDataFunctionWrapper;
     
     // Object-level events
     [[no_unique_address]] FunctionWrapper<100, typestring_is("onCreate")> onCreateMethodWrapper;

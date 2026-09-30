@@ -2,9 +2,11 @@
 
 #include <psyqo/hardware/cpu.hh>
 #include <psyqo/hardware/sio.hh>
+#include <psyqo/kernel.hh>
 #include <psyqo/vector.hh>
 
 #include "irqack.hh"
+#include "sio1.hh"
 
 namespace {
 
@@ -139,6 +141,41 @@ bool sendCommand(const uint8_t *cmd, unsigned len) {
 }  // namespace
 
 uint32_t psxsplash::Controls::s_padInitCount = 0;
+bool psxsplash::Controls::s_shieldBeginInstalled = false;
+bool psxsplash::Controls::s_shieldEndInstalled = false;
+
+// The two halves of the pad-poll bracket. Registration order is execution order
+// (Kernel::Internal::beginFrame walks its list front to back), so these must be
+// registered on either side of AdvancedPad::initialize() -- which is what
+// SceneManager::InitializeScene does. The full reasoning is on the declarations in
+// controls.hh; it lives there because that is where somebody removing this will be
+// reading.
+void psxsplash::Controls::ShieldPadPollBegin() {
+    if (s_shieldBeginInstalled) return;
+    s_shieldBeginInstalled = true;
+    psyqo::Kernel::Internal::addOnFrame([]() {
+        // Go in with an EMPTY FIFO and a live interrupt. The pad poll is ~760us,
+        // and 760us at 57600 is 4.4 bytes -- so an empty FIFO cannot overflow
+        // inside the window, whereas a half-full one can. That is what turns this
+        // from damage limitation into "no byte is ever lost".
+        //
+        // rearmRx(), NOT poll(): poll() also runs pumpTxBlocking, whose 48-byte
+        // budget can spend 8.3ms. Calling it from the frame callback would add a
+        // second full transmit pass per frame from inside GPU::flip.
+        Sio1::Get().rearmRx();
+    });
+}
+
+void psxsplash::Controls::ShieldPadPollEnd() {
+    if (s_shieldEndInstalled) return;
+    s_shieldEndInstalled = true;
+    psyqo::Kernel::Internal::addOnFrame([]() {
+        // Recreate the interrupt's edge, immediately after the only code in the
+        // program that can have destroyed it. This is the tight net; Sio1::poll()
+        // carries a second one for everything else. See Sio1::rearmRx().
+        Sio1::Get().rearmRx();
+    });
+}
 
 void psxsplash::Controls::forceAnalogMode() {
     // Once per boot. The pad latches analog mode itself, so a scene change does

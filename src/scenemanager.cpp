@@ -10,6 +10,7 @@
 #include "luaapi.hh"
 #include "loadingscreen.hh"
 #include "gtemath.hh"
+#include "networkmanager.hh"
 
 #include <psyqo/primitives/misc.hh>
 #include <psyqo/soft-math.hh>
@@ -210,6 +211,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_skinnedMeshCount > 0 ? m_skinAnimStates : nullptr,
         m_skinnedMeshCount);
 
+    m_authoredSceneHash = sceneSetup.sceneHash;
+
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
     // images and 3D textures, so there is nothing to upload here - only the
     // sheet/anim tables to parse.
@@ -408,11 +411,28 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
             m_gameObjects.size());
     }
 
+    // THE ORDER OF THESE FIVE CALLS IS THE FIX, not decoration.
+    //
+    // Init() hands SIO0 to psyqo's AdvancedPad, which registers a per-frame pad
+    // poll on the kernel. That list is append-only -- nothing can remove an entry
+    // -- so Init() is guarded to run once per boot; without that guard every scene
+    // load permanently added two more blocking, bit-banged SIO0 transfers to every
+    // frame, and the console eventually hung inside one of them.
+    //
+    // Shield{Begin,End} bracket those registrations so the SIO1 receive interrupt
+    // is masked for the duration of the poll. Registration order IS execution
+    // order, so Begin must precede the Init()s and End must follow them. Swapping
+    // any of this silently disarms the shield: the callbacks still run, just not
+    // around the thing they exist to protect. See Controls::ShieldPadPollBegin.
+    Controls::ShieldPadPollBegin();
+
     m_controls[0].forceAnalogMode();
     m_controls[0].Init();
 
     m_controls[1].forceAnalogMode();
     m_controls[1].Init();
+
+    Controls::ShieldPadPollEnd();
 
     Renderer::GetInstance().SetCamera(m_currentCamera);
 
@@ -467,6 +487,11 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
         }
         m_lastFrameTime = now;
     }
+
+    // Networking: pump the link and apply any remote state BEFORE this frame's
+    // game logic, so scripts and movement see fresh peer state. No-op (and never
+    // blocks) unless a session has been started.
+    NetworkManager::Get().preTick(*this, m_dt12);
 
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameStart = gpu.now();
@@ -816,6 +841,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
                                         static_cast<psyqo::Angle>(actorRot.z));
         }
     }
+
+    // Networking: capture our owned state and send it at the net-tick cadence.
+    NetworkManager::Get().postTick(*this, m_dt12);
 
     // Process pending scene transitions (at end of frame)
     processPendingSceneLoad();
@@ -1544,7 +1572,23 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
 }
 
 void psxsplash::SceneManager::clearScene() {
-    // 1. Shut down the Lua VM first — frees ALL Lua-allocated memory
+    // 0. Drop network replication state: actorIds refer to different objects in
+    //    a new scene, so any mapping/registry must not carry over.
+    //
+    //    The SESSION is a separate question. By default it goes too, and a scene
+    //    that wants networking re-establishes it on creation. But a game that
+    //    called Net.SetPersistent(true) is mid-handover - lobby scene to game
+    //    scene, holding a slot on a server - and tearing the session down there
+    //    would drop it from its own room, which may then be full of the very
+    //    players it was about to join. Such a scene keeps its slot and re-Hellos
+    //    with c_flagRebind once the new scene is up.
+    if (NetworkManager::Get().isPersistent()) {
+        NetworkManager::Get().resetSceneBindings();
+    } else {
+        NetworkManager::Get().reset();
+    }
+
+    // 1. Shut down the Lua VM first - frees ALL Lua-allocated memory
     //    (bytecode, strings, tables, registry) in one shot via lua_close.
     L.Shutdown();
 
