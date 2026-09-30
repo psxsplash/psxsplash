@@ -161,6 +161,23 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
                 el.image.u1       = typeData[8];
                 el.image.v1       = typeData[9];
                 el.image.bitDepth = typeData[10];
+                // The sheet grid lives in what used to be five padding bytes, so
+                // a pack written before PSXUISprite existed reads cellW = 0 and
+                // is simply "not sheet-backed".
+                el.image.cellW    = typeData[11];
+                el.image.cellH    = typeData[12];
+                el.image.cols     = typeData[13];
+                el.image.baseU    = typeData[14];
+                el.image.baseV    = typeData[15];
+                // Recover the authored cell from the UVs rather than spending a
+                // sixteenth byte on it: the exporter wrote u0/v0 from the very
+                // same grid, so this is exact.
+                if (el.image.cellW && el.image.cellH) {
+                    uint8_t cols = el.image.cols ? el.image.cols : 1;
+                    uint8_t col  = (uint8_t)((el.image.u0 - el.image.baseU) / el.image.cellW);
+                    uint8_t row  = (uint8_t)((el.image.v0 - el.image.baseV) / el.image.cellH);
+                    el.image.frame = (uint8_t)(row * cols + col);
+                }
                 break;
             case UIElementType::Progress:
                 el.progress.bgR   = typeData[0];
@@ -408,12 +425,22 @@ void UISystem::renderOT(psyqo::GPU& gpu,
                         psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
     m_pendingTextCount = 0;
 
-    // Canvases are pre-sorted by sortOrder (ascending = back first).
-    // Higher-sortOrder canvases insert at OT 0 later, appearing on top.
-    for (int i = 0; i < m_canvasCount; i++) {
+    // BOTH loops run BACKWARDS, and that is the whole of the depth model.
+    //
+    // OrderingTable::insert prepends to its bucket (`table[z] = head`), so within
+    // one bucket the LAST fragment inserted is the FIRST the GPU draws - and the
+    // first thing drawn is the thing everything else paints over. Inserting in
+    // natural order therefore puts element 0 in FRONT and the highest sortOrder
+    // BEHIND, the opposite of what Unity UI does.
+    //
+    // Walking backwards gives the documented contract:
+    //   * higher sortOrder = in front,
+    //   * later sibling in the hierarchy = in front.
+    // (m_canvases is pre-sorted ascending by sortOrder at load.)
+    for (int i = m_canvasCount - 1; i >= 0; i--) {
         UICanvas& cv = m_canvases[i];
         if (!cv.visible) continue;
-        for (int j = 0; j < cv.elementCount; j++) {
+        for (int j = cv.elementCount - 1; j >= 0; j--) {
             UIElement& el = cv.elements[j];
             if (!el.visible) continue;
             renderElement(el, ot, balloc);
@@ -677,6 +704,33 @@ void UISystem::setProgressColors(int handle, uint8_t bgR, uint8_t bgG, uint8_t b
     el.colorR = fillR;
     el.colorG = fillG;
     el.colorB = fillB;
+}
+
+void UISystem::setFrame(int handle, uint8_t frame) {
+    if (handle < 0 || handle >= m_elementCount) return;
+    UIElement& el = m_elements[handle];
+    if (el.type != UIElementType::Image) return;
+    // Not authored from a sheet: there is no grid to index, and guessing one
+    // would point the UVs at whatever happens to sit beside the texture in the
+    // atlas. Do nothing instead.
+    if (el.image.cellW == 0 || el.image.cellH == 0) return;
+
+    const uint8_t cols = el.image.cols ? el.image.cols : 1;
+    el.image.frame = frame;
+    el.image.u0 = (uint8_t)(el.image.baseU + (frame % cols) * el.image.cellW);
+    el.image.v0 = (uint8_t)(el.image.baseV + (frame / cols) * el.image.cellH);
+    // u1/v1 are the LAST texel, inclusive - the same convention the exporter
+    // writes and renderElement samples with.
+    el.image.u1 = (uint8_t)(el.image.u0 + el.image.cellW - 1);
+    el.image.v1 = (uint8_t)(el.image.v0 + el.image.cellH - 1);
+}
+
+int UISystem::getFrame(int handle) const {
+    if (handle < 0 || handle >= m_elementCount) return -1;
+    const UIElement& el = m_elements[handle];
+    if (el.type != UIElementType::Image) return -1;
+    if (el.image.cellW == 0 || el.image.cellH == 0) return -1;
+    return el.image.frame;
 }
 
 uint8_t UISystem::getProgress(int handle) const {
