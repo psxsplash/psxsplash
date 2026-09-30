@@ -146,6 +146,20 @@ struct SplashpackSceneSetup {
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
     uint32_t uiTableOffset = 0;
+
+    // --- v22 ---
+    uint16_t spriteSheetCount = 0;
+    uint16_t spriteAnimCount = 0;
+    uint32_t spriteTableOffset = 0;
+    /// Authored network scene id. 0 means "not authored" - the caller falls back
+    /// to the derived hash, which is why older packs keep working.
+    uint32_t sceneHash = 0;
+
+    // --- v23 ---
+    /// Offset to the tilemap header (SPLASHPACKTilemap), or 0 if the scene has no
+    /// tilemap. Reuses the v22 reserved header word, so the header size is
+    /// unchanged and a v22 pack (which left that word 0) reads as "no tilemap".
+    uint32_t tilemapTableOffset = 0;
 };
 
 class SplashPackLoader {
