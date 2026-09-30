@@ -131,4 +131,21 @@ void MainScene::frame() {
     gpu().pumpCallbacks();
 }
 
-int main() { return app.run(); }
+int main() {
+
+    // Turn a crash into a readable screen instead of a black one.
+    //
+    // On a retail PlayStation there is no other channel: Debug.Log goes to a BIOS
+    // TTY that does not exist, so an unhandled exception is indistinguishable from
+    // a dead console, a bad disc or a wrong cable. This prints the exception type,
+    // the faulting address and every register. That is the difference between
+    // "ReservedInstruction from 0x00005704" being a mystery and being a five
+    // minute fix - one register would name whatever jumped there.
+    //
+    // LIMIT: it draws with the system font, which prepare() uploads to VRAM, so a
+    // crash BEFORE that still shows nothing. It covers everything from the first
+    // frame onward, which is where a game actually spends its life.
+    psyqo::Kernel::installCrashHandler();
+
+    return app.run();
+}
