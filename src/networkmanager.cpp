@@ -224,8 +224,10 @@ void NetworkManager::onHelloAck(const HelloAckPayload& ack) {
         m_state = State::SceneMismatch;
         return;
     }
-    // yourSlot indexes the per-slot tables; an out-of-range one is a bad ack.
-    if (ack.yourSlot >= c_maxSlots) return;
+    // c_noSlot is a valid answer: a server whose game runs its own lobby
+    // accepts the console before it is in a room. Anything else past
+    // c_maxSlots is a bad ack.
+    if (ack.yourSlot >= c_maxSlots && ack.yourSlot != c_noSlot) return;
     m_localSlot = ack.yourSlot;
     m_hostSlot = ack.hostSlot;
     m_isHost = (ack.yourSlot == ack.hostSlot);
