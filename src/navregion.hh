@@ -23,6 +23,7 @@ namespace psxsplash {
 static constexpr int NAV_MAX_VERTS_PER_REGION = 8;   // Max polygon verts
 static constexpr int NAV_MAX_NEIGHBORS = 8;           // Max portal edges per region
 static constexpr int NAV_MAX_PATH_STEPS = 32;         // Max A* path length
+static constexpr int NAV_MAX_SEARCH_REGIONS = 256;    // Max regions searched by runtime pathfinding
 static constexpr uint16_t NAV_NO_REGION = 0xFFFF;     // Sentinel: no region
 static constexpr int32_t NAV_ATTACH_DISTANCE = 512;
 static constexpr uint8_t NAV_FLAG_PLATFORM = 0x01;
@@ -145,6 +146,15 @@ public:
 
     /// Find which region contains a point (brute-force, for initialization).
     uint16_t findRegionClosest(int32_t x, int32_t y, int32_t z) const;
+
+    /// findRegionClosest, falling back to the region whose centroid is nearest in
+    /// XZ when the point is on no region. Never NAV_NO_REGION while any region
+    /// exists, so it is for agent pathing only: the player's movement relies on
+    /// findRegionClosest returning NAV_NO_REGION to walk off an edge.
+    uint16_t findRegionNearest(int32_t x, int32_t y, int32_t z) const;
+
+    /// Compute a simple centroid/floor point for a region.
+    bool getRegionCenter(uint16_t regionIndex, int32_t& outX, int32_t& outY, int32_t& outZ) const;
 
     /// Is the player off the nav region?
     bool isOffNavRegion(int32_t x, int32_t y, int32_t z) const;
