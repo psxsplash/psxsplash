@@ -17,6 +17,8 @@ src/scenemanager.cpp \
 src/fileloader.cpp \
 src/streamreader.cpp \
 src/streamselftest.cpp \
+src/worldstreamer.cpp \
+src/streamplanner.cpp \
 src/audiomanager.cpp \
 src/controls.cpp \
 src/profiler.cpp \
@@ -87,6 +89,11 @@ endif
 #                checksum every chunk (gameplay CD read stress test).
 ifeq ($(STREAMTEST),1)
 CPPFLAGS += -DPSXSPLASH_STREAM_SELFTEST
+endif
+
+# STREAMLOG=1  → Print streamed-world region attach/detach events.
+ifeq ($(STREAMLOG),1)
+CPPFLAGS += -DPSXSPLASH_STREAM_LOG
 endif
 
 ifdef OT_SIZE

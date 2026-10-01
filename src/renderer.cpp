@@ -464,6 +464,8 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
             setupObjectTransform(obj, cameraPosition);
         }
         if (lastObjCulled) continue;
+        // polyCount is 0 while a streamed object's geometry is not resident.
+        if (ref.triangleIndex >= obj->polyCount) continue;
         processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
 
@@ -800,6 +802,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 setupObjectTransform(obj, cameraPosition);
             }
             if (lastObjCulled) continue;
+            if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
             processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
     };

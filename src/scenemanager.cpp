@@ -23,6 +23,7 @@
 
 #include "streamreader.hh"
 #include "streamselftest.hh"
+#include "worldstreamer.hh"
 
 #include "lua.h"
 
@@ -261,6 +262,12 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     } else {
         Renderer::GetInstance().SetTileSystem(nullptr);
     }
+
+    // Streamed world geometry. Before Lua runs: the initial region loads are
+    // blocking CD reads, and a scene script may start CD-DA.
+    m_worldStreamer.init(splashpackData, sceneSetup.streamTableOffset, m_currentSceneIndex,
+                         m_gameObjects, sceneSetup.playerStartPosition.x.value,
+                         sceneSetup.playerStartPosition.z.value);
 
     // Initialize UI system (v13+)
     // Font pixel data is uploaded separately via uploadVramData() before InitializeScene.
@@ -541,7 +548,12 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // pinned to.
     m_spriteSystem.update(m_dt12);
 
-    // Gameplay CD reads: at most one started per frame, no-op when idle.
+    // Streamed world regions, then gameplay CD reads (at most one started per
+    // frame). Both are no-ops when there is nothing to do.
+    {
+        auto& cam = m_currentCamera.GetPosition();
+        m_worldStreamer.update(cam.x.value, cam.z.value);
+    }
     StreamReader::Get().update();
 
 
@@ -1627,6 +1639,9 @@ void psxsplash::SceneManager::clearScene() {
     // 1. Shut down the Lua VM first - frees ALL Lua-allocated memory
     //    (bytecode, strings, tables, registry) in one shot via lua_close.
     L.Shutdown();
+
+    // Streamed geometry pool (StreamReader was drained before we got here).
+    m_worldStreamer.shutdown();
 
     // 2. Clear all vectors to free their heap storage (game objects, Lua files, names, etc)
     { eastl::vector<GameObject*>    tmp; tmp.swap(m_gameObjects); }

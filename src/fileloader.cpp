@@ -79,4 +79,12 @@ void FileLoader::BuildLoadingFilename(int sceneIndex, char* out, int maxLen) {
 #endif
 }
 
+void FileLoader::BuildGeoFilename(int sceneIndex, char* out, int maxLen) {
+#if defined(LOADER_CDROM)
+    snprintf(out, maxLen, "SCENE%d/SCENE_%d.GEO;1", sceneIndex, sceneIndex);
+#else
+    snprintf(out, maxLen, "scene_%d.geo", sceneIndex);
+#endif
+}
+
 }  // namespace psxsplash

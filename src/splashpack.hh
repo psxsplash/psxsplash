@@ -181,6 +181,8 @@ struct SplashpackSceneSetup {
     /// Points into splashpack data; count 0 when the scene has no point lights.
     const SPLASHPACKPointLight* pointLights = nullptr;
     uint16_t pointLightCount = 0;
+    /// Offset to the streamed-geometry table (SPLASHPACKStreamTable), or 0.
+    uint32_t streamTableOffset = 0;
 };
 
 class SplashPackLoader {

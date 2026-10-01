@@ -19,6 +19,7 @@
 #include "navregion.hh"
 #include "audiomanager.hh"
 #include "musicmanager.hh"
+#include "worldstreamer.hh"
 #include "interactable.hh"
 #include "luaapi.hh"
 #include "fileloader.hh"
@@ -552,6 +553,7 @@ namespace psxsplash {
         // Audio system
         AudioManager m_audio;
         MusicManager m_music;
+        WorldStreamer m_worldStreamer;
 
         // Cutscene playback
         Cutscene m_cutscenes[MAX_CUTSCENES];
