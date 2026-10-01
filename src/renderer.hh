@@ -16,6 +16,7 @@
 #include "bvh.hh"
 #include "camera.hh"
 #include "gameobject.hh"
+#include "lightmath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
 
@@ -111,6 +112,12 @@ class Renderer final {
         m_skinSets = sets; m_skinStates = states; m_skinCount = count;
     }
 
+    /// The scene's point lights. Read every frame, so Lua edits take effect on
+    /// the next one. nullptr / 0 turns dynamic lighting off.
+    void SetPointLights(const PointLight* lights, int count) {
+        m_lights = lights; m_lightCount = count;
+    }
+
     static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr,
                               "Access to renderer was tried without prior initialization");
@@ -145,11 +152,18 @@ class Renderer final {
     const SkinAnimState* m_skinStates = nullptr;
     int m_skinCount = 0;
 
+    const PointLight* m_lights = nullptr;
+    int m_lightCount = 0;
+    // Lights reaching the object setupObjectTransform last loaded. Count 0
+    // leaves processTriangle on the unlit path.
+    lightmath::ObjectLights m_objLights;
+
     TriangleRef m_visibleRefs[MAX_VISIBLE_TRIANGLES];
     int m_frameCount = 0;
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
+    void prepareObjectLights(const GameObject* obj);
 
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,

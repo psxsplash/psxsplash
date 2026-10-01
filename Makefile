@@ -4,6 +4,7 @@ TYPE = ps-exe
 SRCS = \
 src/main.cpp \
 src/renderer.cpp \
+src/lightmath.cpp \
 src/splashpack.cpp \
 src/camera.cpp \
 src/worldcollision.cpp \
