@@ -213,6 +213,27 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     m_authoredSceneHash = sceneSetup.sceneHash;
 
+    // Point lights (v24+). Copied out so Lua can move them; the names stay in
+    // splashpack data.
+    m_pointLightCount = sceneSetup.pointLightCount;
+    for (int i = 0; i < m_pointLightCount; i++) {
+        const SPLASHPACKPointLight& src = sceneSetup.pointLights[i];
+        PointLight& l = m_pointLights[i];
+        l.x = src.x;
+        l.y = src.y;
+        l.z = src.z;
+        l.radius = src.radius;
+        l.intensity = src.intensity;
+        l.r = src.r;
+        l.g = src.g;
+        l.b = src.b;
+        l.enabled = src.flags & 1;
+        m_pointLightNames[i] =
+            src.nameOffset ? reinterpret_cast<const char*>(splashpackData + src.nameOffset) : nullptr;
+    }
+    Renderer::GetInstance().SetPointLights(m_pointLightCount > 0 ? m_pointLights : nullptr,
+                                           m_pointLightCount);
+
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
     // images and 3D textures, so there is nothing to upload here - only the
     // sheet/anim tables to parse.
@@ -1610,6 +1631,8 @@ void psxsplash::SceneManager::clearScene() {
     m_animationPlayer.init(nullptr, 0);  // Reset animation player
     m_skinnedMeshCount = 0;
     Renderer::GetInstance().SetSkinData(nullptr, nullptr, 0);
+    m_pointLightCount = 0;
+    Renderer::GetInstance().SetPointLights(nullptr, 0);
     // BVH and NavRegions will be overwritten by next load
 
     // Reset UI system (disconnect from renderer before splashpack data disappears)
@@ -1645,6 +1668,14 @@ void psxsplash::SceneManager::clearScene() {
 // OBJECT NAME LOOKUP
 // ============================================================================
 
+
+int psxsplash::SceneManager::findPointLight(const char* name) const {
+    if (!name) return -1;
+    for (int i = 0; i < m_pointLightCount; i++) {
+        if (m_pointLightNames[i] && streq(m_pointLightNames[i], name)) return i;
+    }
+    return -1;
+}
 
 psxsplash::GameObject* psxsplash::SceneManager::findObjectByName(const char* name) const {
     if (!name || m_objectNames.empty()) return nullptr;

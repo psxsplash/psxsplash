@@ -15,6 +15,7 @@
 #include "animation.hh"
 #include "skinmesh.hh"
 #include "uisystem.hh"
+#include "lightmath.hh"
 
 namespace psxsplash {
 
@@ -71,6 +72,21 @@ struct SPLASHPACKAgentV2 {
     uint8_t  reserved[3];
 };
 static_assert(sizeof(SPLASHPACKAgentV2) == 28, "SPLASHPACKAgentV2 must be 28 bytes");
+
+/**
+ * Point light as stored in the splashpack (v24). The light table is a uint16
+ * count and a uint16 pad, then `count` of these.
+ */
+struct SPLASHPACKPointLight {
+    int32_t x, y, z;      ///< world position, 20.12
+    int32_t radius;       ///< 20.12; the light reaches zero here
+    uint16_t intensity;   ///< 4.12, 4096 = 1.0
+    uint8_t r, g, b;
+    uint8_t flags;        ///< bit 0 = enabled at load
+    uint16_t pad;
+    uint32_t nameOffset;  ///< null-terminated name, or 0
+};
+static_assert(sizeof(SPLASHPACKPointLight) == 28, "SPLASHPACKPointLight must be 28 bytes");
 
 // Legacy alias kept so any old code that still uses SPLASHPACKAgent compiles.
 using SPLASHPACKAgent = SPLASHPACKAgentV2;
@@ -160,6 +176,11 @@ struct SplashpackSceneSetup {
     /// tilemap. Reuses the v22 reserved header word, so the header size is
     /// unchanged and a v22 pack (which left that word 0) reads as "no tilemap".
     uint32_t tilemapTableOffset = 0;
+
+    // --- v24 ---
+    /// Points into splashpack data; count 0 when the scene has no point lights.
+    const SPLASHPACKPointLight* pointLights = nullptr;
+    uint16_t pointLightCount = 0;
 };
 
 class SplashPackLoader {
