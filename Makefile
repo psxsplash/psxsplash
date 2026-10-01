@@ -14,6 +14,8 @@ src/lua.cpp \
 src/luaapi.cpp \
 src/scenemanager.cpp \
 src/fileloader.cpp \
+src/streamreader.cpp \
+src/streamselftest.cpp \
 src/audiomanager.cpp \
 src/controls.cpp \
 src/profiler.cpp \
@@ -78,6 +80,12 @@ endif
 #               loop. Runs on a single instance (no link needed); shows PASS/FAIL.
 ifeq ($(NETTEST),1)
 CPPFLAGS += -DPSXSPLASH_NETTEST
+endif
+
+# STREAMTEST=1 → Stream the scene's splashpack back during gameplay forever and
+#                checksum every chunk (gameplay CD read stress test).
+ifeq ($(STREAMTEST),1)
+CPPFLAGS += -DPSXSPLASH_STREAM_SELFTEST
 endif
 
 ifdef OT_SIZE

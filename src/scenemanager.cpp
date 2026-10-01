@@ -21,6 +21,9 @@
 #include "fileloader_cdrom.hh"
 #endif
 
+#include "streamreader.hh"
+#include "streamselftest.hh"
+
 #include "lua.h"
 
 using namespace psyqo::trig_literals;
@@ -516,6 +519,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // before the draw, so a sprite never renders a frame behind the actor it is
     // pinned to.
     m_spriteSystem.update(m_dt12);
+
+    // Gameplay CD reads: at most one started per frame, no-op when idle.
+    StreamReader::Get().update();
 
 
     uint32_t renderingStart = gpu.now();
@@ -1274,6 +1280,10 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
 }
 
 void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool isFirstScene) {
+    // Finish or drop gameplay stream reads while the scene that owns their
+    // buffers is still alive; the blocking loads below need an idle drive.
+    StreamReader::Get().drain();
+
     // Restore CD-ROM controller and CPU IRQ state for file loading.
 #if defined(LOADER_CDROM)
     CDRomHelper::WakeDrive();
@@ -1434,6 +1444,11 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     }
 
     if (loading.isActive()) loading.updateProgress(gpu, 35);
+
+#ifdef PSXSPLASH_STREAM_SELFTEST
+    // Before SilenceDrive (the lookup is a blocking read) and before parsing.
+    StreamSelfTest::Start(filename, newData, fileSize);
+#endif
 
     // Stop the CD-ROM motor and mask all interrupts for gameplay.
 #if defined(LOADER_CDROM)
