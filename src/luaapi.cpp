@@ -26,6 +26,13 @@
 
 #include <psyqo/xprintf.h>
 
+// Linker symbols, at global scope: declared inside the unnamed namespace below,
+// GCC 15.2 links them as psxsplash::(anonymous namespace)::__heap_start.
+extern "C" {
+extern char __heap_start;
+extern char __stack_start;
+}
+
 namespace psxsplash {
 
 // Static member
@@ -2292,10 +2299,6 @@ namespace {
 // (memoverlay.cpp), lifted out from behind its build flag so a RUNNING game can
 // report it -- a leak that only shows up after many minutes of play is exactly
 // the kind that a debug-only overlay never catches.
-extern "C" {
-extern char __heap_start;
-extern char __stack_start;
-}
 uint32_t HeapUsedKB() {
     void* heapEnd = psyqo_heap_end();
     if (heapEnd == nullptr) return 0;
