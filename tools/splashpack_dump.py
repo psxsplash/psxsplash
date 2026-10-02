@@ -33,12 +33,13 @@ REPO = ENGINE.parent
 
 CPP_SPRITE = ENGINE / "src" / "spritesystem.cpp"
 CPP_PACK = ENGINE / "src" / "splashpack.cpp"
+CPP_PACK_HH = ENGINE / "src" / "splashpack.hh"
 CPP_TILE = ENGINE / "src" / "tilesystem.cpp"
 CPP_TILEMATH = ENGINE / "src" / "tilemath.hh"
 CPP_UI = ENGINE / "src" / "uisystem.cpp"
 CS_WRITER = REPO / "splashedit" / "Runtime" / "PSXSceneWriter.cs"
 
-CTYPE_SIZE = {"uint8_t": 1, "uint16_t": 2, "uint32_t": 4, "char": 1}
+CTYPE_SIZE = {"uint8_t": 1, "uint16_t": 2, "uint32_t": 4, "int32_t": 4, "char": 1}
 
 # C# BinaryWriter call -> width in bytes. This is how the writer spells each
 # field; `Write(byte)` and `Write((byte)0)` are both one byte.
@@ -131,6 +132,8 @@ TILEMAP_CS_TYPES = {
 TILEOBJ_CS_TYPES = {
     "Kind": 1, "Id": 1, "TileX": 2, "TileY": 2,
 }
+# v24 point lights: every write is cast, so nothing to declare.
+LIGHT_CS_TYPES: dict[str, int] = {}
 
 
 def resolve_widths(writes, declared):
@@ -307,6 +310,13 @@ def cmd_check() -> int:
     print()
     problems += check_ui_image(cpp_ui, cs)
     print()
+    problems += compare(
+        "SPLASHPACKPointLight",
+        cpp_struct_fields(CPP_PACK_HH.read_text(encoding="utf-8"), "SPLASHPACKPointLight"),
+        cs_writes(cs, "// SPLASHPACKPointLight record", "// end SPLASHPACKPointLight"),
+        LIGHT_CS_TYPES,
+    )
+    print()
 
     # The header mixes in psyqo types, so rather than model those, lean on the
     # contract the engine already states about itself — that static_assert is
@@ -314,27 +324,35 @@ def cmd_check() -> int:
     m = re.search(r'static_assert\(sizeof\(SPLASHPACKFileHeader\) == (\d+)', cpp_pack)
     header_size = int(m.group(1)) if m else -1
     print(f"SPLASHPACKFileHeader: {header_size} bytes (per its static_assert)")
-    if header_size != 144:
-        problems.append(f"  header is {header_size}B; v23 keeps it 144 (reservedV22 reused, not added to)")
+    if header_size != 148:
+        problems.append(f"  header is {header_size}B; v24 appends lightTableOffset to the 144B v23 header")
 
     # The v22 tail must be exactly what cmd_dump unpacks at +128; v23 reuses the
     # final reserved word as tilemapTableOffset, so the header does not grow.
     for field in ("spriteTableOffset", "spriteSheetCount", "spriteAnimCount", "sceneHash",
-                  "tilemapTableOffset"):
+                  "tilemapTableOffset", "lightTableOffset"):
         if field not in cpp_pack:
             problems.append(f"  header is missing the field {field!r}")
 
-    m = re.search(r"writer\.Write\(\(ushort\)(\d+)\);", cs)
-    cs_version = int(m.group(1)) if m else -1
-    print(f"  C# writes version {cs_version}")
-    if cs_version != 23:
-        problems.append(f"  C# writes version {cs_version}, expected 23")
+    # A scene with no point lights is written as v23 (byte-identical to before
+    # lights existed); one with lights as v24.
+    m = re.search(r"writer\.Write\(\(ushort\)\(hasLights \? (\d+) : (\d+)\)\);", cs)
+    cs_versions = (int(m.group(1)), int(m.group(2))) if m else (-1, -1)
+    print(f"  C# writes version {cs_versions[0]} with point lights, {cs_versions[1]} without")
+    if cs_versions != (24, 23):
+        problems.append(f"  C# writes versions {cs_versions}, expected (24, 23)")
+    if "if (hasLights)\n                    writer.Write((uint)0);                      // lightTableOffset placeholder" not in cs:
+        problems.append("  C# does not write lightTableOffset only for v24")
 
     # The runtime must still accept older packs.
     if 'header->version >= 22' not in cpp_pack:
         problems.append("  C++ does not gate the v22 fields on version >= 22")
     if 'header->version >= 23' not in cpp_pack:
         problems.append("  C++ does not gate the tilemap offset on version >= 23")
+    if 'header->version >= 24' not in cpp_pack:
+        problems.append("  C++ does not gate the light table on version >= 24")
+    if 'kSplashpackHeaderSizeV22' not in cpp_pack:
+        problems.append("  C++ lost the v22 header size; v22/v23 packs would misparse")
     if 'kSplashpackHeaderSizeV21' not in cpp_pack:
         problems.append("  C++ lost the v21 header size; older packs would misparse")
 
@@ -344,7 +362,7 @@ def cmd_check() -> int:
         for p in problems:
             print(p)
         return 1
-    print("C++ reader and C# writer agree on the v23 sprite + tilemap layout.")
+    print("C++ reader and C# writer agree on the v24 sprite, tilemap and light layout.")
     return 0
 
 
@@ -384,6 +402,20 @@ def dump_tilemap(data: bytes, off: int) -> None:
             print(f"      [{i}] kind={kind} id={oid} at tile ({tx},{ty})")
 
 
+def dump_lights(data: bytes, off: int) -> None:
+    (count,) = struct.unpack_from("<H", data, off)
+    print(f"\n  point lights: {count}")
+    for i in range(count):
+        x, y, z, radius, inten, r, g, b, flags, _pad, name_off = struct.unpack_from(
+            "<iiiiHBBBBHI", data, off + 4 + 28 * i)
+        name = "<none>"
+        if name_off and name_off < len(data):
+            name = data[name_off:data.index(b"\0", name_off)].decode("utf-8", "replace")
+        print(f"    [{i}] {name!r} pos=({x / 4096:.3f},{y / 4096:.3f},{z / 4096:.3f}) "
+              f"radius={radius / 4096:.3f} intensity={inten / 4096:.3f} rgb=({r},{g},{b}) "
+              f"{'on' if flags & 1 else 'off'}")
+
+
 def cmd_dump(path: Path) -> int:
     data = path.read_bytes()
     if data[:2] != b"SP":
@@ -404,6 +436,11 @@ def cmd_dump(path: Path) -> int:
     print(f"  tilemapTableOffset 0x{tilemap_off:X}" + ("  (0 = no tilemap)" if not tilemap_off else ""))
     if version >= 23 and tilemap_off:
         dump_tilemap(data, tilemap_off)
+    if version >= 24:
+        (light_off,) = struct.unpack_from("<I", data, 144)
+        print(f"  lightTableOffset 0x{light_off:X}" + ("  (0 = no lights)" if not light_off else ""))
+        if light_off:
+            dump_lights(data, light_off)
 
     if not sprite_off or not sheets:
         return 0

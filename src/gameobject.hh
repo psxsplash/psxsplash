@@ -20,6 +20,9 @@ constexpr uint16_t NO_COMPONENT = 0xFFFF;
  * Bit 1: pendingEnable - flag for deferred enable (to batch Lua calls)
  * Bit 2: pendingDisable - flag for deferred disable
  * Bit 3: dynamicMoved - object position was changed at runtime (BVH stale)
+ * Bit 4: isSkinned
+ * Bit 16: dynamicLit - point lights are applied to this mesh at runtime
+ * Bit 17: dynamicLitSmooth - ... per vertex rather than per triangle
  */
 class GameObject final {
     typedef Utilities::BitSpan<bool> IsActive;
@@ -76,6 +79,15 @@ class GameObject final {
     
     // Skinned mesh flag (bit 4)
     bool isSkinned() const { return flags.get<IsSkinned>(); }
+
+    // Point lights affect this mesh. Skinned meshes ignore it. Bits 16 and 17
+    // are raw masks written by the exporter, clear of the low flag bits.
+    static constexpr uint32_t DYNAMIC_LIT_BIT = 0x10000;
+    bool isDynamicLit() const { return (flagsAsInt & DYNAMIC_LIT_BIT) != 0; }
+    // Bit 17: light per vertex instead of per triangle. About 9x the cost per
+    // lit triangle in pcsx-redux; only meaningful with bit 16.
+    static constexpr uint32_t DYNAMIC_LIT_SMOOTH_BIT = 0x20000;
+    bool isDynamicLitSmooth() const { return (flagsAsInt & DYNAMIC_LIT_SMOOTH_BIT) != 0; }
     
     // Component checks
     bool hasInteractable() const { return interactableIndex != NO_COMPONENT; }

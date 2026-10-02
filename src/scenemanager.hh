@@ -424,6 +424,12 @@ namespace psxsplash {
         SkinAnimState& getSkinAnimState(int index) { return m_skinAnimStates[index]; }
         int getSkinnedMeshCount() const { return m_skinnedMeshCount; }
 
+        // Point lights (for the Lua API). The renderer reads the same array.
+        int findPointLight(const char* name) const;
+        PointLight* getPointLight(int index) {
+            return (index >= 0 && index < m_pointLightCount) ? &m_pointLights[index] : nullptr;
+        }
+
         // Public API for game systems
         // Interaction system - call from Lua or native code
         void triggerInteraction(GameObject* interactable);
@@ -564,6 +570,10 @@ namespace psxsplash {
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
         uint32_t m_authoredSceneHash = 0;
+
+        PointLight m_pointLights[MAX_SCENE_LIGHTS];
+        const char* m_pointLightNames[MAX_SCENE_LIGHTS];
+        int m_pointLightCount = 0;
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
 #endif

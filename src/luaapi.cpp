@@ -863,6 +863,26 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Sprite");
 
     // ========================================================================
+    // LIGHT API
+    // ========================================================================
+    L.newTable();  // Light table
+
+    L.push(Light_Find);
+    L.setField(-2, "Find");
+    L.push(Light_SetPosition);
+    L.setField(-2, "SetPosition");
+    L.push(Light_SetColor);
+    L.setField(-2, "SetColor");
+    L.push(Light_SetRadius);
+    L.setField(-2, "SetRadius");
+    L.push(Light_SetIntensity);
+    L.setField(-2, "SetIntensity");
+    L.push(Light_SetEnabled);
+    L.setField(-2, "SetEnabled");
+
+    L.setGlobal("Light");
+
+    // ========================================================================
     // TILE API
     // ========================================================================
     L.newTable();  // Tile table
@@ -5336,6 +5356,82 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
     lua.pushNumber(px);
     lua.pushNumber(pz);
     return 4;
+}
+
+
+// ============================================================================
+// LIGHT API IMPLEMENTATION
+// ============================================================================
+//
+// A light is addressed by the integer Light.Find returns. Positions and radius
+// are in the same units as Entity positions.
+
+int LuaAPI::Light_Find(lua_State* L) {
+    psyqo::Lua lua(L);
+    int idx = (s_sceneManager && lua.isString(1)) ? s_sceneManager->findPointLight(lua.toString(1)) : -1;
+    if (idx < 0) {
+        lua.push();
+        return 1;
+    }
+    lua.pushNumber(idx);
+    return 1;
+}
+
+static PointLight* checkLight(psyqo::Lua& lua, SceneManager* scene) {
+    if (!scene || !lua.isNumber(1)) return nullptr;
+    return scene->getPointLight(static_cast<int>(lua.toNumber(1)));
+}
+
+int LuaAPI::Light_SetPosition(lua_State* L) {
+    psyqo::Lua lua(L);
+    PointLight* l = checkLight(lua, s_sceneManager);
+    if (!l || !lua.isTable(2)) return 0;
+    psyqo::FixedPoint<12> x, y, z;
+    ReadVec3(lua, 2, x, y, z);
+    l->x = x.raw();
+    l->y = y.raw();
+    l->z = z.raw();
+    return 0;
+}
+
+int LuaAPI::Light_SetColor(lua_State* L) {
+    psyqo::Lua lua(L);
+    PointLight* l = checkLight(lua, s_sceneManager);
+    if (!l) return 0;
+    auto byte = [&](int idx) -> uint8_t {
+        int v = static_cast<int>(lua.checkNumber(idx));
+        return v < 0 ? 0 : (v > 255 ? 255 : (uint8_t)v);
+    };
+    l->r = byte(2);
+    l->g = byte(3);
+    l->b = byte(4);
+    return 0;
+}
+
+int LuaAPI::Light_SetRadius(lua_State* L) {
+    psyqo::Lua lua(L);
+    PointLight* l = checkLight(lua, s_sceneManager);
+    if (!l) return 0;
+    int32_t r = readFP(lua, 2).raw();
+    l->radius = r < 0 ? 0 : r;
+    return 0;
+}
+
+int LuaAPI::Light_SetIntensity(lua_State* L) {
+    psyqo::Lua lua(L);
+    PointLight* l = checkLight(lua, s_sceneManager);
+    if (!l) return 0;
+    int32_t v = readFP(lua, 2).raw();
+    l->intensity = v < 0 ? 0 : (v > 0xFFFF ? 0xFFFF : (uint16_t)v);
+    return 0;
+}
+
+int LuaAPI::Light_SetEnabled(lua_State* L) {
+    psyqo::Lua lua(L);
+    PointLight* l = checkLight(lua, s_sceneManager);
+    if (!l) return 0;
+    l->enabled = lua.toBoolean(2) ? 1 : 0;
+    return 0;
 }
 
 }  // namespace psxsplash

@@ -102,6 +102,17 @@ private:
     static int Sprite_GetViewOffset(lua_State* L);
     static int Sprite_Count(lua_State* L);
 
+    // ========================================================================
+    // LIGHT API - dynamic point lights authored in the scene
+    // ========================================================================
+
+    static int Light_Find(lua_State* L);
+    static int Light_SetPosition(lua_State* L);
+    static int Light_SetColor(lua_State* L);
+    static int Light_SetRadius(lua_State* L);
+    static int Light_SetIntensity(lua_State* L);
+    static int Light_SetEnabled(lua_State* L);
+
     // Tile API
     static int Tile_Walkable(lua_State* L);
     static int Tile_RayClear(lua_State* L);

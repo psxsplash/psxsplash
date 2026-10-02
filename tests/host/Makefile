@@ -23,10 +23,12 @@ CXXFLAGS ?= -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter -I. -I$(SRC_DI
 NET_SRCS    := $(SRC_DIR)/netlink.cpp
 SPRITE_SRCS := $(SRC_DIR)/spritemath.cpp
 TILE_SRCS   := $(SRC_DIR)/tilemath.cpp
+LIGHT_SRCS  := $(SRC_DIR)/lightmath.cpp
 
 TEST_BIN   := $(BUILD)/netlink_tests
 SPRITE_BIN := $(BUILD)/sprite_tests
 TILE_BIN   := $(BUILD)/tile_tests
+LIGHT_BIN  := $(BUILD)/light_tests
 GEN_BIN    := $(BUILD)/gen_vectors
 
 .PHONY: all test vectors clean
@@ -45,16 +47,21 @@ $(SPRITE_BIN): test_sprite.cpp testing.hh compat.hh $(SPRITE_SRCS) | $(BUILD)
 $(TILE_BIN): test_tile.cpp testing.hh compat.hh $(TILE_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_tile.cpp $(TILE_SRCS)
 
+$(LIGHT_BIN): test_light.cpp testing.hh compat.hh $(LIGHT_SRCS) $(SRC_DIR)/lightmath.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_light.cpp $(LIGHT_SRCS)
+
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
 	@$(SPRITE_BIN)
 	@echo "== tile =="
 	@$(TILE_BIN)
+	@echo "== light =="
+	@$(LIGHT_BIN)
 
 vectors: $(GEN_BIN)
 	@mkdir -p $(VEC_DIR)
