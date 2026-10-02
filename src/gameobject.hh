@@ -1,6 +1,5 @@
 #pragma once
 
-#include <common/util/bitfield.hh>
 #include <psyqo/matrix.hh>
 #include <psyqo/vector.hh>
 
@@ -14,24 +13,27 @@ class Lua;  // Forward declaration
 constexpr uint16_t NO_COMPONENT = 0xFFFF;
 
 /**
- * GameObject bitfield flags
- * 
- * Bit 0: isActive - whether object is active in scene
+ * GameObject flags, one bit each. The exporter and SceneManager also read and
+ * write these as raw masks on flagsAsInt, so the values here are the contract.
+ *
+ * Bit 0: active - whether object is active in scene
  * Bit 1: pendingEnable - flag for deferred enable (to batch Lua calls)
  * Bit 2: pendingDisable - flag for deferred disable
  * Bit 3: dynamicMoved - object position was changed at runtime (BVH stale)
- * Bit 4: isSkinned
+ * Bit 4: skinned - drawn by the skinned-mesh pass
  * Bit 16: dynamicLit - point lights are applied to this mesh at runtime
  * Bit 17: dynamicLitSmooth - ... per vertex rather than per triangle
  */
 class GameObject final {
-    typedef Utilities::BitSpan<bool> IsActive;
-    typedef Utilities::BitSpan<bool, 1> PendingEnable;
-    typedef Utilities::BitSpan<bool, 2> PendingDisable;
-    typedef Utilities::BitSpan<bool, 3> DynamicMoved;
-    typedef Utilities::BitSpan<bool, 4> IsSkinned;
-    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable, DynamicMoved, IsSkinned> GameObjectFlags;
-    
+    static constexpr uint32_t kActive = 0x01;
+    static constexpr uint32_t kPendingEnable = 0x02;
+    static constexpr uint32_t kPendingDisable = 0x04;
+    static constexpr uint32_t kDynamicMoved = 0x08;
+    static constexpr uint32_t kSkinned = 0x10;
+
+    bool hasFlag(uint32_t f) const { return (flagsAsInt & f) != 0; }
+    void setFlag(uint32_t f, bool on) { flagsAsInt = on ? (flagsAsInt | f) : (flagsAsInt & ~f); }
+
   public:
     union {
         Tri *polygons;
@@ -44,10 +46,7 @@ class GameObject final {
     uint16_t polyCount;
     int16_t luaFileIndex;
     
-    union {
-        GameObjectFlags flags;
-        uint32_t flagsAsInt;
-    };
+    uint32_t flagsAsInt;
     
     // Component indices (0xFFFF = no component)
     uint16_t interactableIndex;
@@ -62,23 +61,23 @@ class GameObject final {
     int32_t aabbMaxX, aabbMaxY, aabbMaxZ;
     
     // Basic accessors
-    bool isActive() const { return flags.get<IsActive>(); }
+    bool isActive() const { return hasFlag(kActive); }
     
     // setActive with Lua event support - call the version that takes Lua& for events
-    void setActive(bool active) { flags.set<IsActive>(active); }
+    void setActive(bool active) { setFlag(kActive, active); }
     
     // Deferred enable/disable for batched Lua calls
-    bool isPendingEnable() const { return flags.get<PendingEnable>(); }
-    bool isPendingDisable() const { return flags.get<PendingDisable>(); }
-    void setPendingEnable(bool pending) { flags.set<PendingEnable>(pending); }
-    void setPendingDisable(bool pending) { flags.set<PendingDisable>(pending); }
+    bool isPendingEnable() const { return hasFlag(kPendingEnable); }
+    bool isPendingDisable() const { return hasFlag(kPendingDisable); }
+    void setPendingEnable(bool pending) { setFlag(kPendingEnable, pending); }
+    void setPendingDisable(bool pending) { setFlag(kPendingDisable, pending); }
     
     // Dynamic movement tracking (BVH position stale)
-    bool isDynamicMoved() const { return flags.get<DynamicMoved>(); }
-    void setDynamicMoved(bool moved) { flags.set<DynamicMoved>(moved); }
+    bool isDynamicMoved() const { return hasFlag(kDynamicMoved); }
+    void setDynamicMoved(bool moved) { setFlag(kDynamicMoved, moved); }
     
     // Skinned mesh flag (bit 4)
-    bool isSkinned() const { return flags.get<IsSkinned>(); }
+    bool isSkinned() const { return hasFlag(kSkinned); }
 
     // Point lights affect this mesh. Skinned meshes ignore it. Bits 16 and 17
     // are raw masks written by the exporter, clear of the low flag bits.
