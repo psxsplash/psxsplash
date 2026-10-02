@@ -37,22 +37,15 @@ int StreamPlanner::nextUnload(int32_t x, int32_t z) const {
     return kNone;
 }
 
-bool StreamPlanner::firstFit(uint32_t size, uint32_t& outOffset) const {
-    if (m_count + (m_pendingRegion != kNone ? 1 : 0) >= kMaxResident) return false;
-    // Few entries, so walking every slot per candidate is cheap.
-    uint32_t candidate = 0;
-    while (candidate + size <= m_table->poolBytes) {
-        uint32_t bump = 0;
-        auto check = [&](uint32_t off, uint32_t len) {
-            if (candidate < off + len && off < candidate + size && off + len > bump) bump = off + len;
-        };
-        for (int i = 0; i < m_count; i++) check(m_slots[i].offset, m_regions[m_slots[i].region].byteSize);
-        if (m_pendingRegion != kNone) check(m_pendingOffset, m_regions[m_pendingRegion].byteSize);
-        if (bump == 0) {
-            outOffset = candidate;
+bool StreamPlanner::freeSlot(uint32_t& outOffset) const {
+    for (uint32_t slot = 0; slot < m_table->slotCount && slot < kMaxResident; slot++) {
+        uint32_t off = slot * m_table->slotBytes;
+        bool used = m_pendingRegion != kNone && m_pendingOffset == off;
+        for (int i = 0; i < m_count && !used; i++) used = m_slots[i].offset == off;
+        if (!used) {
+            outOffset = off;
             return true;
         }
-        candidate = bump;
     }
     return false;
 }
@@ -66,6 +59,7 @@ int StreamPlanner::planLoad(int32_t x, int32_t z, uint32_t& outOffset, uint16_t*
     int64_t bestD = 0;
     for (int i = 0; i < m_table->regionCount; i++) {
         if (i == m_pendingRegion || isResident(i)) continue;
+        if (m_regions[i].byteSize > m_table->slotBytes) continue;  // malformed: never fits
         int64_t d = streamRegionDistSq(m_regions[i], x, z);
         if (d > load2) continue;
         if (best == kNone || d < bestD) {
@@ -75,7 +69,7 @@ int StreamPlanner::planLoad(int32_t x, int32_t z, uint32_t& outOffset, uint16_t*
     }
     if (best == kNone) return kNone;
 
-    while (!firstFit(m_regions[best].byteSize, outOffset)) {
+    while (!freeSlot(outOffset)) {
         int victim = kNone;
         int64_t victimD = load2;  // only regions the camera does not need
         for (int i = 0; i < m_count; i++) {

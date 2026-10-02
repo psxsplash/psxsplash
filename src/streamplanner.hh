@@ -7,19 +7,24 @@ namespace psxsplash {
 // Pure policy half of WorldStreamer: which regions should be resident and where
 // they live in the pool. No psyqo, no I/O, so tests/host builds it natively.
 
+// The pool is slotCount fixed slots of slotBytes, allocated once per scene, and a
+// region is read straight into its slot and drawn from there. No allocation per
+// region and nothing to fragment; the exporter keeps regions even-sized.
 struct SPLASHPACKStreamTable {
     uint16_t regionCount;
     uint16_t objectRefCount;
-    uint32_t poolBytes;     // RAM reserved for resident regions; exporter-sized
+    uint16_t slotCount;     // regions resident at once; exporter-sized
+    uint16_t pad;
+    uint32_t slotBytes;     // largest region, multiple of 2048
     int32_t loadRadius;     // fp12: load a region once the camera is this close
     int32_t unloadRadius;   // fp12: drop it beyond this (> loadRadius)
 };
-static_assert(sizeof(SPLASHPACKStreamTable) == 16, "SPLASHPACKStreamTable must be 16 bytes");
+static_assert(sizeof(SPLASHPACKStreamTable) == 20, "SPLASHPACKStreamTable must be 20 bytes");
 
 struct SPLASHPACKStreamRegion {
     int32_t minX, minZ, maxX, maxZ;  // fp12 XZ bounds of the region's geometry
     uint32_t firstSector;            // in the .GEO file
-    uint32_t byteSize;               // multiple of 2048
+    uint32_t byteSize;               // multiple of 2048, <= slotBytes
     uint16_t firstObjectRef;
     uint16_t objectRefCount;
     uint32_t pad;
@@ -47,10 +52,11 @@ class StreamPlanner {
     int nextUnload(int32_t x, int32_t z) const;
 
     /**
-     * The nearest non-resident, non-pending region within loadRadius, with pool
-     * space for it found by evicting resident regions outside loadRadius
-     * (farthest first). Evictions are reported through `evicted` (up to
-     * kMaxResident entries, count in `evictedCount`) and already applied.
+     * The nearest non-resident, non-pending region within loadRadius, with a free
+     * slot for it found by evicting resident regions outside loadRadius
+     * (farthest first). outOffset is the slot's byte offset in the pool.
+     * Evictions are reported through `evicted` (up to kMaxResident entries,
+     * count in `evictedCount`) and already applied.
      * Returns kNone if nothing needs loading or no space can be made.
      */
     int planLoad(int32_t x, int32_t z, uint32_t& outOffset, uint16_t* evicted, int& evictedCount);
@@ -73,7 +79,7 @@ class StreamPlanner {
         uint32_t offset;
     };
 
-    bool firstFit(uint32_t size, uint32_t& outOffset) const;
+    bool freeSlot(uint32_t& outOffset) const;
 
     const SPLASHPACKStreamTable* m_table = nullptr;
     const SPLASHPACKStreamRegion* m_regions = nullptr;

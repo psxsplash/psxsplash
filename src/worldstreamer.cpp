@@ -16,7 +16,7 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
     if (tableOffset == 0) return;
 
     auto* table = reinterpret_cast<const SPLASHPACKStreamTable*>(data + tableOffset);
-    if (table->regionCount == 0 || table->poolBytes == 0) return;
+    if (table->regionCount == 0 || table->slotCount == 0 || table->slotBytes == 0) return;
 
     char name[32];
     FileLoader::BuildGeoFilename(sceneIndex, name, sizeof(name));
@@ -38,7 +38,8 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
     m_refs = reinterpret_cast<const SPLASHPACKStreamObjectRef*>(m_regions + table->regionCount);
     m_objects = objects.data();
     m_objectCount = static_cast<uint16_t>(objects.size());
-    m_pool = new uint8_t[table->poolBytes];
+    // The only allocation streaming makes; every region is read into a slot of it.
+    m_pool = new uint8_t[static_cast<uint32_t>(table->slotCount) * table->slotBytes];
     m_planner.reset(m_table, m_regions);
 
     // Everything in range of the spawn point loads now, nearest first, so the

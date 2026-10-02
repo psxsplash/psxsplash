@@ -13,15 +13,16 @@ namespace {
 
 constexpr int32_t U = 4096;  // one world unit in fp12
 
-// A row of `n` regions along X, each 1 unit wide with 1 unit gaps, each 4 KB.
+// A row of `n` regions along X, each 1 unit wide with 1 unit gaps, each one 4 KB slot.
 struct Row {
     SPLASHPACKStreamTable table{};
     SPLASHPACKStreamRegion regions[16]{};
     StreamPlanner planner;
 
-    Row(int n, uint32_t poolBytes, int32_t loadR, int32_t unloadR) {
+    Row(int n, uint16_t slots, int32_t loadR, int32_t unloadR) {
         table.regionCount = static_cast<uint16_t>(n);
-        table.poolBytes = poolBytes;
+        table.slotCount = slots;
+        table.slotBytes = 4096;
         table.loadRadius = loadR;
         table.unloadRadius = unloadR;
         for (int i = 0; i < n; i++) {
@@ -75,7 +76,7 @@ TEST(distance_is_zero_inside_and_squared_outside) {
 }
 
 TEST(loads_nearest_first_one_per_frame) {
-    Row row(4, 4 * 4096, 3 * U, 5 * U);
+    Row row(4, 4, 3 * U, 5 * U);
     // Camera inside region 1: region 1 first, then 0 and 2 (both 1 unit away).
     CHECK_EQ(row.frame(2 * U + U / 2, U / 2), 1);
     int second = row.frame(2 * U + U / 2, U / 2);
@@ -88,13 +89,13 @@ TEST(loads_nearest_first_one_per_frame) {
 }
 
 TEST(nothing_in_range_loads_nothing) {
-    Row row(4, 4 * 4096, U, 2 * U);
+    Row row(4, 4, U, 2 * U);
     CHECK_EQ(row.frame(100 * U, 100 * U), StreamPlanner::kNone);
     CHECK_EQ(row.planner.residentCount(), 0);
 }
 
 TEST(walking_the_row_keeps_only_nearby_regions) {
-    Row row(8, 3 * 4096, U + U / 2, 3 * U);
+    Row row(8, 3, U + U / 2, 3 * U);
     for (int32_t x = 0; x <= 15 * U; x += U / 4) {
         row.frame(x, U / 2);
         // The region under the camera is never missing for more than a frame.
@@ -113,7 +114,7 @@ TEST(walking_the_row_keeps_only_nearby_regions) {
 }
 
 TEST(unload_has_hysteresis) {
-    Row row(2, 2 * 4096, 2 * U, 4 * U);
+    Row row(2, 2, 2 * U, 4 * U);
     row.settle(U / 2, U / 2);  // inside region 0; region 1 is 1.5 units away -> loaded
     CHECK(row.planner.isResident(1));
     // 3 units from region 1: outside load radius but inside unload radius.
@@ -126,7 +127,7 @@ TEST(unload_has_hysteresis) {
 
 TEST(full_pool_evicts_only_regions_out_of_load_range) {
     // Pool fits 2 regions; unload radius huge so nothing is dropped by distance.
-    Row row(4, 2 * 4096, 2 * U, 1000 * U);
+    Row row(4, 2, 2 * U, 1000 * U);
     row.settle(U / 2, U / 2);  // loads 0 and 1
     CHECK(row.planner.isResident(0));
     CHECK(row.planner.isResident(1));
@@ -139,14 +140,14 @@ TEST(full_pool_evicts_only_regions_out_of_load_range) {
 
 TEST(pool_too_small_for_what_is_needed_loads_what_fits) {
     // Camera between regions 0 and 1, both in load range, pool fits one.
-    Row row(2, 4096, 2 * U, 4 * U);
+    Row row(2, 1, 2 * U, 4 * U);
     row.settle(U + U / 2, U / 2);
     CHECK_EQ(row.planner.residentCount(), 1);
     CHECK(row.overlapFree());
 }
 
 TEST(failed_read_is_retried) {
-    Row row(1, 4096, U, 2 * U);
+    Row row(1, 1, U, 2 * U);
     uint32_t off;
     uint16_t ev[StreamPlanner::kMaxResident];
     int evc;
@@ -157,6 +158,22 @@ TEST(failed_read_is_retried) {
     row.planner.finishPending(false);
     CHECK(!row.planner.isResident(0));
     CHECK_EQ(row.planner.planLoad(U / 2, U / 2, off, ev, evc), 0);
+}
+
+TEST(region_larger_than_a_slot_is_never_loaded) {
+    Row row(2, 2, 2 * U, 4 * U);
+    row.regions[0].byteSize = 8192;  // exporter bug: bigger than slotBytes
+    row.settle(U / 2, U / 2);
+    CHECK(!row.planner.isResident(0));
+    CHECK(row.planner.isResident(1));
+}
+
+TEST(regions_land_on_slot_boundaries) {
+    Row row(4, 4, 8 * U, 9 * U);
+    row.settle(3 * U, U / 2);
+    CHECK_EQ(row.planner.residentCount(), 4);
+    for (int i = 0; i < 4; i++) CHECK_EQ(row.planner.residentOffset(i) % 4096, 0);
+    CHECK(row.overlapFree());
 }
 
 int main() { return psxsplash::test::runAll(); }
