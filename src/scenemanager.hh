@@ -7,6 +7,7 @@
 #include <psyqo/gpu.hh>
 #include <psyqo/soft-math.hh>
 
+#include "features.hh"
 #include "random.hh"
 #include "gtemath.hh"
 #include "bvh.hh"
@@ -419,16 +420,27 @@ namespace psxsplash {
             return nullptr;
         }
 
+#if PSXSPLASH_FEATURE_SKIN
         // Skinned mesh accessors (for Lua API and renderer)
         int findSkinAnimByObjectName(const char* name) const;
         SkinAnimSet& getSkinAnimSet(int index) { return m_skinAnimSets[index]; }
         SkinAnimState& getSkinAnimState(int index) { return m_skinAnimStates[index]; }
         int getSkinnedMeshCount() const { return m_skinnedMeshCount; }
+#endif
 
         // Point lights (for the Lua API). The renderer reads the same array.
+        // Without the lights feature there are none, and anything that looks
+        // one up (Light.*, light tracks) gets nullptr and skips it.
+#if PSXSPLASH_FEATURE_LIGHTS
         int findPointLight(const char* name) const;
+#endif
         PointLight* getPointLight(int index) {
+#if PSXSPLASH_FEATURE_LIGHTS
             return (index >= 0 && index < m_pointLightCount) ? &m_pointLights[index] : nullptr;
+#else
+            (void)index;
+            return nullptr;
+#endif
         }
 
         // Public API for game systems
@@ -518,7 +530,9 @@ namespace psxsplash {
     private:
         psxsplash::Lua L;
         psxsplash::SplashPackLoader m_loader;
+#if PSXSPLASH_FEATURE_COLLISION
         CollisionSystem m_collisionSystem;
+#endif
         BVHManager m_bvh;  // Spatial acceleration for frustum culling
         NavRegionSystem m_navRegions;      // Convex region navigation (v7+)
         uint16_t m_playerNavRegion = NAV_NO_REGION; // Current nav region for player
@@ -553,8 +567,11 @@ namespace psxsplash {
         // Audio system
         AudioManager m_audio;
         MusicManager m_music;
+#if PSXSPLASH_FEATURE_STREAMING
         WorldStreamer m_worldStreamer;
+#endif
 
+#if PSXSPLASH_FEATURE_CUTSCENE
         // Cutscene playback
         Cutscene m_cutscenes[MAX_CUTSCENES];
         int m_cutsceneCount = 0;
@@ -563,19 +580,28 @@ namespace psxsplash {
         Animation m_animations[MAX_ANIMATIONS];
         int m_animationCount = 0;
         AnimationPlayer m_animationPlayer;
+#endif
 
+#if PSXSPLASH_FEATURE_SKIN
         SkinAnimSet  m_skinAnimSets[MAX_SKINNED_MESHES];
         SkinAnimState m_skinAnimStates[MAX_SKINNED_MESHES];
         int m_skinnedMeshCount = 0;
+#endif
 
+#if PSXSPLASH_FEATURE_UI
         UISystem m_uiSystem;
+#endif
+#if PSXSPLASH_FEATURE_SPRITES
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
+#endif
         uint32_t m_authoredSceneHash = 0;
 
+#if PSXSPLASH_FEATURE_LIGHTS
         PointLight m_pointLights[MAX_SCENE_LIGHTS];
         const char* m_pointLightNames[MAX_SCENE_LIGHTS];
         int m_pointLightCount = 0;
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
 #endif
@@ -661,6 +687,14 @@ namespace psxsplash {
             // ---- Patrol waypoints (up to 8) ----
             psyqo::Vec3 waypoints[8]    = {};
         };
+
+        bool cutsceneDrivesCamera() const {
+#if PSXSPLASH_FEATURE_CUTSCENE
+            return m_cutscenePlayer.isPlaying() && m_cutscenePlayer.hasCameraTracks();
+#else
+            return false;
+#endif
+        }
 
         // System update methods (called from GameTick)
         void updateInteractionSystem();

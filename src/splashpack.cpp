@@ -19,6 +19,14 @@
 
 namespace psxsplash {
 
+// A pack can carry data for a subsystem this build left out (the exporter and
+// the engine build disagree, or the engine was built by hand). That data is
+// skipped, and said so, rather than parsed into code that is not there.
+[[maybe_unused]] static void skipCompiledOut(unsigned count, const char* what, const char* feature) {
+    if (count == 0) return;
+    printf("Splashpack: %u %s ignored, feature '%s' is not in this build\n", count, what, feature);
+}
+
 struct SPLASHPACKFileHeader {
     char magic[2];
     uint16_t version;
@@ -184,6 +192,10 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         cursor += sizeof(psxsplash::SPLASHPACKCollider);
     }
 
+#if !PSXSPLASH_FEATURE_COLLISION
+    skipCompiledOut(header->colliderCount, "colliders", "collision");
+    skipCompiledOut(header->triggerBoxCount, "trigger boxes", "collision");
+#endif
     setup.triggerBoxes.reserve(header->triggerBoxCount);
     for (uint16_t i = 0; i < header->triggerBoxCount; i++) {
         psxsplash::SPLASHPACKTriggerBox *tb = reinterpret_cast<psxsplash::SPLASHPACKTriggerBox *>(cursor);
@@ -213,6 +225,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.agents.push_back(agent);
         cursor += sizeof(psxsplash::SPLASHPACKAgentV2);
     }
+#if !PSXSPLASH_FEATURE_AGENTS
+    skipCompiledOut(agentCount, "agents", "agents");
+#endif
     // Patrol waypoints (all agents, packed): waypointCount * 3 * 4 bytes per agent
     setup.agentWaypointData = reinterpret_cast<const int32_t*>(cursor);
     {
@@ -241,7 +256,11 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     if (header->navRegionCount > 0) {
         uintptr_t addr = reinterpret_cast<uintptr_t>(cursor);
         cursor = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
+        // Parsed even without the nav feature: the rooms below follow it.
         cursor = const_cast<uint8_t*>(setup.navRegions.initializeFromData(cursor));
+#if !PSXSPLASH_FEATURE_NAV
+        skipCompiledOut(header->navRegionCount, "nav regions", "nav");
+#endif
     }
 
     if (header->roomCount > 0) {
@@ -330,6 +349,10 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.fogDensity = header->fogDensity;
     setup.sceneType = header->sceneType;
 
+#if !PSXSPLASH_FEATURE_CUTSCENE
+    skipCompiledOut(header->cutsceneTableOffset ? header->cutsceneCount : 0, "cutscenes", "cutscene");
+    skipCompiledOut(header->animationTableOffset ? header->animationCount : 0, "animations", "cutscene");
+#else
     if (header->cutsceneCount > 0 && header->cutsceneTableOffset != 0) {
         setup.cutsceneCount = 0;
         uint8_t* tablePtr = data + header->cutsceneTableOffset;
@@ -433,13 +456,20 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             setup.cutsceneCount++;
         }
     }
+#endif
 
+#if PSXSPLASH_FEATURE_UI
     if (header->version >= 13) {
         setup.uiCanvasCount = header->uiCanvasCount;
         setup.uiFontCount = header->uiFontCount;
         setup.uiTableOffset = header->uiTableOffset;
     }
+#else
+    if (header->version >= 13 && header->uiTableOffset != 0)
+        skipCompiledOut(header->uiCanvasCount, "UI canvases", "ui");
+#endif
 
+#if PSXSPLASH_FEATURE_CUTSCENE
     // Animation loading (v17+)
     if (header->animationCount > 0 && header->animationTableOffset != 0) {
         setup.animationCount = 0;
@@ -531,8 +561,13 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             setup.animationCount++;
         }
     }
+#endif
 
     // Skinned mesh loading (v18+)
+#if !PSXSPLASH_FEATURE_SKIN
+    if (header->version >= 18 && header->skinTableOffset != 0)
+        skipCompiledOut(header->skinnedMeshCount, "skinned meshes", "skin");
+#else
     if (header->version >= 18 && header->skinnedMeshCount > 0 && header->skinTableOffset != 0) {
         uint8_t* tablePtr = data + header->skinTableOffset;
         int smCount = header->skinnedMeshCount;
@@ -599,8 +634,12 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             setup.skinnedMeshCount++;
         }
     }
+#endif
 
     // Memory card save configuration (v21+).
+    // Every export writes this table, so there is nothing to report when the
+    // memcard feature is out: the config is only read by MemCard.*.
+#if PSXSPLASH_FEATURE_MEMCARD
     if (header->version >= 21 && header->memcardTableOffset != 0) {
         const SPLASHPACKMemcard *mc =
             reinterpret_cast<const SPLASHPACKMemcard *>(data + header->memcardTableOffset);
@@ -627,14 +666,19 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 
         MemoryCardManager::Get().setConfig(cfg);
     }
+#endif
 
     // Sprites and the authored scene hash (v22+). Older packs leave these zero,
     // which the SpriteSystem reads as "no sheets" and NetworkManager reads as
     // "derive the hash the old way".
     if (header->version >= 22) {
+#if PSXSPLASH_FEATURE_SPRITES
         setup.spriteSheetCount = header->spriteSheetCount;
         setup.spriteAnimCount = header->spriteAnimCount;
         setup.spriteTableOffset = header->spriteTableOffset;
+#else
+        skipCompiledOut(header->spriteTableOffset ? header->spriteSheetCount : 0, "sprite sheets", "sprites");
+#endif
         setup.sceneHash = header->sceneHash;
     }
 
@@ -642,13 +686,21 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     // reads as "no map" - so this needs no version gate beyond the field's
     // meaning, but keep the explicit check for symmetry with the block above.
     if (header->version >= 23) {
+#if PSXSPLASH_FEATURE_SPRITES
         setup.tilemapTableOffset = header->tilemapTableOffset;
+#else
+        skipCompiledOut(header->tilemapTableOffset != 0, "tilemap", "sprites");
+#endif
     }
 
     // Point lights (v24+).
     if (header->version >= 24 && header->lightTableOffset != 0) {
         const uint8_t* table = data + header->lightTableOffset;
         uint16_t count = *reinterpret_cast<const uint16_t*>(table);
+#if !PSXSPLASH_FEATURE_LIGHTS
+        skipCompiledOut(count, "point lights", "lights");
+        count = 0;
+#endif
         if (count > MAX_SCENE_LIGHTS) count = MAX_SCENE_LIGHTS;
         setup.pointLights = reinterpret_cast<const SPLASHPACKPointLight*>(table + 4);
         setup.pointLightCount = count;
@@ -656,7 +708,11 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 
     // Streamed world geometry. This word was reserved and written as 0 since v21.
     if (header->version >= 21) {
+#if PSXSPLASH_FEATURE_STREAMING
         setup.streamTableOffset = header->streamTableOffset;
+#else
+        skipCompiledOut(header->streamTableOffset != 0, "streamed world table", "streaming");
+#endif
     }
 }
 

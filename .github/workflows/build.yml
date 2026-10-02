@@ -25,6 +25,8 @@ jobs:
           set-safe-directory: true
       - name: Build
         run: make -j4 all LOADER=${{ matrix.loader }}
+      - name: Build the smallest engine
+        run: make -j4 all LOADER=${{ matrix.loader }} FEATURES=none
 
   host-tests:
     runs-on: ubuntu-latest

@@ -92,32 +92,32 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                         break;
                     }
                     case TrackType::UICanvasVisible:
-                        if (m_uiSystem) {
-                            track.initialValues[0] = m_uiSystem->isCanvasVisible(track.uiHandle) ? 1 : 0;
+                        if (ui()) {
+                            track.initialValues[0] = ui()->isCanvasVisible(track.uiHandle) ? 1 : 0;
                         }
                         break;
                     case TrackType::UIElementVisible:
-                        if (m_uiSystem) {
-                            track.initialValues[0] = m_uiSystem->isElementVisible(track.uiHandle) ? 1 : 0;
+                        if (ui()) {
+                            track.initialValues[0] = ui()->isElementVisible(track.uiHandle) ? 1 : 0;
                         }
                         break;
                     case TrackType::UIProgress:
-                        if (m_uiSystem) {
-                            track.initialValues[0] = m_uiSystem->getProgress(track.uiHandle);
+                        if (ui()) {
+                            track.initialValues[0] = ui()->getProgress(track.uiHandle);
                         }
                         break;
                     case TrackType::UIPosition:
-                        if (m_uiSystem) {
+                        if (ui()) {
                             int16_t px, py;
-                            m_uiSystem->getPosition(track.uiHandle, px, py);
+                            ui()->getPosition(track.uiHandle, px, py);
                             track.initialValues[0] = px;
                             track.initialValues[1] = py;
                         }
                         break;
                     case TrackType::UIColor:
-                        if (m_uiSystem) {
+                        if (ui()) {
                             uint8_t cr, cg, cb;
-                            m_uiSystem->getColor(track.uiHandle, cr, cg, cb);
+                            ui()->getColor(track.uiHandle, cr, cg, cb);
                             track.initialValues[0] = cr;
                             track.initialValues[1] = cg;
                             track.initialValues[2] = cb;
@@ -187,6 +187,7 @@ void CutscenePlayer::tick(int32_t dt12) {
     while (m_nextSkinAnim < m_active->skinAnimEventCount) {
         CutsceneSkinAnimEvent& evt = m_active->skinAnimEvents[m_nextSkinAnim];
         if (evt.frame <= m_frame) {
+#if PSXSPLASH_FEATURE_SKIN
             if (m_sceneMgr) {
                 int skinIdx = (int)evt.skinMeshIndex;
                 if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
@@ -198,6 +199,7 @@ void CutscenePlayer::tick(int32_t dt12) {
                     state.loop         = (evt.loop != 0);
                 }
             }
+#endif
             m_nextSkinAnim++;
         } else {
             break;
@@ -347,7 +349,7 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
         // -- UI track types --
 
         case TrackType::UICanvasVisible: {
-            if (!m_uiSystem) return;
+            if (!ui()) return;
             CutsceneKeyframe* kf = track.keyframes;
             uint8_t count = track.keyframeCount;
             int16_t val = (count > 0 && m_frame < kf[0].getFrame())
@@ -356,12 +358,12 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
                 if (kf[i].getFrame() <= m_frame) val = kf[i].values[0];
                 else break;
             }
-            m_uiSystem->setCanvasVisible(track.uiHandle, val != 0);
+            ui()->setCanvasVisible(track.uiHandle, val != 0);
             break;
         }
 
         case TrackType::UIElementVisible: {
-            if (!m_uiSystem) return;
+            if (!ui()) return;
             CutsceneKeyframe* kf = track.keyframes;
             uint8_t count = track.keyframeCount;
             int16_t val = (count > 0 && m_frame < kf[0].getFrame())
@@ -370,34 +372,34 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
                 if (kf[i].getFrame() <= m_frame) val = kf[i].values[0];
                 else break;
             }
-            m_uiSystem->setElementVisible(track.uiHandle, val != 0);
+            ui()->setElementVisible(track.uiHandle, val != 0);
             break;
         }
 
         case TrackType::UIProgress: {
-            if (!m_uiSystem) return;
+            if (!ui()) return;
             psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             int16_t v = out[0];
             if (v < 0) v = 0;
             if (v > 100) v = 100;
-            m_uiSystem->setProgress(track.uiHandle, (uint8_t)v);
+            ui()->setProgress(track.uiHandle, (uint8_t)v);
             break;
         }
 
         case TrackType::UIPosition: {
-            if (!m_uiSystem) return;
+            if (!ui()) return;
             psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
-            m_uiSystem->setPosition(track.uiHandle, out[0], out[1]);
+            ui()->setPosition(track.uiHandle, out[0], out[1]);
             break;
         }
 
         case TrackType::UIColor: {
-            if (!m_uiSystem) return;
+            if (!ui()) return;
             psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, m_frame, m_subFrame, track.initialValues, out);
             uint8_t cr = (out[0] < 0) ? 0 : ((out[0] > 255) ? 255 : (uint8_t)out[0]);
             uint8_t cg = (out[1] < 0) ? 0 : ((out[1] > 255) ? 255 : (uint8_t)out[1]);
             uint8_t cb = (out[2] < 0) ? 0 : ((out[2] > 255) ? 255 : (uint8_t)out[2]);
-            m_uiSystem->setColor(track.uiHandle, cr, cg, cb);
+            ui()->setColor(track.uiHandle, cr, cg, cb);
             break;
         }
 

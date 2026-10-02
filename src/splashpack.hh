@@ -5,6 +5,7 @@
 #include <psyqo/fixed-point.hh>
 
 #include "bvh.hh"
+#include "features.hh"
 #include "collision.hh"
 #include "gameobject.hh"
 #include "lua.h"
@@ -150,13 +151,16 @@ struct SplashpackSceneSetup {
     psyqo::FixedPoint<12, uint16_t> gravity;          // Per-second^2 acceleration (fp12)
     psyqo::FixedPoint<12, uint16_t> playerRadius;    // Collision radius (fp12)
 
+#if PSXSPLASH_FEATURE_CUTSCENE
     Cutscene loadedCutscenes[MAX_CUTSCENES];
-    int cutsceneCount = 0;
-
     Animation loadedAnimations[MAX_ANIMATIONS];
+#endif
+    int cutsceneCount = 0;
     int animationCount = 0;
 
+#if PSXSPLASH_FEATURE_SKIN
     SkinAnimSet loadedSkinAnimSets[MAX_SKINNED_MESHES];
+#endif
     int skinnedMeshCount = 0;
 
     uint16_t uiCanvasCount = 0;

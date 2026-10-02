@@ -19,3 +19,4 @@ LICENSEE.DAT
 *.iso
 system.cnf
 iso.xml
+.build-flags

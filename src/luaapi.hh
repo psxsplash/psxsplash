@@ -377,6 +377,10 @@ private:
     
     // Button constants (registered as Input.CROSS, Input.CIRCLE, etc.)
     static void RegisterInputConstants(psyqo::Lua& L);
+
+    // Stand-in for the namespace of a feature this build left out: every field
+    // access raises an error naming the feature.
+    static void RegisterCompiledOut(psyqo::Lua& L, const char* name, const char* feature);
     
     // ========================================================================
     // TIMER API - Frame counter

@@ -1,4 +1,5 @@
 #include "luaapi.hh"
+#include "features.hh"
 #include "memorycardmanager.hh"
 #include "scenemanager.hh"
 #include "gameobject.hh"
@@ -113,6 +114,7 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
 
     L.setGlobal("Actor");
 
+#if PSXSPLASH_FEATURE_AGENTS
     // ========================================================================
     // AGENT API
     // ========================================================================
@@ -194,7 +196,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "SetPatrolEnabled");
 
     L.setGlobal("Agent");
+#else
+    RegisterCompiledOut(L, "Agent", "agents");
+#endif
 
+#if PSXSPLASH_FEATURE_NET
     // ========================================================================
     // NET API (serial multiplayer over SIO1)
     // ========================================================================
@@ -240,6 +246,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "IsPersistent");
 
     L.setGlobal("Net");
+#else
+    RegisterCompiledOut(L, "Net", "net");
+#endif
 
     // ========================================================================
     // ENTITY API
@@ -622,6 +631,7 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.setGlobal("Persist");
 
+#if PSXSPLASH_FEATURE_MEMCARD
     // ========================================================================
     // MEMCARD API
     // ========================================================================
@@ -649,7 +659,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "FreeBlocks");
 
     L.setGlobal("MemCard");
+#else
+    RegisterCompiledOut(L, "MemCard", "memcard");
+#endif
 
+#if PSXSPLASH_FEATURE_CUTSCENE
     // ========================================================================
     // CUTSCENE API
     // ========================================================================
@@ -665,7 +679,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "IsPlaying");
     
     L.setGlobal("Cutscene");
+#else
+    RegisterCompiledOut(L, "Cutscene", "cutscene");
+#endif
 
+#if PSXSPLASH_FEATURE_CUTSCENE
     // ========================================================================
     // ANIMATION API
     // ========================================================================
@@ -681,7 +699,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "IsPlaying");
 
     L.setGlobal("Animation");
+#else
+    RegisterCompiledOut(L, "Animation", "cutscene");
+#endif
 
+#if PSXSPLASH_FEATURE_SKIN
     // ========================================================================
     // SKINNED ANIMATION API
     // ========================================================================
@@ -700,6 +722,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "GetClip");
 
     L.setGlobal("SkinnedAnim");
+#else
+    RegisterCompiledOut(L, "SkinnedAnim", "skin");
+#endif
 
     // ========================================================================
     // CONTROLS API
@@ -733,6 +758,7 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
 
     L.setGlobal("Interact");
 
+#if PSXSPLASH_FEATURE_UI
     // ========================================================================
     // UI API
     // ========================================================================
@@ -811,7 +837,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "DrawTriangle");
 
     L.setGlobal("UI");
+#else
+    RegisterCompiledOut(L, "UI", "ui");
+#endif
 
+#if PSXSPLASH_FEATURE_SPRITES
     // ========================================================================
     // SPRITE API
     // ========================================================================
@@ -861,7 +891,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "Count");
 
     L.setGlobal("Sprite");
+#else
+    RegisterCompiledOut(L, "Sprite", "sprites");
+#endif
 
+#if PSXSPLASH_FEATURE_LIGHTS
     // ========================================================================
     // LIGHT API
     // ========================================================================
@@ -881,7 +915,11 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "SetEnabled");
 
     L.setGlobal("Light");
+#else
+    RegisterCompiledOut(L, "Light", "lights");
+#endif
 
+#if PSXSPLASH_FEATURE_SPRITES
     // ========================================================================
     // TILE API
     // ========================================================================
@@ -906,6 +944,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     // kind byte. A game defines its own kind constants, and the values only have
     // to agree with what its tilemap was painted with.
     L.setGlobal("Tile");
+#else
+    RegisterCompiledOut(L, "Tile", "sprites");
+#endif
 
     // ========================================================================
     // PLAYER API
@@ -1909,6 +1950,28 @@ int LuaAPI::Vec3_Lerp(lua_State* L) {
 // INPUT API IMPLEMENTATION
 // ============================================================================
 
+[[maybe_unused]] static int CompiledOut_Index(lua_State* L) {
+    const char* name = lua_tostring(L, lua_upvalueindex(1));
+    const char* feature = lua_tostring(L, lua_upvalueindex(2));
+    const char* field = lua_tostring(L, 2);
+    return luaL_error(L,
+                      "%s.%s: %s is not included in this build (engine feature '%s'). SplashEdit "
+                      "builds it in when a scene or script uses %s; re-export, or add '%s' to FEATURES.",
+                      name, field ? field : "?", name, feature, name, feature);
+}
+
+void LuaAPI::RegisterCompiledOut(psyqo::Lua& L, const char* name, const char* feature) {
+    lua_State* s = L.getState();
+    lua_newtable(s);
+    lua_newtable(s);
+    lua_pushstring(s, name);
+    lua_pushstring(s, feature);
+    lua_pushcclosure(s, CompiledOut_Index, 2);
+    lua_setfield(s, -2, "__index");
+    lua_setmetatable(s, -2);
+    lua_setglobal(s, name);
+}
+
 void LuaAPI::RegisterInputConstants(psyqo::Lua& L) {
     // Button constants - must match psyqo::AdvancedPad::Button enum
     L.pushNumber(static_cast<lua_Number>(psyqo::AdvancedPad::Button::Cross));
@@ -2129,6 +2192,7 @@ void LuaAPI::IncrementFrameCount() {
     SceneManager::m_random.rand();
 }
 
+#if PSXSPLASH_FEATURE_NET
 // ============================================================================
 // NET API IMPLEMENTATION (serial multiplayer over SIO1)
 // ============================================================================
@@ -2519,6 +2583,7 @@ int LuaAPI::Net_IsPersistent(lua_State* L) {
     lua.push(NetworkManager::Get().isPersistent());
     return 1;
 }
+#endif
 
 void LuaAPI::ResetFrameCount() {
     s_frameCount = 0;
@@ -2807,6 +2872,7 @@ int LuaAPI::Actor_FindPath(lua_State* L) {
     return 1;
 }
 
+#if PSXSPLASH_FEATURE_AGENTS
 // ============================================================================
 // AGENT API IMPLEMENTATION
 // ============================================================================
@@ -3080,6 +3146,7 @@ int LuaAPI::Agent_SetPatrolEnabled(lua_State* L) {
     s_sceneManager->setActorPatrolEnabled(actorId, enabled);
     return 0;
 }
+#endif
 
 int LuaAPI::Timer_GetFrameCount(lua_State* L) {
     psyqo::Lua lua(L);
@@ -3966,6 +4033,7 @@ void LuaAPI::PersistClear() {
     }
 }
 
+#if PSXSPLASH_FEATURE_MEMCARD
 // ============================================================================
 // MEMCARD API IMPLEMENTATION
 // ============================================================================
@@ -4134,6 +4202,8 @@ int LuaAPI::MemCard_FreeBlocks(lua_State* L) {
     return 2;
 }
 
+#endif
+#if PSXSPLASH_FEATURE_CUTSCENE
 // ============================================================================
 // CUTSCENE API IMPLEMENTATION
 // ============================================================================
@@ -4256,6 +4326,8 @@ int LuaAPI::Animation_IsPlaying(lua_State* L) {
     return 1;
 }
 
+#endif
+#if PSXSPLASH_FEATURE_SKIN
 // ============================================================================
 // SKINNED ANIMATION API IMPLEMENTATION
 // ============================================================================
@@ -4375,6 +4447,7 @@ int LuaAPI::SkinnedAnim_GetClip(lua_State* L) {
     return 1;
 }
 
+#endif
 // ============================================================================
 // CONTROLS API IMPLEMENTATION
 // ============================================================================
@@ -4459,6 +4532,7 @@ int LuaAPI::Interact_IsEnabled(lua_State* L) {
     return 1;
 }
 
+#if PSXSPLASH_FEATURE_UI
 // ============================================================================
 // UI API IMPLEMENTATION
 // ============================================================================
@@ -4908,6 +4982,7 @@ int LuaAPI::UI_DrawTriangle(lua_State* L) {
     return 0;
 }
 
+#endif
 // ============================================================================
 // PLAYER API IMPLEMENTATION
 // ============================================================================
@@ -4975,6 +5050,7 @@ int LuaAPI::Player_GetRotation(lua_State* L) {
     return 1;
 }
 
+#if PSXSPLASH_FEATURE_SPRITES
 // ============================================================================
 // SPRITE API
 // ============================================================================
@@ -5359,6 +5435,8 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
 }
 
 
+#endif
+#if PSXSPLASH_FEATURE_LIGHTS
 // ============================================================================
 // LIGHT API IMPLEMENTATION
 // ============================================================================
@@ -5434,4 +5512,5 @@ int LuaAPI::Light_SetEnabled(lua_State* L) {
     return 0;
 }
 
+#endif
 }  // namespace psxsplash

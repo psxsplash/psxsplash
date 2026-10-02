@@ -15,6 +15,8 @@
 #include <psyqo/fixed-point.hh>
 #include <psyqo/vector.hh>
 
+#include "features.hh"
+
 namespace psxsplash {
 
 // ============================================================================
@@ -103,8 +105,9 @@ public:
     /// Initialize from splashpack data. Returns pointer past the data.
     const uint8_t* initializeFromData(const uint8_t* data);
 
-    /// Is nav data loaded?
-    bool isLoaded() const { return m_regions != nullptr; }
+    /// Is nav data loaded? Always false without the nav feature, which turns
+    /// every nav path in the engine into dead code.
+    bool isLoaded() const { return PSXSPLASH_FEATURE_NAV && m_regions != nullptr; }
 
     void relocate(intptr_t delta) {
         if (m_regions) m_regions = reinterpret_cast<const NavRegion*>(reinterpret_cast<intptr_t>(m_regions) + delta);

@@ -21,9 +21,11 @@
 #include "fileloader_cdrom.hh"
 #endif
 
+#if PSXSPLASH_FEATURE_STREAMING
 #include "streamreader.hh"
 #include "streamselftest.hh"
 #include "worldstreamer.hh"
+#endif
 
 #include "lua.h"
 
@@ -98,8 +100,24 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
     // Register the Lua API
-    LuaAPI::RegisterAll(L.getState(), this, &m_cutscenePlayer, &m_animationPlayer, &m_uiSystem,
-                        &m_spriteSystem, &m_tileSystem);
+    CutscenePlayer* cutscenePlayer = nullptr;
+    AnimationPlayer* animationPlayer = nullptr;
+    UISystem* uiSystem = nullptr;
+    SpriteSystem* spriteSystem = nullptr;
+    TileSystem* tileSystem = nullptr;
+#if PSXSPLASH_FEATURE_CUTSCENE
+    cutscenePlayer = &m_cutscenePlayer;
+    animationPlayer = &m_animationPlayer;
+#endif
+#if PSXSPLASH_FEATURE_UI
+    uiSystem = &m_uiSystem;
+#endif
+#if PSXSPLASH_FEATURE_SPRITES
+    spriteSystem = &m_spriteSystem;
+    tileSystem = &m_tileSystem;
+#endif
+    LuaAPI::RegisterAll(L.getState(), this, cutscenePlayer, animationPlayer, uiSystem, spriteSystem,
+                        tileSystem);
 
 #ifdef PSXSPLASH_PROFILER
     debug::Profiler::getInstance().initialize(s_font);
@@ -154,10 +172,13 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // separately via uploadSpuData() before InitializeScene() is called.
     m_audioClipNames = std::move(sceneSetup.audioClipNames);
 
+#if PSXSPLASH_FEATURE_AGENTS
     initializeAgentStates(sceneSetup);
+#endif
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 55);
 
+#if PSXSPLASH_FEATURE_CUTSCENE
     // Copy cutscene data into scene manager storage (sceneSetup is stack-local)
     m_cutsceneCount = sceneSetup.cutsceneCount;
     for (int i = 0; i < m_cutsceneCount; i++) {
@@ -170,7 +191,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_cutsceneCount,
         &m_currentCamera,
         &m_audio,
-        &m_uiSystem,
+        uiSystem,
         this,
         &m_controls[0]
     );
@@ -185,11 +206,13 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_animationPlayer.init(
         m_animationCount > 0 ? m_animations : nullptr,
         m_animationCount,
-        &m_uiSystem,
+        uiSystem,
         this,
         &m_controls[0]
     );
+#endif
 
+#if PSXSPLASH_FEATURE_SKIN
     // Copy skinned mesh data from splashpack into scene manager storage
     m_skinnedMeshCount = sceneSetup.skinnedMeshCount;
     for (int i = 0; i < m_skinnedMeshCount; i++) {
@@ -214,9 +237,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         m_skinnedMeshCount > 0 ? m_skinAnimSets : nullptr,
         m_skinnedMeshCount > 0 ? m_skinAnimStates : nullptr,
         m_skinnedMeshCount);
+#endif
 
     m_authoredSceneHash = sceneSetup.sceneHash;
 
+#if PSXSPLASH_FEATURE_LIGHTS
     // Point lights (v24+). Copied out so Lua can move them; the names stay in
     // splashpack data.
     m_pointLightCount = sceneSetup.pointLightCount;
@@ -237,7 +262,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     }
     Renderer::GetInstance().SetPointLights(m_pointLightCount > 0 ? m_pointLights : nullptr,
                                            m_pointLightCount);
+#endif
 
+#if PSXSPLASH_FEATURE_SPRITES
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
     // images and 3D textures, so there is nothing to upload here - only the
     // sheet/anim tables to parse.
@@ -262,13 +289,17 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     } else {
         Renderer::GetInstance().SetTileSystem(nullptr);
     }
+#endif
 
+#if PSXSPLASH_FEATURE_STREAMING
     // Streamed world geometry. Before Lua runs: the initial region loads are
     // blocking CD reads, and a scene script may start CD-DA.
     m_worldStreamer.init(splashpackData, sceneSetup.streamTableOffset, m_currentSceneIndex,
                          m_gameObjects, sceneSetup.playerStartPosition.x.value,
                          sceneSetup.playerStartPosition.z.value);
+#endif
 
+#if PSXSPLASH_FEATURE_UI
     // Initialize UI system (v13+)
     // Font pixel data is uploaded separately via uploadVramData() before InitializeScene.
     if (sceneSetup.uiCanvasCount > 0 && sceneSetup.uiTableOffset != 0 && s_font != nullptr) {
@@ -279,6 +310,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
         if (loading && loading->isActive()) loading->updateProgress(gpu, 70);
 
+#if PSXSPLASH_FEATURE_CUTSCENE
         // Resolve UI track handles: the splashpack loader stored raw name pointers
         // in CutsceneTrack.target for UI tracks. Now that UISystem is loaded, resolve
         // those names to canvas indices / element handles.
@@ -344,10 +376,12 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
                 }
             }
         }
+#endif
     }
     else {
         Renderer::GetInstance().SetUISystem(nullptr);
     }
+#endif
 
 #ifdef PSXSPLASH_MEMOVERLAY
     if (s_font != nullptr) {
@@ -379,6 +413,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_lastFrameTime = 0;
     m_dt12 = 4096;  // Default: 1.0 frame
 
+#if PSXSPLASH_FEATURE_COLLISION
     m_collisionSystem.init();
 
     for (size_t i = 0; i < sceneSetup.colliders.size(); i++) {
@@ -417,6 +452,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
         m_collisionSystem.registerTriggerBox(bounds, tb->luaFileIndex);
     }
+#endif
 
 
     for (int i = 0; i < m_luaFiles.size(); i++) {
@@ -522,20 +558,26 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Networking: pump the link and apply any remote state BEFORE this frame's
     // game logic, so scripts and movement see fresh peer state. No-op (and never
     // blocks) unless a session has been started.
+#if PSXSPLASH_FEATURE_NET
     NetworkManager::Get().preTick(*this, m_dt12);
+#endif
 
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameStart = gpu.now();
     uint32_t animationStart = frameStart;
 #endif
 
+#if PSXSPLASH_FEATURE_CUTSCENE
     m_cutscenePlayer.tick(m_dt12);
     m_animationPlayer.tick(m_dt12);
+#endif
 
+#if PSXSPLASH_FEATURE_SKIN
     // Tick skinned mesh animations
     for (int i = 0; i < m_skinnedMeshCount; i++) {
         SkinMesh_Tick(&m_skinAnimStates[i], L.getState().getState(), m_dt12);
     }
+#endif
 
 #ifdef PSXSPLASH_PROFILER
     uint32_t animationEnd = gpu.now();
@@ -546,7 +588,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Advance animations and let bound sprites follow their actors. Immediately
     // before the draw, so a sprite never renders a frame behind the actor it is
     // pinned to.
+#if PSXSPLASH_FEATURE_SPRITES
     m_spriteSystem.update(m_dt12);
+#endif
 
 
 
@@ -557,7 +601,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
         int camRoom = -1;
         if (m_navRegions.isLoaded()) {
-            if (m_cutscenePlayer.isPlaying() && m_cutscenePlayer.hasCameraTracks()) {
+            if (cutsceneDrivesCamera()) {
                 auto& camPos = m_currentCamera.GetPosition();
                 uint16_t camRegion = m_navRegions.findRegion(camPos.x.value, camPos.z.value);
                 if (camRegion != NAV_NO_REGION) {
@@ -587,6 +631,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
     uint32_t collisionStart = gpu.now();
 
+#if PSXSPLASH_FEATURE_COLLISION
     AABB playerAABB;
     {
         psyqo::FixedPoint<12> r;
@@ -628,6 +673,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
     // Process trigger boxes (enter/exit)
     m_collisionSystem.detectTriggers(playerAABB, *this);
+#endif
 
     gpu.pumpCallbacks();
     uint32_t collisionEnd = gpu.now();
@@ -852,14 +898,16 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     psxsplash::debug::Profiler::getInstance().setSectionTime(psxsplash::debug::PROFILER_NAVMESH, navmeshTime);
 #endif
 
+#if PSXSPLASH_FEATURE_AGENTS
     tickAgents();
+#endif
 
     // Only snap camera to player when in player-follow mode and no
     // cutscene is actively controlling the camera. In free camera mode
     // (no nav regions / no PSXPlayer), the camera is driven entirely
     // by cutscenes and Lua. After a cutscene ends in free mode, the
     // camera stays at the last cutscene position.
-    if (m_cameraFollowsPlayer && !(m_cutscenePlayer.isPlaying() && m_cutscenePlayer.hasCameraTracks())) {
+    if (m_cameraFollowsPlayer && !cutsceneDrivesCamera()) {
         psyqo::Vec3 actorPos;
         psyqo::Vec3 actorRot;
         if (getActorPosition(m_cameraFollowActor, actorPos)) {
@@ -878,14 +926,18 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // frame). After the camera has been placed for this frame: on the first
     // frame of a scene the camera has not moved to the player yet, and streaming
     // from the old position drops regions init just loaded.
+#if PSXSPLASH_FEATURE_STREAMING
     {
         auto& cam = m_currentCamera.GetPosition();
         m_worldStreamer.update(cam.x.value, cam.z.value);
     }
     StreamReader::Get().update();
+#endif
 
+#if PSXSPLASH_FEATURE_NET
     // Networking: capture our owned state and send it at the net-tick cadence.
     NetworkManager::Get().postTick(*this, m_dt12);
+#endif
 
     // Process pending scene transitions (at end of frame)
     processPendingSceneLoad();
@@ -965,6 +1017,7 @@ void psxsplash::SceneManager::updateInteractionSystem() {
         }
     }
 
+#if PSXSPLASH_FEATURE_UI
     // Prompt canvas management: show only when in range AND can interact
     int newPromptCanvas = -1;
     if (inRange && inRange->canInteract() && inRange->showPrompt() && inRange->promptCanvasName[0] != '\0') {
@@ -982,6 +1035,7 @@ void psxsplash::SceneManager::updateInteractionSystem() {
         }
         s_activePromptCanvas = newPromptCanvas;
     }
+#endif
 
     // Check if the closest in-range interactable can be activated
     if (!inRange || !inRange->canInteract()) return;
@@ -1050,6 +1104,7 @@ void psxsplash::SceneManager::processEnableDisableEvents() {
     }
 }
 
+#if PSXSPLASH_FEATURE_AGENTS
 void psxsplash::SceneManager::initializeAgentStates(const SplashpackSceneSetup& sceneSetup) {
     m_agentStates.resize(getActorCount());
     m_defaultAgentMoveSpeed = sceneSetup.moveSpeed;
@@ -1261,6 +1316,7 @@ void psxsplash::SceneManager::tickAgents() {
         }
     }
 }
+#endif
 
 // ============================================================================
 // PLAYER
@@ -1318,7 +1374,9 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
 void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool isFirstScene) {
     // Finish or drop gameplay stream reads while the scene that owns their
     // buffers is still alive; the blocking loads below need an idle drive.
+#if PSXSPLASH_FEATURE_STREAMING
     StreamReader::Get().drain();
+#endif
 
     // Restore CD-ROM controller and CPU IRQ state for file loading.
 #if defined(LOADER_CDROM)
@@ -1633,18 +1691,22 @@ void psxsplash::SceneManager::clearScene() {
     //    would drop it from its own room, which may then be full of the very
     //    players it was about to join. Such a scene keeps its slot and re-Hellos
     //    with c_flagRebind once the new scene is up.
+#if PSXSPLASH_FEATURE_NET
     if (NetworkManager::Get().isPersistent()) {
         NetworkManager::Get().resetSceneBindings();
     } else {
         NetworkManager::Get().reset();
     }
+#endif
 
     // 1. Shut down the Lua VM first - frees ALL Lua-allocated memory
     //    (bytecode, strings, tables, registry) in one shot via lua_close.
     L.Shutdown();
 
     // Streamed geometry pool (StreamReader was drained before we got here).
+#if PSXSPLASH_FEATURE_STREAMING
     m_worldStreamer.shutdown();
+#endif
 
     // 2. Clear all vectors to free their heap storage (game objects, Lua files, names, etc)
     { eastl::vector<GameObject*>    tmp; tmp.swap(m_gameObjects); }
@@ -1656,21 +1718,32 @@ void psxsplash::SceneManager::clearScene() {
 
     // 3. Reset hardware / subsystems
     m_audio.reset();           // Free SPU RAM and stop all voices
+#if PSXSPLASH_FEATURE_COLLISION
     m_collisionSystem.init();  // Re-init collision system
-    m_cutsceneCount = 0;
+#endif
     s_activePromptCanvas = -1; // Reset prompt tracking
+#if PSXSPLASH_FEATURE_CUTSCENE
+    m_cutsceneCount = 0;
     m_cutscenePlayer.init(nullptr, 0, nullptr, nullptr);  // Reset cutscene player
     m_animationCount = 0;
     m_animationPlayer.init(nullptr, 0);  // Reset animation player
+#endif
+#if PSXSPLASH_FEATURE_SKIN
     m_skinnedMeshCount = 0;
     Renderer::GetInstance().SetSkinData(nullptr, nullptr, 0);
+#endif
+#if PSXSPLASH_FEATURE_LIGHTS
     m_pointLightCount = 0;
     Renderer::GetInstance().SetPointLights(nullptr, 0);
+#endif
     // BVH and NavRegions will be overwritten by next load
 
+#if PSXSPLASH_FEATURE_UI
     // Reset UI system (disconnect from renderer before splashpack data disappears)
     Renderer::GetInstance().SetUISystem(nullptr);
+#endif
 
+#if PSXSPLASH_FEATURE_SPRITES
     // Same for sprites: the sheet/anim names point into splashpack data, and the
     // instances point at GameObjects that are about to go away.
     Renderer::GetInstance().SetSpriteSystem(nullptr);
@@ -1680,6 +1753,7 @@ void psxsplash::SceneManager::clearScene() {
     // data, which is about to be freed and reloaded.
     Renderer::GetInstance().SetTileSystem(nullptr);
     m_tileSystem.init();
+#endif
 
     // Reset room/portal pointers (they point into splashpack data which is being freed)
     m_rooms = nullptr;
@@ -1702,6 +1776,7 @@ void psxsplash::SceneManager::clearScene() {
 // ============================================================================
 
 
+#if PSXSPLASH_FEATURE_LIGHTS
 int psxsplash::SceneManager::findPointLight(const char* name) const {
     if (!name) return -1;
     for (int i = 0; i < m_pointLightCount; i++) {
@@ -1709,6 +1784,7 @@ int psxsplash::SceneManager::findPointLight(const char* name) const {
     }
     return -1;
 }
+#endif
 
 psxsplash::GameObject* psxsplash::SceneManager::findObjectByName(const char* name) const {
     if (!name || m_objectNames.empty()) return nullptr;
@@ -1730,6 +1806,7 @@ int psxsplash::SceneManager::findAudioClipByName(const char* name) const {
     return -1;
 }
 
+#if PSXSPLASH_FEATURE_SKIN
 int psxsplash::SceneManager::findSkinAnimByObjectName(const char* name) const {
     if (!name || m_objectNames.empty()) return -1;
     for (size_t i = 0; i < m_objectNames.size() && i < m_gameObjects.size(); i++) {
@@ -1742,17 +1819,21 @@ int psxsplash::SceneManager::findSkinAnimByObjectName(const char* name) const {
     }
     return -1;
 }
+#endif
 
 // ============================================================================
 // AGENT STATE MACHINE
 // ============================================================================
 
+#if PSXSPLASH_FEATURE_AGENTS
+#if PSXSPLASH_FEATURE_SKIN
 static int findSkinAnimByObjectIndex(const psxsplash::SkinAnimSet* sets, int count, uint16_t goIndex) {
     for (int i = 0; i < count; i++) {
         if (sets[i].gameObjectIndex == goIndex) return i;
     }
     return -1;
 }
+#endif
 
 void psxsplash::SceneManager::setActorAgentState(uint16_t actorId, AgentState newState) {
     if (actorId >= m_agentStates.size()) return;
@@ -1777,6 +1858,9 @@ void psxsplash::SceneManager::setActorAgentState(uint16_t actorId, AgentState ne
 }
 
 void psxsplash::SceneManager::applyAgentStateAnimation(uint16_t actorId, AgentRuntimeState& agent, AgentState newState) {
+#if !PSXSPLASH_FEATURE_SKIN
+    (void)actorId; (void)agent; (void)newState;
+#else
     if (actorId == PLAYER_ACTOR_ID || actorId == 0xFFFF) return;
     uint8_t clipIndex = agent.stateAnimClip[static_cast<int>(newState)];
     if (clipIndex == 0xFF) return;
@@ -1791,6 +1875,7 @@ void psxsplash::SceneManager::applyAgentStateAnimation(uint16_t actorId, AgentRu
     state.subFrame      = 0;
     state.playing       = true;
     state.loop          = (set.clips[clipIndex].flags & 0x01) != 0;
+#endif
 }
 
 bool psxsplash::SceneManager::canActorSeeActor(uint16_t observerActorId, uint16_t targetActorId) const {
@@ -2010,3 +2095,4 @@ void psxsplash::SceneManager::tickAgentStateMachine(uint16_t actorId, AgentRunti
             break;
     }
 }
+#endif

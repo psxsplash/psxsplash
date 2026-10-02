@@ -4,6 +4,7 @@
 #include <psyqo/font.hh>
 #include <psyqo/gpu.hh>
 #include <psyqo/primitives/common.hh>
+#include "features.hh"
 #include "uisystem.hh"
 
 namespace psxsplash {
@@ -41,7 +42,17 @@ struct LoaderPackClut {
 };
 static_assert(sizeof(LoaderPackClut) == 12, "LoaderPackClut must be 12 bytes");
 
-
+#if !PSXSPLASH_FEATURE_UI
+// Loading screens are UI canvases. Without the UI feature a scene loads behind
+// a black screen.
+class LoadingScreen {
+public:
+    bool load(psyqo::GPU&, psyqo::Font<>&, int) { return false; }
+    void renderInitialAndFree(psyqo::GPU&) {}
+    void updateProgress(psyqo::GPU&, uint8_t) {}
+    bool isActive() const { return false; }
+};
+#else
 class LoadingScreen {
 public:
     /// Try to load a loader pack from a file.
@@ -104,5 +115,6 @@ private:
     // Resolution from the loader pack
     int16_t m_resW = 320, m_resH = 240;
 };
+#endif
 
 } // namespace psxsplash
