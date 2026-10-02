@@ -41,6 +41,8 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
     // The only allocation streaming makes; every region is read into a slot of it.
     m_pool = new uint8_t[static_cast<uint32_t>(table->slotCount) * table->slotBytes];
     m_planner.reset(m_table, m_regions);
+    // The drive is ours for the scene: Audio.PlayCDDA is refused from here on.
+    StreamReader::Get().reserveDrive(true);
 
     // Everything in range of the spawn point loads now, nearest first, so the
     // first frame is not missing geometry.
