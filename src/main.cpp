@@ -9,6 +9,7 @@
 
 #include "renderer.hh"
 #include "scenemanager.hh"
+#include "features.hh"
 #include "fileloader.hh"
 #include "memorycardmanager.hh"
 #include "sio1.hh"
@@ -90,8 +91,10 @@ void PSXSplash::prepare() {
     // CDRom: CDRomDevice::prepare() must happen here.
     psxsplash::FileLoader::Get().prepare();
 
+#if PSXSPLASH_FEATURE_MEMCARD
     // Bring up the SIO0 bus for memory card access.
     psxsplash::MemoryCardManager::Get().prepare(gpu());
+#endif
 
 #if defined(PSXSPLASH_SIO1_ECHO)
     // SIO1 is separate hardware from the SIO0 bus above - no conflict.

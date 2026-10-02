@@ -17,7 +17,9 @@
 #include <psyqo/vector.hh>
 
 #include "gtemath.hh"
+#if PSXSPLASH_FEATURE_LIGHTS
 #include "lightgte.hh"
+#endif
 #include "skinmesh.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
@@ -97,10 +99,13 @@ void psxsplash::Renderer::setupObjectTransform(
     writeSafe<PseudoRegister::Translation>(objectPosition);
     writeSafe<PseudoRegister::Rotation>(finalMatrix);
 
+#if PSXSPLASH_FEATURE_LIGHTS
     m_objLights.count = 0;
     if (m_lightCount > 0 && obj->isDynamicLit()) prepareObjectLights(obj);
+#endif
 }
 
+#if PSXSPLASH_FEATURE_LIGHTS
 void psxsplash::Renderer::prepareObjectLights(const GameObject* obj) {
     const int32_t pos[3] = {obj->position.x.raw(), obj->position.y.raw(), obj->position.z.raw()};
     int32_t rot[3][3];
@@ -136,6 +141,7 @@ const uint32_t* psxsplash::Renderer::colourLutFor(int sceneIndex) {
     }
     return lut.rgb;
 }
+#endif
 
 // Per-vertex fog blend for untextured triangles: interpolate vertex color toward fog color.
 static inline psyqo::Color fogBlend(psyqo::Color vc, int32_t ir0, psyqo::Color fogC) {
@@ -314,10 +320,12 @@ void psxsplash::Renderer::processTriangle(
     }
 
     psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
+#if PSXSPLASH_FEATURE_LIGHTS
     if (m_objLights.count > 0) {
         if (m_objLightsSmooth) applyPointLights(m_objLights, tri, cA, cB, cC);
         else applyPointLightsFlat(m_objLights, tri, cA, cB, cC);
     }
+#endif
     bool hasFog = m_fog.enabled && (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
 
     if (tri.isUntextured()) {
@@ -399,12 +407,18 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
         for (int i = 0; i < obj->polyCount; i++)
             processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
+#if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
+#endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+#if PSXSPLASH_FEATURE_SPRITES
     if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
 #endif
@@ -413,7 +427,9 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
+#if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
 #endif
@@ -485,13 +501,19 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         }
     }
 
+#if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
+#endif
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+#if PSXSPLASH_FEATURE_SPRITES
     if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
 #endif
@@ -500,7 +522,9 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
+#if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
 #endif
@@ -1180,13 +1204,19 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         }
     }
 
+#if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
+#endif
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+#if PSXSPLASH_FEATURE_SPRITES
     if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderOT(m_gpu, ot, balloc);
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderOT(ot, balloc);
 #endif
@@ -1195,7 +1225,9 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
+#if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
     if (m_memOverlay) m_memOverlay->renderText(m_gpu);
 #endif
@@ -1205,6 +1237,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     m_frameCount++;
 }
 
+#if PSXSPLASH_FEATURE_SKIN
 // ============================================================================
 // Skinned mesh rendering - per-vertex bone transforms via rtps()
 // ============================================================================
@@ -1476,6 +1509,7 @@ void psxsplash::Renderer::renderSkinnedObjects(
         }
     }
 }
+#endif
 
 void psxsplash::Renderer::VramUpload(const uint16_t* imageData, int16_t posX,
                                      int16_t posY, int16_t width, int16_t height) {

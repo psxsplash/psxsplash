@@ -5,6 +5,7 @@
 #include <psyqo/trigonometry.hh>
 #include <psyqo/soft-math.hh>
 
+#include "features.hh"
 #include "camera.hh"
 #include "gameobject.hh"
 #include "audiomanager.hh"
@@ -161,6 +162,8 @@ private:
     Camera*        m_camera     = nullptr;
     AudioManager*  m_audio      = nullptr;
     UISystem*      m_uiSystem   = nullptr;
+    // nullptr without the UI feature, so the UI track code folds away.
+    UISystem* ui() const { return PSXSPLASH_FEATURE_UI ? m_uiSystem : nullptr; }
     SceneManager*  m_sceneMgr   = nullptr;
     Controls*      m_controls   = nullptr;
     lua_State*     m_luaState   = nullptr;

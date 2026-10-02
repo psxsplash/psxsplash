@@ -655,6 +655,7 @@ void psxsplash::Lua::PushGameObject(GameObject* go) {
     }
 }
 
+#if PSXSPLASH_FEATURE_NET
 uint32_t psxsplash::Lua::SerializeObjectSync(GameObject* go, uint8_t* buf, uint32_t cap) {
     auto L = m_state;
     PushGameObject(go);       // [self]
@@ -692,3 +693,4 @@ bool psxsplash::Lua::ApplyObjectSync(GameObject* go, const uint8_t* buf, uint32_
     L.pop(2);                 // clean the stack
     return true;
 }
+#endif

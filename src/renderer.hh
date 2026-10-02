@@ -16,6 +16,7 @@
 #include "bvh.hh"
 #include "camera.hh"
 #include "gameobject.hh"
+#include "features.hh"
 #include "lightmath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
@@ -108,15 +109,19 @@ class Renderer final {
 #endif
     psyqo::GPU& getGPU() { return m_gpu; }
 
+#if PSXSPLASH_FEATURE_SKIN
     void SetSkinData(const SkinAnimSet* sets, const SkinAnimState* states, int count) {
         m_skinSets = sets; m_skinStates = states; m_skinCount = count;
     }
+#endif
 
+#if PSXSPLASH_FEATURE_LIGHTS
     /// The scene's point lights. Read every frame, so Lua edits take effect on
     /// the next one. nullptr / 0 turns dynamic lighting off.
     void SetPointLights(const PointLight* lights, int count) {
         m_lights = lights; m_lightCount = count;
     }
+#endif
 
     static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr,
@@ -148,10 +153,13 @@ class Renderer final {
     MemOverlay* m_memOverlay = nullptr;
 #endif
 
+#if PSXSPLASH_FEATURE_SKIN
     const SkinAnimSet* m_skinSets = nullptr;
     const SkinAnimState* m_skinStates = nullptr;
     int m_skinCount = 0;
+#endif
 
+#if PSXSPLASH_FEATURE_LIGHTS
     const PointLight* m_lights = nullptr;
     int m_lightCount = 0;
     // Lights reaching the object setupObjectTransform last loaded. Count 0
@@ -168,13 +176,14 @@ class Renderer final {
     };
     ColourLut m_colourLuts[MAX_SCENE_LIGHTS];
     const uint32_t* colourLutFor(int sceneIndex);
+    void prepareObjectLights(const GameObject* obj);
+#endif
 
     TriangleRef m_visibleRefs[MAX_VISIBLE_TRIANGLES];
     int m_frameCount = 0;
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
-    void prepareObjectLights(const GameObject* obj);
 
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
@@ -182,12 +191,14 @@ class Renderer final {
                          int depth = 0,
                          psyqo::PrimPieces::UVCoords uvOffset = { 0 });
 
+#if PSXSPLASH_FEATURE_SKIN
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,
                               const psyqo::Vec3& cameraPosition,
                               int32_t fogFarSZ,
                               psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
                               psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
                               const Frustum* frustum = nullptr);
+#endif
 };
 
 }  // namespace psxsplash

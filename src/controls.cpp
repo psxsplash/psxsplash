@@ -6,6 +6,7 @@
 #include <psyqo/vector.hh>
 
 #include "irqack.hh"
+#include "features.hh"
 #include "sio1.hh"
 
 namespace {
@@ -153,6 +154,7 @@ bool psxsplash::Controls::s_shieldEndInstalled = false;
 void psxsplash::Controls::ShieldPadPollBegin() {
     if (s_shieldBeginInstalled) return;
     s_shieldBeginInstalled = true;
+#if PSXSPLASH_FEATURE_NET
     psyqo::Kernel::Internal::addOnFrame([]() {
         // Go in with an EMPTY FIFO and a live interrupt. The pad poll is ~760us,
         // and 760us at 57600 is 4.4 bytes -- so an empty FIFO cannot overflow
@@ -164,17 +166,20 @@ void psxsplash::Controls::ShieldPadPollBegin() {
         // second full transmit pass per frame from inside GPU::flip.
         Sio1::Get().rearmRx();
     });
+#endif
 }
 
 void psxsplash::Controls::ShieldPadPollEnd() {
     if (s_shieldEndInstalled) return;
     s_shieldEndInstalled = true;
+#if PSXSPLASH_FEATURE_NET
     psyqo::Kernel::Internal::addOnFrame([]() {
         // Recreate the interrupt's edge, immediately after the only code in the
         // program that can have destroyed it. This is the tight net; Sio1::poll()
         // carries a second one for everything else. See Sio1::rearmRx().
         Sio1::Get().rearmRx();
     });
+#endif
 }
 
 void psxsplash::Controls::forceAnalogMode() {
