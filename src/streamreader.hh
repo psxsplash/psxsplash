@@ -47,6 +47,10 @@ class StreamReader {
     /** Look up a file for streaming. Blocking; call only while loading a scene. */
     static bool Open(const char* filename, StreamFile& out);
 
+    /** Blocking sector read, same contract as request(). Scene load only. */
+    static bool ReadBlocking(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount,
+                             void* buffer);
+
     /**
      * Queue a read of `sectorCount` 2048-byte sectors starting at `firstSector`
      * (relative to the start of the file) into `buffer`, which must be 4-byte

@@ -115,6 +115,9 @@ class FileLoader {
     /** scene_N.loading  or  SCENE_N.LDG;1 */
     static void BuildLoadingFilename(int sceneIndex, char* out, int maxLen);
 
+    /** scene_N.geo  or  SCENE_N.GEO;1 - streamed world geometry, if any */
+    static void BuildGeoFilename(int sceneIndex, char* out, int maxLen);
+
     // -- Singleton -------------------------------------------------
     static FileLoader& Get();
 };

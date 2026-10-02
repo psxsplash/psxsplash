@@ -14,6 +14,27 @@
 
 namespace psxsplash {
 
+#if !defined(LOADER_CDROM)
+static bool readPcdrv(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount, void* buffer) {
+    bool ok = false;
+    int fd = pcdrv_open(file.name, 0, 0);
+    if (fd >= 0) {
+        uint32_t offset = firstSector * 2048;
+        uint32_t want = sectorCount * 2048;
+        // The last sector of a file is short; pad it with zeros like a CD read.
+        uint32_t avail = file.size > offset ? file.size - offset : 0;
+        uint32_t len = want < avail ? want : avail;
+        if (pcdrv_seek(fd, static_cast<int>(offset), 0) == static_cast<int>(offset) &&
+            pcdrv_read(fd, buffer, static_cast<int>(len)) == static_cast<int>(len)) {
+            __builtin_memset(static_cast<uint8_t*>(buffer) + len, 0, want - len);
+            ok = true;
+        }
+        pcdrv_close(fd);
+    }
+    return ok;
+}
+#endif
+
 StreamReader& StreamReader::Get() {
     static StreamReader instance;
     return instance;
@@ -35,6 +56,18 @@ bool StreamReader::Open(const char* filename, StreamFile& out) {
     for (unsigned i = 0; i < sizeof(out.name) - 1 && filename[i]; i++) out.name[i] = filename[i];
     out.valid = true;
     return true;
+}
+
+bool StreamReader::ReadBlocking(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount,
+                                void* buffer) {
+    if (!file.valid || sectorCount == 0 || firstSector + sectorCount > file.sectorCount()) return false;
+#if defined(LOADER_CDROM)
+    auto* cdrom = static_cast<FileLoaderCDRom&>(FileLoader::Get()).getCDRomDevice();
+    return cdrom->readSectorsBlocking(file.lba + firstSector, sectorCount, buffer,
+                                      Renderer::GetInstance().getGPU());
+#else
+    return readPcdrv(file, firstSector, sectorCount, buffer);
+#endif
 }
 
 bool StreamReader::request(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount,
@@ -79,21 +112,7 @@ bool StreamReader::startRead(Request& req) {
                        });
     return true;
 #else
-    bool ok = false;
-    int fd = pcdrv_open(req.file.name, 0, 0);
-    if (fd >= 0) {
-        uint32_t offset = req.firstSector * 2048;
-        uint32_t want = req.sectorCount * 2048;
-        // The last sector of a file is short; pad it with zeros like a CD read.
-        uint32_t avail = req.file.size > offset ? req.file.size - offset : 0;
-        uint32_t len = want < avail ? want : avail;
-        if (pcdrv_seek(fd, static_cast<int>(offset), 0) == static_cast<int>(offset) &&
-            pcdrv_read(fd, req.buffer, static_cast<int>(len)) == static_cast<int>(len)) {
-            __builtin_memset(static_cast<uint8_t*>(req.buffer) + len, 0, want - len);
-            ok = true;
-        }
-        pcdrv_close(fd);
-    }
+    bool ok = readPcdrv(req.file, req.firstSector, req.sectorCount, req.buffer);
     m_inFlight = true;
     psyqo::Kernel::queueCallback([this, ok, callback = eastl::move(req.callback)]() mutable {
         m_inFlight = false;

@@ -73,7 +73,7 @@ struct SPLASHPACKFileHeader {
     uint32_t skinTableOffset;
     // --- v21 additions (appended; existing fields above are unchanged) ---
     uint32_t memcardTableOffset;  // offset to SPLASHPACKMemcard, or 0 if none
-    uint32_t reservedMemcard;     // reserved / future use
+    uint32_t streamTableOffset;   // offset to SPLASHPACKStreamTable, or 0 if the world is not streamed
     // --- v22 additions (appended; existing fields above are unchanged) ---
     uint32_t spriteTableOffset;   // offset to the sheet+anim tables, or 0 if none
     uint16_t spriteSheetCount;
@@ -652,6 +652,11 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         if (count > MAX_SCENE_LIGHTS) count = MAX_SCENE_LIGHTS;
         setup.pointLights = reinterpret_cast<const SPLASHPACKPointLight*>(table + 4);
         setup.pointLightCount = count;
+    }
+
+    // Streamed world geometry. This word was reserved and written as 0 since v21.
+    if (header->version >= 21) {
+        setup.streamTableOffset = header->streamTableOffset;
     }
 }
 
