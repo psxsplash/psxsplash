@@ -387,7 +387,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                 track.trackType     = static_cast<TrackType>(*trackPtr++);
                 track.keyframeCount = *trackPtr++;
                 uint8_t objNameLen  = *trackPtr++;
-                trackPtr++; // pad
+                uint8_t lightIndex  = *trackPtr++;  // light tracks only; pad otherwise
                 uint32_t objNameOff = *reinterpret_cast<uint32_t*>(trackPtr); trackPtr += 4;
                 uint32_t kfOff      = *reinterpret_cast<uint32_t*>(trackPtr); trackPtr += 4;
 
@@ -398,8 +398,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 
                 // Resolve target object by name (or store UI name for later resolution)
                 track.target = nullptr;
-                track.uiHandle = -1;
-                if (objNameLen > 0 && objNameOff != 0) {
+                track.uiHandle = isLightTrackType(track.trackType) ? lightIndex : -1;
+                if (objNameLen > 0 && objNameOff != 0 && !isLightTrackType(track.trackType)) {
                     const char* objName = reinterpret_cast<const char*>(data + objNameOff);
                     bool isUI = isUITrackType(track.trackType);
                     if (isUI) {
@@ -490,7 +490,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                 track.trackType     = static_cast<TrackType>(*trackPtr++);
                 track.keyframeCount = *trackPtr++;
                 uint8_t objNameLen  = *trackPtr++;
-                trackPtr++; // pad
+                uint8_t lightIndex  = *trackPtr++;  // light tracks only; pad otherwise
                 uint32_t objNameOff = *reinterpret_cast<uint32_t*>(trackPtr); trackPtr += 4;
                 uint32_t kfOff      = *reinterpret_cast<uint32_t*>(trackPtr); trackPtr += 4;
 
@@ -499,8 +499,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                                   : nullptr;
 
                 track.target = nullptr;
-                track.uiHandle = -1;
-                if (objNameLen > 0 && objNameOff != 0) {
+                track.uiHandle = isLightTrackType(track.trackType) ? lightIndex : -1;
+                if (objNameLen > 0 && objNameOff != 0 && !isLightTrackType(track.trackType)) {
                     const char* objName = reinterpret_cast<const char*>(data + objNameOff);
                     bool isUI = isUITrackType(track.trackType);
                     if (isUI) {
