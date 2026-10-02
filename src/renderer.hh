@@ -157,6 +157,17 @@ class Renderer final {
     // Lights reaching the object setupObjectTransform last loaded. Count 0
     // leaves processTriangle on the unlit path.
     lightmath::ObjectLights m_objLights;
+    bool m_objLightsSmooth = false;
+
+    // Per scene light, its flat-path colour for every quantised t
+    // (lightmath::flatColour), rebuilt only when Lua changes its colour.
+    struct ColourLut {
+        uint32_t key = 0xFFFFFFFF;  ///< r | g << 8 | b << 16, plus intensity below
+        uint16_t intensity = 0;
+        uint32_t rgb[lightmath::kColourLutSize];
+    };
+    ColourLut m_colourLuts[MAX_SCENE_LIGHTS];
+    const uint32_t* colourLutFor(int sceneIndex);
 
     TriangleRef m_visibleRefs[MAX_VISIBLE_TRIANGLES];
     int m_frameCount = 0;

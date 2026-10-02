@@ -242,6 +242,59 @@ TEST(reach_mask_never_drops_a_lit_vertex) {
     CHECK_EQ(holes, 0);
 }
 
+TEST(flat_shading_tracks_float_reference_at_v0) {
+    // shadeFlat evaluates one term at the triangle's first vertex and
+    // scales it by the light colour; check it against the float model there.
+    srand(9001);
+    double worst = 0.0;
+    int lit = 0;
+    for (int trial = 0; trial < 20000; trial++) {
+        PointLight l = makeLight((rand() % 40000) - 20000, (rand() % 40000) - 20000,
+                                 (rand() % 40000) - 20000, 4096 + rand() % (16 * 4096));
+        l.r = 255;
+        ObjectLights ol;
+        if (prepare(&l, 1, kOrigin, kIdentity, kBoxMin, kBoxMax, ol) != 1) continue;
+        int16_t base[3] = {(int16_t)((rand() % 50000) - 25000), (int16_t)((rand() % 50000) - 25000),
+                           (int16_t)((rand() % 50000) - 25000)};
+        int16_t x[3], y[3], z[3];
+        for (int k = 0; k < 3; k++) {
+            x[k] = (int16_t)(base[0] + (rand() % 2000) - 1000);
+            y[k] = (int16_t)(base[1] + (rand() % 2000) - 1000);
+            z[k] = (int16_t)(base[2] + (rand() % 2000) - 1000);
+        }
+        double nx = rand() - RAND_MAX / 2.0, ny = rand() - RAND_MAX / 2.0, nz = rand() - RAND_MAX / 2.0;
+        double nlen = sqrt(nx * nx + ny * ny + nz * nz);
+        int16_t n[3] = {(int16_t)lround(4096 * nx / nlen), (int16_t)lround(4096 * ny / nlen),
+                        (int16_t)lround(4096 * nz / nlen)};
+        int16_t c[3] = {x[0], y[0], z[0]};
+        double dx = l.x - c[0], dy = l.y - c[1], dz = l.z - c[2];
+        // Same quantisation caveat as the per-vertex test.
+        if (sqrt(dx * dx + dy * dy + dz * dz) < 32.0 * (1 << ol.shift)) continue;
+        double ref = reference(l, kOrigin, c, n) * 255 / 4096.0;
+        int32_t r = (int32_t)(shadeFlat(ol, x, y, z, n[0], n[1], n[2]) & 0xFF);
+        if (ref > 0 || r > 0) lit++;
+        double err = fabs(r - ref);
+        if (err > worst) worst = err;
+    }
+    printf("    flat: %d lit, worst %.2f of 255\n", lit, worst);
+    CHECK(lit > 1000);
+    CHECK(worst < 255 * 0.02);
+}
+
+TEST(add_clamp_packed_matches_per_byte) {
+    srand(31337);
+    int bad = 0;
+    for (int i = 0; i < 200000; i++) {
+        uint32_t c = ((uint32_t)rand() << 16) ^ (uint32_t)rand();
+        uint32_t p = (uint32_t)(rand() & 0xFF) | ((uint32_t)(rand() & 0xFF) << 8) | ((uint32_t)(rand() & 0xFF) << 16);
+        if (i < 256) p = (uint32_t)i * 0x010101;  // the full range of one byte
+        uint32_t want = c & 0xFF000000;
+        for (int k = 0; k < 3; k++) want |= (uint32_t)addClamp((c >> (8 * k)) & 0xFF, (p >> (8 * k)) & 0xFF) << (8 * k);
+        if (addClampPacked(c, p) != want) bad++;
+    }
+    CHECK_EQ(bad, 0);
+}
+
 TEST(add_clamp_saturates) {
     CHECK_EQ(addClamp(200, 30), 230);
     CHECK_EQ(addClamp(200, 100), 255);

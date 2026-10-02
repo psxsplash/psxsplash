@@ -111,8 +111,30 @@ void psxsplash::Renderer::prepareObjectLights(const GameObject* obj) {
     }
     const int32_t aabbMin[3] = {obj->aabbMinX, obj->aabbMinY, obj->aabbMinZ};
     const int32_t aabbMax[3] = {obj->aabbMaxX, obj->aabbMaxY, obj->aabbMaxZ};
-    if (lightmath::prepare(m_lights, m_lightCount, pos, rot, aabbMin, aabbMax, m_objLights) > 0)
+    m_objLightsSmooth = obj->isDynamicLitSmooth();
+    if (lightmath::prepare(m_lights, m_lightCount, pos, rot, aabbMin, aabbMax, m_objLights) == 0) return;
+    if (m_objLightsSmooth) {
         loadLightMatrices(m_objLights);
+    } else {
+        for (int i = 0; i < m_objLights.count; i++)
+            m_objLights.lights[i].colourLut = colourLutFor(m_objLights.lights[i].sceneIndex);
+        loadFlatLightState(m_objLights);
+    }
+}
+
+const uint32_t* psxsplash::Renderer::colourLutFor(int sceneIndex) {
+    const PointLight& l = m_lights[sceneIndex];
+    ColourLut& lut = m_colourLuts[sceneIndex];
+    const uint32_t key = (uint32_t)l.r | ((uint32_t)l.g << 8) | ((uint32_t)l.b << 16);
+    if (lut.key != key || lut.intensity != l.intensity) {
+        lut.key = key;
+        lut.intensity = l.intensity;
+        const int32_t cr = (l.r * l.intensity) >> 12, cg = (l.g * l.intensity) >> 12,
+                      cb = (l.b * l.intensity) >> 12;
+        for (int i = 0; i < lightmath::kColourLutSize; i++)
+            lut.rgb[i] = lightmath::flatColour(cr, cg, cb, i << lightmath::kColourLutShift);
+    }
+    return lut.rgb;
 }
 
 // Per-vertex fog blend for untextured triangles: interpolate vertex color toward fog color.
@@ -292,7 +314,10 @@ void psxsplash::Renderer::processTriangle(
     }
 
     psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
-    if (m_objLights.count > 0) applyPointLights(m_objLights, tri, cA, cB, cC);
+    if (m_objLights.count > 0) {
+        if (m_objLightsSmooth) applyPointLights(m_objLights, tri, cA, cB, cC);
+        else applyPointLightsFlat(m_objLights, tri, cA, cB, cC);
+    }
     bool hasFog = m_fog.enabled && (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
 
     if (tri.isUntextured()) {

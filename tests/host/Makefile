@@ -47,7 +47,7 @@ $(SPRITE_BIN): test_sprite.cpp testing.hh compat.hh $(SPRITE_SRCS) | $(BUILD)
 $(TILE_BIN): test_tile.cpp testing.hh compat.hh $(TILE_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_tile.cpp $(TILE_SRCS)
 
-$(LIGHT_BIN): test_light.cpp testing.hh compat.hh $(LIGHT_SRCS) | $(BUILD)
+$(LIGHT_BIN): test_light.cpp testing.hh compat.hh $(LIGHT_SRCS) $(SRC_DIR)/lightmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_light.cpp $(LIGHT_SRCS)
 
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)

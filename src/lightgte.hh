@@ -49,8 +49,111 @@ inline void dotLights(int32_t x, int32_t y, int32_t z, int count, int32_t out[4]
     }
 }
 
-/// Add the lights loaded by loadLightMatrices() to a triangle's three vertex
-/// colours. Touches V0, IR and MAC only, so the rotation and translation the
+// Raw GTE moves for the flat path. psyqo's write<>/readRaw<> are not always
+// inlined at -Os, and a call per register move costs more than the lighting.
+// Writes end with the two instructions the GTE needs before a command reads
+// them; reads carry the one-instruction load delay.
+[[gnu::always_inline]] inline void gteMtc2V0(uint32_t xy, uint32_t z) {
+    asm volatile(".set push\n\t.set noreorder\n\tmtc2 %0, $0\n\tmtc2 %1, $1\n\t.set pop" : : "r"(xy), "r"(z));
+}
+[[gnu::always_inline]] inline void gteSetBK(uint32_t x, uint32_t y, uint32_t z) {
+    asm volatile("ctc2 %0, $13\n\tctc2 %1, $14\n\tctc2 %2, $15\n\tnop\n\tnop" : : "r"(x), "r"(y), "r"(z));
+}
+[[gnu::always_inline]] inline void gteSetL1(uint32_t xy, uint32_t z) {
+    asm volatile("ctc2 %0, $8\n\tctc2 %1, $9\n\tnop\n\tnop" : : "r"(xy), "r"(z));
+}
+/// MAC1 + MAC2 + MAC3: three reads sharing one load-delay slot.
+[[gnu::always_inline]] inline int32_t gteMacSum() {
+    int32_t a, b, c;
+    asm volatile(".set push\n\t.set noreorder\n\tmfc2 %0, $25\n\tmfc2 %1, $26\n\tmfc2 %2, $27\n\tnop\n\t.set pop"
+                 : "=&r"(a), "=&r"(b), "=&r"(c));
+    return a + b + c;
+}
+[[gnu::always_inline]] inline int32_t gteMac(int which) {
+    int32_t v;
+    if (which == 1) asm volatile("mfc2 %0, $25\n\tnop" : "=r"(v));
+    else if (which == 2) asm volatile("mfc2 %0, $26\n\tnop" : "=r"(v));
+    else asm volatile("mfc2 %0, $27\n\tnop" : "=r"(v));
+    return v;
+}
+
+/// GTE state for applyPointLightsFlat(): the colour matrix is -I scaled by the
+/// object's shift, so an MVMVA with the background colour vector as translation
+/// computes BK - V0 >> shift from a raw vertex in V0, and the
+/// light matrix's other two rows are zero (its first row takes each triangle's
+/// normal). BK holds the light; with a single light it is loaded here, once per
+/// object.
+inline void loadFlatLightState(const lightmath::ObjectLights& ol) {
+    using namespace psyqo::GTE;
+    psyqo::Matrix33 negI = {}, zero = {};
+    negI.vs[0].x.value = ol.flatScale;
+    negI.vs[1].y.value = ol.flatScale;
+    negI.vs[2].z.value = ol.flatScale;
+    writeSafe<PseudoRegister::Color>(negI);
+    writeSafe<PseudoRegister::Light>(zero);
+    if (ol.count == 1) gteSetBK(ol.lights[0].lx, ol.lights[0].ly, ol.lights[0].lz);
+}
+
+/// Flat point lighting: one colour for the whole triangle, evaluated at its
+/// first vertex and added to all three baked vertex colours. Per light, on the
+/// GTE: d = light - v0 (MVMVA, colour matrix, BK), d*d (SQR), and N.d (MVMVA,
+/// light matrix row 0 = normal). Matches lightmath::shadeFlat() exactly.
+/// The first vertex rather than the centroid: the centroid costs a fifth of
+/// the whole path, and v0 goes into the GTE straight from the triangle.
+[[gnu::always_inline]] inline void applyPointLightsFlat(const lightmath::ObjectLights& ol, const Tri& tri,
+                                                        psyqo::Color& cA, psyqo::Color& cB, psyqo::Color& cC) {
+    using namespace psyqo::GTE;
+    // Tri is 4-aligned and v0 sits at offset 0, so x and y load as one word.
+    gteMtc2V0(*reinterpret_cast<const uint32_t*>(&tri.v0), (uint32_t)(int32_t)tri.v0.z.value);
+    const uint32_t nxy = (uint32_t)(uint16_t)tri.normal.x.value | ((uint32_t)tri.normal.y.value << 16);
+    const uint32_t nz = (uint32_t)(uint16_t)tri.normal.z.value;
+
+    if (ol.count == 1) {
+        // The common case, without the loop: BK already holds the light.
+        const lightmath::ObjectLight& l = ol.lights[0];
+        Kernels::mvmva<Kernels::MX::LC, Kernels::MV::V0, Kernels::TV::BK, Kernels::Shifted>();
+        Kernels::sqr<Kernels::Unshifted>();
+        int32_t distSq = gteMacSum();
+        if (distSq >= l.radiusSq) return;
+        // Out-of-range triangles, often half of a lit mesh, stop above this line.
+        gteSetL1(nxy, nz);
+        Kernels::mvmva<Kernels::MX::LC, Kernels::MV::V0, Kernels::TV::BK, Kernels::Shifted>();
+        Kernels::mvmva<Kernels::MX::LL, Kernels::MV::IR, Kernels::TV::Zero, Kernels::Unshifted>();
+        int32_t t = lightmath::shadeInRange(l, distSq, gteMac(1));
+        if (t == 0) return;
+        const uint32_t p = l.colourLut[t >> lightmath::kColourLutShift];
+        cA.packed = lightmath::addClampPacked(cA.packed, p);
+        cB.packed = lightmath::addClampPacked(cB.packed, p);
+        cC.packed = lightmath::addClampPacked(cC.packed, p);
+        return;
+    }
+
+    // Each light's colour comes out of its table (lightmath::flatColour), and
+    // lights combine with the same saturating add as the baked colour.
+    gteSetL1(nxy, nz);
+    uint32_t p = 0;
+    for (int i = 0; i < ol.count; i++) {
+        const lightmath::ObjectLight& l = ol.lights[i];
+        if (ol.count > 1) gteSetBK(l.lx, l.ly, l.lz);
+        Kernels::mvmva<Kernels::MX::LC, Kernels::MV::V0, Kernels::TV::BK, Kernels::Shifted>();
+        Kernels::sqr<Kernels::Unshifted>();
+        int32_t distSq = gteMacSum();
+        if (distSq >= l.radiusSq) continue;
+        // SQR consumed IR; rebuild d there and dot it against the normal.
+        Kernels::mvmva<Kernels::MX::LC, Kernels::MV::V0, Kernels::TV::BK, Kernels::Shifted>();
+        Kernels::mvmva<Kernels::MX::LL, Kernels::MV::IR, Kernels::TV::Zero, Kernels::Unshifted>();
+        int32_t t = lightmath::shade(l, distSq, gteMac(1));
+        if (t == 0) continue;
+        p = lightmath::addClampPacked(p, l.colourLut[t >> lightmath::kColourLutShift]);
+    }
+    if (p == 0) return;
+    cA.packed = lightmath::addClampPacked(cA.packed, p);
+    cB.packed = lightmath::addClampPacked(cB.packed, p);
+    cC.packed = lightmath::addClampPacked(cC.packed, p);
+}
+
+/// Smooth point lighting, per vertex: add the lights loaded by
+/// loadLightMatrices() to a triangle's three vertex colours. Touches V0, IR and MAC only, so the rotation and translation the
 /// next triangle projects with are left alone.
 inline void applyPointLights(const lightmath::ObjectLights& ol, const Tri& tri, psyqo::Color& cA,
                              psyqo::Color& cB, psyqo::Color& cC) {

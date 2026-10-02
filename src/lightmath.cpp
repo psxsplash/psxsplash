@@ -12,30 +12,15 @@ consteval double ceSqrt(double x) {
     return g;
 }
 
-// Filled from kExactBins up. Below it term() calls termExact(); that is d < r/4,
+// Filled from kExactBins up. Below it shade() calls termExact(); that is d < r/4,
 // 1/64 of the lit sphere's volume.
 consteval FalloffLut makeFalloffLut() {
     FalloffLut lut{};
-    for (int i = kExactBins; i <= 256; i++) {
-        double s = ceSqrt(i / 256.0);
+    for (uint32_t i = kExactBins; i < kLutBins; i++) {
+        double s = ceSqrt((i + 0.5) / kLutBins);
         lut.k[i] = (uint16_t)((1.0 - s) / s * 1024.0 + 0.5);
     }
     return lut;
-}
-
-uint32_t isqrt(uint32_t n) {
-    uint32_t root = 0, bit = 1u << 30;
-    while (bit > n) bit >>= 2;
-    while (bit) {
-        if (n >= root + bit) {
-            n -= root + bit;
-            root = (root >> 1) + bit;
-        } else {
-            root >>= 1;
-        }
-        bit >>= 2;
-    }
-    return root;
 }
 
 // floor(2^p / d) for d < 2^30, by long division in 32-bit steps: there is no
@@ -52,6 +37,21 @@ uint32_t pow2Div(int p, uint32_t d) {
         }
     }
     return q;
+}
+
+uint32_t isqrt(uint32_t n) {
+    uint32_t root = 0, bit = 1u << 30;
+    while (bit > n) bit >>= 2;
+    while (bit) {
+        if (n >= root + bit) {
+            n -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
 }
 
 inline int32_t iabs(int32_t v) { return v < 0 ? -v : v; }
@@ -108,6 +108,7 @@ int prepare(const PointLight* lights, int lightCount, const int32_t position[3],
     int shift = kMinShift;
     while ((largest >> shift) > kOperandMax) shift++;
     out.shift = shift;
+    out.flatScale = shift > 12 ? 0 : -(4096 >> shift);
 
     for (int i = 0; i < n; i++) {
         ObjectLight& o = out.lights[i];
@@ -119,16 +120,17 @@ int prepare(const PointLight* lights, int lightCount, const int32_t position[3],
         if (r < 1) r = 1;
         o.radius = r;
         o.radiusSq = r * r;
-        // p = 31 + floor(log2(radiusSq)) puts the quotient in (2^30, 2^31].
-        int log2 = 0;  // MIPS I has no clz, and libgcc's is not linked
-        while (((uint32_t)o.radiusSq >> log2) > 1) log2++;
-        o.invRadiusSq = pow2Div(31 + log2, (uint32_t)o.radiusSq);
-        // distSq * inv >> invShift = 65536 * distSq / radiusSq.
-        o.invShift = (uint8_t)(31 + log2 - 16);
-        o.invRadius = (1 << 24) / r;
+        int tShift = 0;
+        while ((((uint32_t)o.radiusSq << tShift) & 0x80000000u) == 0) tShift++;
+        o.tShift = (uint8_t)tShift;
+        // 2^52 / (R << tShift) = 2^44 / ((R << tShift) >> 8), divisor in [2^23, 2^24).
+        o.invRadiusSq = pow2Div(44, ((uint32_t)o.radiusSq << tShift) >> 8);
+        o.invRadius = 0xFFFFFFFFu / (uint32_t)r;
         o.cr = (kept[i]->r * kept[i]->intensity) >> 12;
         o.cg = (kept[i]->g * kept[i]->intensity) >> 12;
         o.cb = (kept[i]->b * kept[i]->intensity) >> 12;
+        o.sceneIndex = (uint8_t)(kept[i] - lights);
+        o.colourLut = nullptr;
     }
     out.count = n;
     return n;
@@ -157,6 +159,7 @@ uint32_t reachMask(const ObjectLights& ol, const int32_t v[3][3]) {
 }
 
 int32_t termExact(const ObjectLight& light, int32_t distSq, int32_t nd) {
+    if (distSq <= 0) return 4096;
     // distSq < radiusSq / 16 <= 2^22 here, so it takes 8 more bits: dist is the
     // distance with 4 fractional bits.
     int32_t dist = (int32_t)isqrt((uint32_t)distSq << 8);

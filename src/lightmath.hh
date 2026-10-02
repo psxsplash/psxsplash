@@ -55,17 +55,29 @@ struct ObjectLight {
     int32_t lenSq;          ///< lx*lx + ly*ly + lz*lz
     int32_t radius;         ///< radius >> shift, at least 1
     int32_t radiusSq;       ///< radius * radius
-    uint32_t invRadiusSq;   ///< 2^(invShift + 16) / radiusSq, kept in 31 bits
-    uint8_t invShift;
-    int32_t invRadius;      ///< (1 << 24) / radius
+    uint8_t tShift;         ///< radiusSq << tShift lands in [2^31, 2^32)
+    uint32_t invRadiusSq;   ///< 2^52 / (radiusSq << tShift)
+    uint32_t invRadius;     ///< 0xFFFFFFFF / radius
     int32_t cr, cg, cb;     ///< colour * intensity, 0..4080
+    uint8_t sceneIndex;     ///< which PointLight this came from
+    /// flatColour() for every t >> kColourLutShift, or null to compute it.
+    const uint32_t* colourLut;
 };
 
 struct ObjectLights {
     ObjectLight lights[MAX_LIGHTS_PER_MESH];
     int count = 0;
     int shift = kMinShift;
+    /// -(4096 >> shift): the diagonal of the GTE matrix that takes a raw vertex
+    /// to shifted units in the flat path.
+    int32_t flatScale = 0;
 };
+
+/// light - vertex on one axis, in shifted units, rounded the way the GTE's
+/// MVMVA does it (sf=1): ((L << 12) + flatScale * v) >> 12.
+inline int32_t flatDelta(const ObjectLights& ol, int32_t l, int32_t v) {
+    return ((l << 12) + ol.flatScale * v) >> 12;
+}
 
 /// True if the sphere (cx,cy,cz,radius) reaches the box. All 20.12.
 bool sphereTouchesAABB(int32_t cx, int32_t cy, int32_t cz, int32_t radius,
@@ -78,25 +90,22 @@ int prepare(const PointLight* lights, int lightCount, const int32_t position[3],
             const int32_t rot[3][3], const int32_t aabbMin[3], const int32_t aabbMax[3],
             ObjectLights& out);
 
-/// k(t) = (1 - sqrt(t)) / sqrt(t) at t = i/256, 6.10. Entries below
-/// kExactBins are unused: term() takes termExact() there.
+/// k(t) = (1 - sqrt(t)) / sqrt(t) at the centre of bin i of t = d^2/r^2 in
+/// 1024ths, 6.10. Entries below kExactBins are unused: shade() takes
+/// termExact() there.
+static constexpr uint32_t kLutBins = 1024;
 struct FalloffLut {
-    uint16_t k[257];
+    uint16_t k[kLutBins];
 };
 extern const FalloffLut kFalloffLut;
-static constexpr uint32_t kExactBins = 16;
+static constexpr uint32_t kExactBins = kLutBins / 16;
+
+/// High word of a 32x32 unsigned product: one multu and an mfhi.
+inline uint32_t mulhi(uint32_t a, uint32_t b) { return (uint32_t)(((uint64_t)a * b) >> 32); }
 
 /// term() within r/4 of the light, where 1/sqrt(t) is too steep for the table:
 /// a square root and two divides.
 int32_t termExact(const ObjectLight& light, int32_t distSq, int32_t nd);
-
-/// (a * b) >> s for s in [16, 48], without a variable 64-bit shift helper.
-inline uint32_t mulShr(uint32_t a, uint32_t b, int s) {
-    uint64_t p = (uint64_t)a * b;
-    uint32_t hi = (uint32_t)(p >> 32), lo = (uint32_t)p;
-    if (s >= 32) return hi >> (s - 32);
-    return (hi << (32 - s)) | (lo >> s);
-}
 
 /// Falloff times cosine for one vertex and one light, 4.12 (0..4096), or 0 if
 /// the vertex is out of range or faces away. The dot products are the ones the
@@ -106,26 +115,81 @@ inline uint32_t mulShr(uint32_t a, uint32_t b, int s) {
 ///
 /// The table multiplies k by (N.d) / r, which is cos * sqrt(t), so the product
 /// is cos * (1 - d/r) with no square root and no divide.
+/// The same, from the squared distance and N.d (d = light - point, shifted).
+/// The flat path's colour quantises t to 129 steps, so a light's whole colour
+/// response is a 129-entry table the renderer keeps per light.
+static constexpr int kColourLutShift = 5;
+static constexpr int kColourLutSize = (4096 >> kColourLutShift) + 1;
+
+/// Packed 0x00BBGGRR of colour * t, each channel saturated to 255, with t
+/// quantised to the colour table's step.
+inline uint32_t flatColour(int32_t cr, int32_t cg, int32_t cb, int32_t t) {
+    const int32_t tq = (t >> kColourLutShift) << kColourLutShift;
+    int32_t r = (cr * tq) >> 12, g = (cg * tq) >> 12, b = (cb * tq) >> 12;
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    return (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16);
+}
+
+/// shade() for a caller that has already checked distSq < radiusSq.
+[[gnu::always_inline]] inline int32_t shadeInRange(const ObjectLight& light, int32_t distSq, int32_t nd) {
+    if (nd < 0) return 0;
+    // 1024 * distSq / radiusSq, under 1024 since distSq < radiusSq; the
+    // shifted distSq stays under radiusSq << tShift <= 2^32.
+    uint32_t bin = mulhi((uint32_t)distSq << light.tShift, light.invRadiusSq) >> 10;
+    if (bin < kExactBins) return termExact(light, distSq, nd);
+    // q * k is cos * (1 - d/r) <= 4096; the table cannot push it past that by
+    // more than its rounding, so there is no clamp.
+    int32_t q = (int32_t)mulhi((uint32_t)nd, light.invRadius);  // cos * d / r, 4.12
+    return (q * (int32_t)kFalloffLut.k[bin]) >> 10;
+}
+
+[[gnu::always_inline]] inline int32_t shade(const ObjectLight& light, int32_t distSq, int32_t nd) {
+    if (distSq >= light.radiusSq) return 0;
+    return shadeInRange(light, distSq, nd);
+}
+
 inline int32_t term(const ObjectLight& light, int32_t lDotV, int32_t vLenSq, int32_t nDotL,
                     int32_t nDotV) {
-    int32_t distSq = light.lenSq - 2 * lDotV + vLenSq;
-    if (distSq >= light.radiusSq) return 0;
-    int32_t nd = nDotL - nDotV;
-    if (nd < 0) return 0;
-    if (distSq <= 0) return 4096;
+    return shade(light, light.lenSq - 2 * lDotV + vLenSq, nDotL - nDotV);
+}
 
-    // t = distSq / radiusSq as 0.16.
-    uint32_t t16 = mulShr((uint32_t)distSq, light.invRadiusSq, light.invShift);
-    uint32_t bin = t16 >> 8;
-    if (bin >= 256) return 0;
-    if (bin < kExactBins) return termExact(light, distSq, nd);
+/// Saturating add of a packed 0x00BBGGRR (each byte <= 255) to the colour
+/// bytes of a packed psyqo::Color, keeping its top byte. A plain add is right
+/// unless a byte carries into the next, which the xor test catches; only then
+/// does it take the per-byte saturating path.
+inline uint32_t addClampPackedSlow(uint32_t c, uint32_t p) {
+    const uint32_t lo7 = 0x7F7F7F, hi1 = 0x808080;
+    uint32_t s = ((c & lo7) + (p & lo7)) ^ ((c ^ p) & hi1);       // bytewise sum mod 256
+    uint32_t carry = ((c & p) | ((c | p) & ~s)) & hi1;            // carry out of each byte
+    carry >>= 7;
+    return ((s | ((carry << 8) - carry)) & 0xFFFFFF) | (c & 0xFF000000);
+}
 
-    uint32_t f = t16 & 0xFF;
-    const uint16_t* lut = kFalloffLut.k;
-    int32_t k = (int32_t)((lut[bin] * (256 - f) + lut[bin + 1] * f) >> 8);
-    int32_t q = (int32_t)(((int64_t)nd * light.invRadius) >> 24);  // cos * d / r, 4.12
-    int32_t t = (q * k) >> 10;
-    return t > 4096 ? 4096 : t;
+[[gnu::always_inline]] inline uint32_t addClampPacked(uint32_t c, uint32_t p) {
+    uint32_t sum = c + p;
+    if (((c ^ p ^ sum) & 0x01010100) == 0) return sum;
+    return addClampPackedSlow(c, p);
+}
+
+/// Flat shading: one term per light at the triangle's first vertex, as a
+/// packed 0x00BBGGRR to add to all three vertex colours, or 0 when no light
+/// reaches it. Positions are the raw int16 vertex coordinates, the normal is
+/// 4.12. This is the CPU statement of what applyPointLightsFlat() in
+/// lightgte.hh computes on the GTE; the two must agree exactly.
+inline uint32_t shadeFlat(const ObjectLights& ol, const int16_t x[3], const int16_t y[3],
+                          const int16_t z[3], int32_t nx, int32_t ny, int32_t nz) {
+    uint32_t p = 0;
+    for (int i = 0; i < ol.count; i++) {
+        const ObjectLight& l = ol.lights[i];
+        const int32_t dx = flatDelta(ol, l.lx, x[0]), dy = flatDelta(ol, l.ly, y[0]),
+                      dz = flatDelta(ol, l.lz, z[0]);
+        int32_t t = shade(l, dx * dx + dy * dy + dz * dz, nx * dx + ny * dy + nz * dz);
+        if (t == 0) continue;
+        p = addClampPacked(p, flatColour(l.cr, l.cg, l.cb, t));
+    }
+    return p;
 }
 
 /// Bit i set if light i can reach the triangle, judged per axis against the
