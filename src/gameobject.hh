@@ -21,7 +21,7 @@ constexpr uint16_t NO_COMPONENT = 0xFFFF;
  * Bit 2: pendingDisable - flag for deferred disable
  * Bit 3: dynamicMoved - object position was changed at runtime (BVH stale)
  * Bit 4: isSkinned
- * Bit 5: dynamicLit - point lights are applied to this mesh at runtime
+ * Bit 16: dynamicLit - point lights are applied to this mesh at runtime
  */
 class GameObject final {
     typedef Utilities::BitSpan<bool> IsActive;
@@ -29,9 +29,7 @@ class GameObject final {
     typedef Utilities::BitSpan<bool, 2> PendingDisable;
     typedef Utilities::BitSpan<bool, 3> DynamicMoved;
     typedef Utilities::BitSpan<bool, 4> IsSkinned;
-    typedef Utilities::BitSpan<bool, 5> DynamicLit;
-    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable, DynamicMoved, IsSkinned, DynamicLit>
-        GameObjectFlags;
+    typedef Utilities::BitField<IsActive, PendingEnable, PendingDisable, DynamicMoved, IsSkinned> GameObjectFlags;
     
   public:
     union {
@@ -81,8 +79,12 @@ class GameObject final {
     // Skinned mesh flag (bit 4)
     bool isSkinned() const { return flags.get<IsSkinned>(); }
 
-    // Point lights affect this mesh (bit 5). Skinned meshes ignore it.
-    bool isDynamicLit() const { return flags.get<DynamicLit>(); }
+    // Point lights affect this mesh. Skinned meshes ignore it. Kept out of the
+    // BitField: BitSpan's second argument is a width, so the spans above cover
+    // bits 0-10 (DynamicMoved is bits 4-6), and setDynamicMoved() would clear a
+    // flag at bit 5.
+    static constexpr uint32_t DYNAMIC_LIT_BIT = 0x10000;
+    bool isDynamicLit() const { return (flagsAsInt & DYNAMIC_LIT_BIT) != 0; }
     
     // Component checks
     bool hasInteractable() const { return interactableIndex != NO_COMPONENT; }
