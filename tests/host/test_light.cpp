@@ -208,6 +208,40 @@ TEST(term_near_the_light_tracks_float_reference) {
     CHECK(worst < 4096 * 0.02);
 }
 
+TEST(reach_mask_never_drops_a_lit_vertex) {
+    // The renderer skips a triangle whose bit is clear, so a clear bit on a
+    // triangle term() would light is a hole in the lighting.
+    srand(4242);
+    int lit = 0, culled = 0, holes = 0;
+    for (int trial = 0; trial < 20000; trial++) {
+        PointLight l = makeLight((rand() % 40000) - 20000, (rand() % 40000) - 20000,
+                                 (rand() % 40000) - 20000, 2048 + rand() % (8 * 4096));
+        ObjectLights ol;
+        if (prepare(&l, 1, kOrigin, kIdentity, kBoxMin, kBoxMax, ol) != 1) continue;
+        int16_t base[3] = {(int16_t)((rand() % 50000) - 25000), (int16_t)((rand() % 50000) - 25000),
+                           (int16_t)((rand() % 50000) - 25000)};
+        int16_t vs[3][3];
+        int32_t sv[3][3];
+        for (int k = 0; k < 3; k++)
+            for (int a = 0; a < 3; a++) {
+                vs[k][a] = (int16_t)(base[a] + (rand() % 8000) - 4000);
+                sv[k][a] = shiftRound(vs[k][a], ol.shift);
+            }
+        const int16_t n[3] = {0, -4096, 0};
+        bool anyLit = false;
+        for (int k = 0; k < 3; k++)
+            if (termFor(ol, 0, vs[k], n) > 0) anyLit = true;
+        uint32_t mask = reachMask(ol, sv);
+        if (anyLit) lit++;
+        if (!mask) culled++;
+        if (anyLit && !(mask & 1)) holes++;
+    }
+    printf("    reach mask: %d lit, %d culled, %d holes\n", lit, culled, holes);
+    CHECK(lit > 500);
+    CHECK(culled > 1000);
+    CHECK_EQ(holes, 0);
+}
+
 TEST(add_clamp_saturates) {
     CHECK_EQ(addClamp(200, 30), 230);
     CHECK_EQ(addClamp(200, 100), 255);

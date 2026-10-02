@@ -56,17 +56,26 @@ inline void applyPointLights(const lightmath::ObjectLights& ol, const Tri& tri, 
                              psyqo::Color& cB, psyqo::Color& cC) {
     const int n = ol.count;
     const int shift = ol.shift;
-    const int32_t nx = tri.normal.x.value, ny = tri.normal.y.value, nz = tri.normal.z.value;
 
+    const psyqo::GTE::PackedVec3* verts[3] = {&tri.v0, &tri.v1, &tri.v2};
+    int32_t v[3][3];
+    for (int vi = 0; vi < 3; vi++) {
+        v[vi][0] = lightmath::shiftRound(verts[vi]->x.value, shift);
+        v[vi][1] = lightmath::shiftRound(verts[vi]->y.value, shift);
+        v[vi][2] = lightmath::shiftRound(verts[vi]->z.value, shift);
+    }
+    // Most triangles of a lit mesh sit outside every light: skip them before
+    // touching the GTE.
+    const uint32_t mask = lightmath::reachMask(ol, v);
+    if (mask == 0) return;
+
+    const int32_t nx = tri.normal.x.value, ny = tri.normal.y.value, nz = tri.normal.z.value;
     int32_t nDotL[4];
     dotLights(nx, ny, nz, n, nDotL);
 
-    const psyqo::GTE::PackedVec3* verts[3] = {&tri.v0, &tri.v1, &tri.v2};
     psyqo::Color* colors[3] = {&cA, &cB, &cC};
     for (int vi = 0; vi < 3; vi++) {
-        int32_t vx = lightmath::shiftRound(verts[vi]->x.value, shift);
-        int32_t vy = lightmath::shiftRound(verts[vi]->y.value, shift);
-        int32_t vz = lightmath::shiftRound(verts[vi]->z.value, shift);
+        const int32_t vx = v[vi][0], vy = v[vi][1], vz = v[vi][2];
         int32_t lDotV[4];
         dotLights(vx, vy, vz, n, lDotV);
         int32_t vLenSq = vx * vx + vy * vy + vz * vz;
@@ -74,6 +83,7 @@ inline void applyPointLights(const lightmath::ObjectLights& ol, const Tri& tri, 
 
         int32_t addR = 0, addG = 0, addB = 0;
         for (int i = 0; i < n; i++) {
+            if (!(mask & (1u << i))) continue;
             const lightmath::ObjectLight& l = ol.lights[i];
             int32_t t = lightmath::term(l, lDotV[i], vLenSq, nDotL[i], nDotV);
             if (t == 0) continue;

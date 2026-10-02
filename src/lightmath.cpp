@@ -5,11 +5,6 @@ namespace lightmath {
 
 namespace {
 
-// Within this many 1/256ths of t = d^2/r^2 of the light (d < r/4), term() takes
-// an exact path with a square root and two divides: 1/sqrt(t) is too steep there
-// for a table. That is 1/64 of the lit sphere's volume.
-constexpr uint32_t kExactBins = 16;
-
 consteval double ceSqrt(double x) {
     if (x <= 0.0) return 0.0;
     double g = x > 1.0 ? x : 1.0;
@@ -17,14 +12,8 @@ consteval double ceSqrt(double x) {
     return g;
 }
 
-// k(t) = (1 - sqrt(t)) / sqrt(t) at t = i/256, as 6.10, interpolated between
-// entries. term() multiplies it by (N.d) / r, which is cos * sqrt(t), so the
-// product is cos * (1 - d/r): linear falloff and Lambert with no square root and
-// no divide per vertex.
-struct FalloffLut {
-    uint16_t k[257];
-};
-
+// Filled from kExactBins up. Below it term() calls termExact(); that is d < r/4,
+// 1/64 of the lit sphere's volume.
 consteval FalloffLut makeFalloffLut() {
     FalloffLut lut{};
     for (int i = kExactBins; i <= 256; i++) {
@@ -33,8 +22,6 @@ consteval FalloffLut makeFalloffLut() {
     }
     return lut;
 }
-
-constexpr FalloffLut kFalloff = makeFalloffLut();
 
 uint32_t isqrt(uint32_t n) {
     uint32_t root = 0, bit = 1u << 30;
@@ -51,7 +38,7 @@ uint32_t isqrt(uint32_t n) {
     return root;
 }
 
-// floor(2^p / d) for d < 2^24, by long division in 32-bit steps: there is no
+// floor(2^p / d) for d < 2^30, by long division in 32-bit steps: there is no
 // 64-bit divide on this target. The caller picks p so the quotient fits.
 uint32_t pow2Div(int p, uint32_t d) {
     uint32_t rem = 1, q = rem >= d ? 1 : 0;
@@ -67,17 +54,11 @@ uint32_t pow2Div(int p, uint32_t d) {
     return q;
 }
 
-// (a * b) >> s for s in [16, 48], without a variable 64-bit shift helper.
-uint32_t mulShr(uint32_t a, uint32_t b, int s) {
-    uint64_t p = (uint64_t)a * b;
-    uint32_t hi = (uint32_t)(p >> 32), lo = (uint32_t)p;
-    if (s >= 32) return hi >> (s - 32);
-    return (hi << (32 - s)) | (lo >> s);
-}
-
 inline int32_t iabs(int32_t v) { return v < 0 ? -v : v; }
 
 }  // namespace
+
+constinit const FalloffLut kFalloffLut = makeFalloffLut();
 
 bool sphereTouchesAABB(int32_t cx, int32_t cy, int32_t cz, int32_t radius,
                        const int32_t boxMin[3], const int32_t boxMax[3]) {
@@ -153,36 +134,38 @@ int prepare(const PointLight* lights, int lightCount, const int32_t position[3],
     return n;
 }
 
-int32_t term(const ObjectLight& light, int32_t lDotV, int32_t vLenSq, int32_t nDotL,
-             int32_t nDotV) {
-    int32_t distSq = light.lenSq - 2 * lDotV + vLenSq;
-    if (distSq >= light.radiusSq) return 0;
-    int32_t nd = nDotL - nDotV;
-    if (nd < 0) return 0;
-    if (distSq <= 0) return 4096;
-
-    // t = distSq / radiusSq as 0.16.
-    uint32_t t16 = mulShr((uint32_t)distSq, light.invRadiusSq, light.invShift);
-    uint32_t bin = t16 >> 8;
-    if (bin >= 256) return 0;
-
-    if (bin < kExactBins) {
-        // distSq < radiusSq / 16 <= 2^22 here, so it takes 8 more bits: dist is
-        // the distance with 4 fractional bits.
-        int32_t dist = (int32_t)isqrt((uint32_t)distSq << 8);
-        if (dist == 0) return 4096;
-        int32_t cosine = (nd << 4) / dist;  // nd is 4096 * |d| * cos
-        if (cosine > 4096) cosine = 4096;
-        int32_t r16 = light.radius << 4;
-        int32_t t = cosine * (r16 - dist) / r16;
-        return t < 0 ? 0 : t;
+uint32_t reachMask(const ObjectLights& ol, const int32_t v[3][3]) {
+    int32_t lo[3], hi[3];
+    for (int a = 0; a < 3; a++) {
+        lo[a] = hi[a] = v[0][a];
+        for (int k = 1; k < 3; k++) {
+            if (v[k][a] < lo[a]) lo[a] = v[k][a];
+            if (v[k][a] > hi[a]) hi[a] = v[k][a];
+        }
     }
+    uint32_t mask = 0;
+    for (int i = 0; i < ol.count; i++) {
+        const ObjectLight& l = ol.lights[i];
+        const int32_t c[3] = {l.lx, l.ly, l.lz};
+        bool reach = true;
+        for (int a = 0; a < 3 && reach; a++) {
+            if (c[a] <= lo[a] - l.radius || c[a] >= hi[a] + l.radius) reach = false;
+        }
+        if (reach) mask |= 1u << i;
+    }
+    return mask;
+}
 
-    uint32_t f = t16 & 0xFF;
-    int32_t k = (int32_t)((kFalloff.k[bin] * (256 - f) + kFalloff.k[bin + 1] * f) >> 8);
-    int32_t q = (int32_t)(((int64_t)nd * light.invRadius) >> 24);  // cos * d / r, 4.12
-    int32_t t = (q * k) >> 10;
-    return t > 4096 ? 4096 : t;
+int32_t termExact(const ObjectLight& light, int32_t distSq, int32_t nd) {
+    // distSq < radiusSq / 16 <= 2^22 here, so it takes 8 more bits: dist is the
+    // distance with 4 fractional bits.
+    int32_t dist = (int32_t)isqrt((uint32_t)distSq << 8);
+    if (dist == 0) return 4096;
+    int32_t cosine = (nd << 4) / dist;  // nd is 4096 * |d| * cos
+    if (cosine > 4096) cosine = 4096;
+    int32_t r16 = light.radius << 4;
+    int32_t t = cosine * (r16 - dist) / r16;
+    return t < 0 ? 0 : t;
 }
 
 }  // namespace lightmath
