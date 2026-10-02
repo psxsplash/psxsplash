@@ -548,13 +548,6 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // pinned to.
     m_spriteSystem.update(m_dt12);
 
-    // Streamed world regions, then gameplay CD reads (at most one started per
-    // frame). Both are no-ops when there is nothing to do.
-    {
-        auto& cam = m_currentCamera.GetPosition();
-        m_worldStreamer.update(cam.x.value, cam.z.value);
-    }
-    StreamReader::Get().update();
 
 
     uint32_t renderingStart = gpu.now();
@@ -880,6 +873,16 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
                                         static_cast<psyqo::Angle>(actorRot.z));
         }
     }
+
+    // Streamed world regions, then gameplay CD reads (at most one started per
+    // frame). After the camera has been placed for this frame: on the first
+    // frame of a scene the camera has not moved to the player yet, and streaming
+    // from the old position drops regions init just loaded.
+    {
+        auto& cam = m_currentCamera.GetPosition();
+        m_worldStreamer.update(cam.x.value, cam.z.value);
+    }
+    StreamReader::Get().update();
 
     // Networking: capture our owned state and send it at the net-tick cadence.
     NetworkManager::Get().postTick(*this, m_dt12);
