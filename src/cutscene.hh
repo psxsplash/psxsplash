@@ -9,6 +9,7 @@
 #include "gameobject.hh"
 #include "audiomanager.hh"
 #include "controls.hh"
+#include "lightmath.hh"
 
 #include <psyqo-lua/lua.hh>
 
@@ -41,12 +42,24 @@ enum class TrackType : uint8_t {
     RumbleSmall     = 11,
     RumbleLarge     = 12,
     ObjectUVOffset  = 13,
+    LightPosition   = 14,
+    LightColor      = 15,
+    LightIntensity  = 16,
+    LightRadius     = 17,
+    LightEnabled    = 18,
 };
 
 /// Helper: true if a TrackType drives a UI property (canvas or element).
 inline bool isUITrackType(TrackType t) {
     uint8_t v = static_cast<uint8_t>(t);
     return v >= 5 && v <= 9;
+}
+
+/// Helper: true if a TrackType drives a point light. Its target is the light's
+/// index in the scene's light table, held in CutsceneTrack::uiHandle.
+inline bool isLightTrackType(TrackType t) {
+    uint8_t v = static_cast<uint8_t>(t);
+    return v >= 14 && v <= 18;
 }
 
 /// Helper: true if a TrackType drives a vibration motor.
@@ -98,7 +111,7 @@ struct CutsceneTrack {
     uint8_t           pad[2];
     CutsceneKeyframe* keyframes;  
     GameObject*       target; 
-    int16_t uiHandle;
+    int16_t uiHandle;   // UI canvas/element handle, or point light index for light tracks
     int16_t initialValues[3];
 };
 
@@ -114,6 +127,11 @@ struct Cutscene {
     CutsceneSkinAnimEvent*   skinAnimEvents;   // Points into splashpack data
 };
 
+
+/// Light tracks, shared by cutscenes and animations. They write the same
+/// PointLight fields Lua's Light.Set* functions do.
+void captureLightTrack(CutsceneTrack& track, const PointLight* light);
+void applyLightTrack(CutsceneTrack& track, PointLight* light, uint16_t frame, uint16_t subFrame);
 
 class CutscenePlayer {
 public:

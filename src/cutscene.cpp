@@ -128,6 +128,13 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                         // Motors always start at 0 (off)
                         track.initialValues[0] = 0;
                         break;
+                    case TrackType::LightPosition:
+                    case TrackType::LightColor:
+                    case TrackType::LightIntensity:
+                    case TrackType::LightRadius:
+                    case TrackType::LightEnabled:
+                        if (m_sceneMgr) captureLightTrack(track, m_sceneMgr->getPointLight(track.uiHandle));
+                        break;
                 }
             }
 
@@ -421,6 +428,88 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
             m_controls->setLargeMotor((uint8_t)v);
             break;
         }
+
+        case TrackType::LightPosition:
+        case TrackType::LightColor:
+        case TrackType::LightIntensity:
+        case TrackType::LightRadius:
+        case TrackType::LightEnabled:
+            if (m_sceneMgr) applyLightTrack(track, m_sceneMgr->getPointLight(track.uiHandle), m_frame, m_subFrame);
+            break;
+    }
+}
+
+static int16_t saturate16(int32_t v) {
+    return v < -32768 ? -32768 : (v > 32767 ? 32767 : (int16_t)v);
+}
+
+static uint8_t clampByte(int16_t v) {
+    return v < 0 ? 0 : (v > 255 ? 255 : (uint8_t)v);
+}
+
+void captureLightTrack(CutsceneTrack& track, const PointLight* light) {
+    if (!light) return;
+    switch (track.trackType) {
+        case TrackType::LightPosition:
+            track.initialValues[0] = saturate16(light->x);
+            track.initialValues[1] = saturate16(light->y);
+            track.initialValues[2] = saturate16(light->z);
+            break;
+        case TrackType::LightColor:
+            track.initialValues[0] = light->r;
+            track.initialValues[1] = light->g;
+            track.initialValues[2] = light->b;
+            break;
+        case TrackType::LightIntensity:
+            track.initialValues[0] = saturate16(light->intensity);
+            break;
+        case TrackType::LightRadius:
+            track.initialValues[0] = saturate16(light->radius);
+            break;
+        case TrackType::LightEnabled:
+            track.initialValues[0] = light->enabled ? 1 : 0;
+            break;
+        default:
+            break;
+    }
+}
+
+void applyLightTrack(CutsceneTrack& track, PointLight* light, uint16_t frame, uint16_t subFrame) {
+    if (!light || track.keyframeCount == 0 || !track.keyframes) return;
+
+    if (track.trackType == TrackType::LightEnabled) {
+        CutsceneKeyframe* kf = track.keyframes;
+        uint8_t count = track.keyframeCount;
+        int16_t val = (frame < kf[0].getFrame()) ? track.initialValues[0] : kf[0].values[0];
+        for (uint8_t i = 0; i < count; i++) {
+            if (kf[i].getFrame() <= frame) val = kf[i].values[0];
+            else break;
+        }
+        light->enabled = val != 0 ? 1 : 0;
+        return;
+    }
+
+    int16_t out[3];
+    psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
+    switch (track.trackType) {
+        case TrackType::LightPosition:
+            light->x = out[0];
+            light->y = out[1];
+            light->z = out[2];
+            break;
+        case TrackType::LightColor:
+            light->r = clampByte(out[0]);
+            light->g = clampByte(out[1]);
+            light->b = clampByte(out[2]);
+            break;
+        case TrackType::LightIntensity:
+            light->intensity = out[0] < 0 ? 0 : (uint16_t)out[0];
+            break;
+        case TrackType::LightRadius:
+            light->radius = out[0] < 0 ? 0 : out[0];
+            break;
+        default:
+            break;
     }
 }
 

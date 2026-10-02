@@ -220,6 +220,13 @@ void AnimationPlayer::captureInitialValues(Animation* anim) {
                 // Motors always start at 0 (off)
                 track.initialValues[0] = 0;
                 break;
+            case TrackType::LightPosition:
+            case TrackType::LightColor:
+            case TrackType::LightIntensity:
+            case TrackType::LightRadius:
+            case TrackType::LightEnabled:
+                if (m_sceneMgr) captureLightTrack(track, m_sceneMgr->getPointLight(track.uiHandle));
+                break;
             default:
                 break;
         }
@@ -377,6 +384,14 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t 
             m_controls->setLargeMotor((uint8_t)v);
             break;
         }
+
+        case TrackType::LightPosition:
+        case TrackType::LightColor:
+        case TrackType::LightIntensity:
+        case TrackType::LightRadius:
+        case TrackType::LightEnabled:
+            if (m_sceneMgr) applyLightTrack(track, m_sceneMgr->getPointLight(track.uiHandle), frame, subFrame);
+            break;
 
         default:
             break;
