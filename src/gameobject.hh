@@ -80,14 +80,12 @@ class GameObject final {
     // Skinned mesh flag (bit 4)
     bool isSkinned() const { return flags.get<IsSkinned>(); }
 
-    // Point lights affect this mesh. Skinned meshes ignore it. Kept out of the
-    // BitField: BitSpan's second argument is a width, so the spans above cover
-    // bits 0-10 (DynamicMoved is bits 4-6), and setDynamicMoved() would clear a
-    // flag at bit 5.
+    // Point lights affect this mesh. Skinned meshes ignore it. Bits 16 and 17
+    // are raw masks written by the exporter, clear of the low flag bits.
     static constexpr uint32_t DYNAMIC_LIT_BIT = 0x10000;
     bool isDynamicLit() const { return (flagsAsInt & DYNAMIC_LIT_BIT) != 0; }
-    // Bit 17: light per vertex instead of per triangle. Costs about three times
-    // as much; only meaningful with bit 16.
+    // Bit 17: light per vertex instead of per triangle. About 9x the cost per
+    // lit triangle in pcsx-redux; only meaningful with bit 16.
     static constexpr uint32_t DYNAMIC_LIT_SMOOTH_BIT = 0x20000;
     bool isDynamicLitSmooth() const { return (flagsAsInt & DYNAMIC_LIT_SMOOTH_BIT) != 0; }
     
