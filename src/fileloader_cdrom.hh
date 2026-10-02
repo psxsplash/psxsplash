@@ -186,6 +186,11 @@ class FileLoaderCDRom final : public FileLoader {
 
     psyqo::CDRomDevice* getCDRomDevice() { return &m_cdrom; }
 
+    /** Blocking directory lookup; the drive must be awake (scene loading). */
+    bool resolveBlocking(const char* path, uint32_t& outLBA, uint32_t& outSize) {
+        return resolveEntryBlocking(path, outLBA, outSize);
+    }
+
   private:
     // -- resolveEntryBlocking -------------------------------------
     // Walks the ISO9660 directory tree to find `path`, using only the

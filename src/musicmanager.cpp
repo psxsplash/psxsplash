@@ -1,9 +1,11 @@
 #include "musicmanager.hh"
 #include "cdromhelper.hh"
+#include "streamreader.hh"
 
 #include <common/syscalls/syscalls.h>
 #include <psyqo/fixed-point.hh>
 #include <psyqo/spu.hh>
+#include <psyqo/xprintf.h>
 
 #include <common/hardware/spu.h>
 
@@ -15,6 +17,12 @@ MusicManager::MusicManager() {
 
 void MusicManager::playCDDATrack(int trackNum) {
 #ifdef LOADER_CDROM
+    // A streaming scene needs the drive for data: CD-DA and streaming are
+    // mutually exclusive, so such a scene uses sequenced music instead.
+    if (StreamReader::Get().driveReserved()) {
+        printf("Audio.PlayCDDA ignored: this scene streams from the CD\n");
+        return;
+    }
     CDRomHelper::WakeDrive();
 
     if (!(SPU_CTRL & 0x1)) {
@@ -34,6 +42,7 @@ void MusicManager::playCDDATrack(int trackNum) {
 
 void MusicManager::resumeCDDA() {
 #ifdef LOADER_CDROM
+    if (StreamReader::Get().driveReserved()) return;
     if (mCurrentCDDATrack >= 0 && !mPlayingCDDA) {
         mCDRomDevice->resumeCDDA([this](bool success) {
             if (success)
