@@ -23,7 +23,7 @@ constexpr int kDrop = 730;         // drop plus two bounces
 constexpr int kPsxStart = 1130;
 constexpr int kPsxDrop = 530;
 constexpr int kTip = 200;          // PSX tipping onto the slope
-constexpr int kEnd = 2700;
+constexpr int kEnd = kJingleMs > 2700 ? kJingleMs : 2700;
 
 // Height above the resting position, in pixels, t milliseconds into a drop of
 // length d from height h: a fall, then two parabolic bounces.
@@ -60,12 +60,18 @@ void drawPiece(psyqo::GPU& gpu, const Piece& p, int clut, int16_t dy) {
 void psxsplash::BootLogo::start(psyqo::GPU& gpu) {
     gpu.uploadToVRAM(kPage, psyqo::Rect{.a = {.x = kPageX, .y = 0}, .b = {64, kPageHeight}});
     gpu.uploadToVRAM(&kCluts[0][0], psyqo::Rect{.a = {.x = kClutX, .y = 0}, .b = {16, kPieceCount}});
+    m_audio.init();
+    m_audio.loadClip(0, kJingle, sizeof(kJingle), kJingleRate, false);
+    m_audio.play(0);
     m_startUs = gpu.now();
 }
 
 bool psxsplash::BootLogo::frame(psyqo::GPU& gpu) {
     int ms = int((gpu.now() - m_startUs) / 1000);
-    if (ms >= kEnd) return false;
+    if (ms >= kEnd) {
+        m_audio.stopAll();
+        return false;
+    }
 
     psyqo::Prim::Rectangle bg({.r = 0x16, .g = 0x12, .b = 0x2b});
     bg.position = {{.x = 0, .y = 0}};
