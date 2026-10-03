@@ -1,0 +1,672 @@
+{
+ "format": "splashedit-ng/scene",
+ "version": 1,
+ "settings": {
+  "gteScaling": 100.0,
+  "sceneType": "exterior",
+  "fog": {
+   "enabled": false,
+   "color": [
+    0.5,
+    0.5,
+    0.6
+   ],
+   "density": 5
+  },
+  "networkId": "",
+  "script": null
+ },
+ "objects": [
+  {
+   "name": "Environment",
+   "active": true,
+   "transform": {
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "components": [],
+   "children": [
+    {
+     "name": "Floor",
+     "active": true,
+     "transform": {
+      "position": [
+       0.0,
+       -0.1,
+       1.5
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/floor.mesh",
+       "materials": [
+        {
+         "texture": null,
+         "color": [
+          0.62,
+          0.58,
+          0.52,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Back Wall",
+     "active": true,
+     "transform": {
+      "position": [
+       0.0,
+       2.25,
+       -6.15
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/back_wall.mesh",
+       "materials": [
+        {
+         "texture": null,
+         "color": [
+          0.55,
+          0.5,
+          0.47,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Side Wall",
+     "active": true,
+     "transform": {
+      "position": [
+       -7.15,
+       2.25,
+       -0.5
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/side_wall.mesh",
+       "materials": [
+        {
+         "texture": null,
+         "color": [
+          0.55,
+          0.5,
+          0.47,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Pillar",
+     "active": true,
+     "transform": {
+      "position": [
+       -3.5,
+       1.8,
+       -3.5
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/pillar.mesh",
+       "materials": [
+        {
+         "texture": null,
+         "color": [
+          0.62,
+          0.58,
+          0.52,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Pillar (2)",
+     "active": true,
+     "transform": {
+      "position": [
+       3.0,
+       1.8,
+       -4.0
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/pillar.mesh",
+       "materials": [
+        {
+         "texture": null,
+         "color": [
+          0.62,
+          0.58,
+          0.52,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Platform",
+     "active": true,
+     "transform": {
+      "position": [
+       4.0,
+       0.4,
+       -5.3
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/platform.mesh",
+       "materials": [
+        {
+         "texture": null,
+         "color": [
+          0.62,
+          0.58,
+          0.52,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Crates",
+   "active": true,
+   "transform": {
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "components": [],
+   "children": [
+    {
+     "name": "Crate",
+     "active": true,
+     "transform": {
+      "position": [
+       0.0,
+       0.5,
+       -1.0
+      ],
+      "rotation": [
+       0.0,
+       0.13052619,
+       0.0,
+       0.9914449
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/crate.mesh",
+       "materials": [
+        {
+         "texture": "textures/crate.png",
+         "color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      },
+      {
+       "type": "script",
+       "lua": "scripts/boot_check.lua"
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Crate (2)",
+     "active": true,
+     "transform": {
+      "position": [
+       -1.7,
+       0.5,
+       -1.9
+      ],
+      "rotation": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "scale": [
+       1.0,
+       1.0,
+       1.0
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/crate.mesh",
+       "materials": [
+        {
+         "texture": "textures/crate.png",
+         "color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    },
+    {
+     "name": "Crate (3)",
+     "active": true,
+     "transform": {
+      "position": [
+       -1.65,
+       1.35,
+       -1.85
+      ],
+      "rotation": [
+       0.0,
+       -0.087155744,
+       0.0,
+       0.9961947
+      ],
+      "scale": [
+       0.7,
+       0.7,
+       0.7
+      ]
+     },
+     "components": [
+      {
+       "type": "mesh",
+       "mesh": "meshes/crate.mesh",
+       "materials": [
+        {
+         "texture": "textures/crate.png",
+         "color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+         ]
+        }
+       ],
+       "bitDepth": 8,
+       "vertexColors": "baked",
+       "flatColor": [
+        128,
+        128,
+        128
+       ],
+       "smoothNormals": true,
+       "uvOffsetMaterial": 0
+      },
+      {
+       "type": "collider",
+       "kind": "static",
+       "platform": false
+      }
+     ],
+     "children": []
+    }
+   ]
+  },
+  {
+   "name": "Player Start",
+   "active": true,
+   "transform": {
+    "position": [
+     1.6,
+     0.0,
+     2.2
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "components": [],
+   "children": []
+  },
+  {
+   "name": "Main Camera",
+   "active": true,
+   "transform": {
+    "position": [
+     7.6,
+     5.2,
+     9.2
+    ],
+    "rotation": [
+     0.046900615,
+     -0.93790716,
+     0.14017116,
+     0.31381935
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "components": [],
+   "children": []
+  },
+  {
+   "name": "Torch Light",
+   "active": true,
+   "transform": {
+    "position": [
+     -2.6,
+     2.4,
+     -5.0
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "components": [
+    {
+     "type": "light",
+     "kind": "point",
+     "color": [
+      1.0,
+      0.63,
+      0.32
+     ],
+     "intensity": 1.6,
+     "range": 8.0,
+     "spotAngle": 30.0,
+     "innerSpotAngle": 0.0,
+     "enabled": true
+    }
+   ],
+   "children": []
+  },
+  {
+   "name": "Ambience",
+   "active": false,
+   "transform": {
+    "position": [
+     -4.8,
+     1.2,
+     1.5
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "components": [],
+   "children": []
+  }
+ ]
+}
