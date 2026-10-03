@@ -28,6 +28,24 @@ jobs:
       - name: Build the smallest engine
         run: make -j4 all LOADER=${{ matrix.loader }} FEATURES=none
 
+  boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: ghcr.io/grumpycoders/pcsx-redux-build:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          set-safe-directory: true
+      - name: Build
+        run: |
+          make -j4 all LOADER=pcdrv
+          make -j4 -C third_party/nugget/openbios
+      - name: Fetch pcsx-redux
+        run: tests/boot/fetch-redux.sh "$RUNNER_TEMP/redux"
+      - name: Boot the test scene
+        run: tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 120
+
   host-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
