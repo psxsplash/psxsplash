@@ -26,7 +26,7 @@ src/loadbuffer_patch.cpp
 #                comma separated. Unset builds all of them. SplashEdit passes
 #                the set the exported scenes use, e.g. FEATURES=ui,collision,nav.
 #                FEATURES= or FEATURES=none builds the smallest engine.
-ALL_FEATURES = net ui sprites skin cutscene lights streaming memcard nav agents collision
+ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision
 ifeq ($(origin FEATURES),undefined)
 FEATURES := $(ALL_FEATURES)
 endif
@@ -40,6 +40,7 @@ ifneq ($(filter agents,$(FEATURES)),)
 override FEATURES += nav
 endif
 
+FEATURE_SRCS_bootlogo = src/bootlogo.cpp
 FEATURE_SRCS_net = src/sio1.cpp src/netlink.cpp src/nettest.cpp src/networkmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_ui = src/uisystem.cpp src/loadingscreen.cpp
 FEATURE_SRCS_sprites = src/spritesystem.cpp src/spritemath.cpp src/tilesystem.cpp src/tilemath.cpp

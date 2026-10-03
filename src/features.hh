@@ -9,6 +9,9 @@
 // table whose every field raises an error naming the feature, so a script that
 // needs it fails with a message instead of calling into nothing.
 
+#ifndef PSXSPLASH_FEATURE_BOOTLOGO
+#define PSXSPLASH_FEATURE_BOOTLOGO 1   // psxsplash logo animation before the first scene
+#endif
 #ifndef PSXSPLASH_FEATURE_NET
 #define PSXSPLASH_FEATURE_NET 1        // SIO1 multiplayer: NetworkManager, Net.*
 #endif

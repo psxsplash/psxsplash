@@ -13,6 +13,9 @@
 #include "fileloader.hh"
 #include "memorycardmanager.hh"
 #include "sio1.hh"
+#if PSXSPLASH_FEATURE_BOOTLOGO
+#include "bootlogo.hh"
+#endif
 
 #if defined(PSXSPLASH_NETTEST)
 #include "nettest.hh"
@@ -61,6 +64,11 @@ class MainScene final : public psyqo::Scene {
     // After init completes, loadScene() handles everything synchronously.
     psyqo::TaskQueue m_initQueue;
     bool m_ready = false;
+#if PSXSPLASH_FEATURE_BOOTLOGO
+    psxsplash::BootLogo m_bootLogo;
+    bool m_bootLogoPlaying = true;
+    bool m_initDone = false;
+#endif
 };
 
 PSXSplash app;
@@ -122,11 +130,20 @@ void MainScene::start(StartReason reason) {
     // execute in one go.  For CD-ROM the init is async (drive reset +
     // ISO9660 parse) and yields to the main loop until complete.
 
+#if PSXSPLASH_FEATURE_BOOTLOGO
+    // The logo plays while the loader initialises; scene 0 loads in frame()
+    // once both are done, because it reuses the logo's VRAM.
+    m_bootLogo.start(gpu());
+#endif
     m_initQueue
         .startWith(psxsplash::FileLoader::Get().scheduleInit())
         .then([this](psyqo::TaskQueue::Task* task) {
+#if PSXSPLASH_FEATURE_BOOTLOGO
+            m_initDone = true;
+#else
             m_sceneManager.loadScene(gpu(), 0, /*isFirstScene=*/true);
             m_ready = true;
+#endif
             task->resolve();
         })
         .butCatch([](psyqo::TaskQueue*) {
@@ -143,6 +160,22 @@ void MainScene::frame() {
 #if defined(PSXSPLASH_NETTEST)
     netTest();
     return;  // the self-test owns the frame; skip the game loop
+#endif
+
+#if PSXSPLASH_FEATURE_BOOTLOGO
+    if (m_bootLogoPlaying) {
+        if (m_bootLogo.frame(gpu())) {
+            gpu().pumpCallbacks();
+            return;
+        }
+        m_bootLogoPlaying = false;
+    }
+    if (m_initDone && !m_ready) {
+        m_sceneManager.loadScene(gpu(), 0, /*isFirstScene=*/true);
+        m_ready = true;
+        m_lastFrameCounter = gpu().getFrameCount();
+        return;
+    }
 #endif
 
     // Don't run the game loop while FileLoader init is still executing
