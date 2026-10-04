@@ -79,20 +79,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // The SPU is already programmed: our only caller is LoadScene, whose Step 2
     // calls m_audio.init() before uploading the ADPCM, and nothing between that
     // and this point touches an SPU register (SilenceDrive only masks CD-ROM
-    // IRQs). A second call is not the free idempotent re-programming it looks
-    // like.
-    //
-    // psyqo::SPU::initialize() ends with
-    // `dmaWrite(0x1000, &DUMMY_SAMPLE, 16, 4)`, and dmaWrite counts its size in
-    // WORDS, not bytes - so that DMA is 64 bytes wide, not 16. It runs off the
-    // end of the dummy sample straight into 0x1010, which is SPU_RAM_START, and
-    // replaces the first three ADPCM blocks of clip 0 - uploaded seconds
-    // earlier in Step 2 - with whatever rodata follows DUMMY_SAMPLE.
-    //
-    // Only clip 0 is in range, which is why this hid for so long: every other
-    // clip in the scene plays perfectly and Audio.Play still returns a real
-    // voice. Clip 0 emits a few milliseconds of decoded garbage - an audible
-    // click - until a stray loop-end flag in that garbage kills the voice.
+    // IRQs), so a second psyqo::SPU::initialize() would only reset the voices
+    // and rewrite the 16-byte dummy sample at 0x1000 again.
 
 #ifdef LOADER_CDROM
     m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(

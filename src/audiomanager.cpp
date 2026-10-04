@@ -70,8 +70,7 @@ bool AudioManager::loadClip(int clipIndex, const uint8_t *adpcmData,
     if (bytesThisRound == 0)
       break;
 
-    uint16_t dmaSizeParam = (uint16_t)(bytesThisRound / 4);
-    psyqo::SPU::dmaWrite(dstAddr, src, dmaSizeParam, 4);
+    psyqo::SPU::dmaWrite(dstAddr, src, bytesThisRound);
 
     while (DMA_CTRL[DMA_SPU].CHCR & (1 << 24)) {
     }
