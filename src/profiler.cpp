@@ -126,8 +126,8 @@ void Profiler::endFrame(uint32_t frameTime) {
   m_otherTime = frameTime - accounted;
 }
 
-void Profiler::renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                        psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+void Profiler::renderOT(Renderer::OT& ot,
+                        Renderer::Balloc& balloc) {
   if (m_font == nullptr || m_totalFrameTime == 0) return;
 
   size_t needed =

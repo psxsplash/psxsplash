@@ -131,8 +131,8 @@ psyqo::PrimPieces::TPageAttr TileSystem::makeTPage() const {
     return attr;
 }
 
-void TileSystem::renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                          psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+void TileSystem::renderOT(Renderer::OT& ot,
+                          Renderer::Balloc& balloc) {
     if (!m_cells || !m_haveSheet || m_tileW == 0 || m_tileH == 0) return;
 
     int16_t viewX = 0, viewY = 0;

@@ -114,8 +114,8 @@ public:
     // Phase 1: Insert OT primitives for boxes, images, progress bars, and custom font text.
     // Called BEFORE gpu.chain(ot) from inside the renderer.
     void renderOT(psyqo::GPU& gpu,
-                  psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                  psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+                  Renderer::OT& ot,
+                  Renderer::Balloc& balloc);
 
     // Phase 2: Emit system font text via psyqo font chaining.
     // Called AFTER gpu.chain(ot).
@@ -183,14 +183,14 @@ private:
                        int16_t& outW, int16_t& outH) const;
 
     void renderElement(UIElement& el,
-                       psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                       psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+                       Renderer::OT& ot,
+                       Renderer::Balloc& balloc);
 
     void renderProportionalText(int fontIdx, int16_t x, int16_t y,
                                 uint8_t r, uint8_t g, uint8_t b,
                                 const char* text,
-                                psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                                psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+                                Renderer::OT& ot,
+                                Renderer::Balloc& balloc);
 
     static psyqo::PrimPieces::TPageAttr makeTPage(const UIImageData& img);
 };

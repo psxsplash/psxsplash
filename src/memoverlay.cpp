@@ -22,8 +22,8 @@ void MemOverlay::init(psyqo::Font<>* font) {
     m_totalAvail = (uint32_t)(m_stackTop - m_heapBase);
 }
 
-void MemOverlay::renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                           psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+void MemOverlay::renderOT(Renderer::OT& ot,
+                           Renderer::Balloc& balloc) {
     if (!m_font || m_totalAvail == 0) return;
 
     // Measure current heap usage

@@ -34,8 +34,8 @@ public:
   void reset();
   void endFrame(uint32_t frameTime);
 
-  void renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+  void renderOT(Renderer::OT& ot,
+                Renderer::Balloc& balloc);
   void renderText(psyqo::GPU& gpu);
 
   void setSectionTime(ProfilerSection section, uint32_t time) {

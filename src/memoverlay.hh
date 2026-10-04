@@ -21,8 +21,8 @@ public:
 
     /// Phase 1: Insert progress bar rectangles into the OT.
     /// Call BEFORE gpu.chain(ot).
-    void renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                  psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+    void renderOT(Renderer::OT& ot,
+                  Renderer::Balloc& balloc);
 
     /// Phase 2: Emit text via chainprintf.
     /// Call AFTER gpu.chain(ot).

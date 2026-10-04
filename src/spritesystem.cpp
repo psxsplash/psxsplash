@@ -355,8 +355,8 @@ psyqo::PrimPieces::TPageAttr SpriteSystem::makeTPage(const SpriteSheet& sheet) {
 }
 
 void SpriteSystem::renderSprite(SpriteInstance& s, int depth,
-                                psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                                psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+                                Renderer::OT& ot,
+                                Renderer::Balloc& balloc) {
     const SpriteSheet& sheet = m_sheets[s.sheet];
 
     uint8_t u, v;
@@ -420,8 +420,8 @@ void SpriteSystem::renderSprite(SpriteInstance& s, int depth,
     ot.insert(q, depth);
 }
 
-void SpriteSystem::renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                            psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+void SpriteSystem::renderOT(Renderer::OT& ot,
+                            Renderer::Balloc& balloc) {
     if (m_spriteCount == 0) return;
 
     // Sprites still have to be emitted grouped by (layer, sheet), so each sheet

@@ -300,8 +300,8 @@ psyqo::PrimPieces::TPageAttr UISystem::makeTPage(const UIImageData& img) {
 // ============================================================================
 
 void UISystem::renderElement(UIElement& el,
-                             psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                             psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+                             Renderer::OT& ot,
+                             Renderer::Balloc& balloc) {
     int16_t x, y, w, h;
     resolveLayout(el, x, y, w, h);
 
@@ -421,8 +421,8 @@ void UISystem::renderElement(UIElement& el,
 // ============================================================================
 
 void UISystem::renderOT(psyqo::GPU& gpu,
-                        psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                        psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+                        Renderer::OT& ot,
+                        Renderer::Balloc& balloc) {
     m_pendingTextCount = 0;
 
     // BOTH loops run BACKWARDS, and that is the whole of the depth model.
@@ -496,8 +496,8 @@ void UISystem::uploadFonts(psyqo::GPU& gpu) {
 void UISystem::renderProportionalText(int fontIdx, int16_t x, int16_t y,
                                        uint8_t r, uint8_t g, uint8_t b,
                                        const char* text,
-                                       psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                                       psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc) {
+                                       Renderer::OT& ot,
+                                       Renderer::Balloc& balloc) {
     UIFontDesc& fd = m_fontDescs[fontIdx];
     int glyphsPerRow = 256 / fd.glyphW;
     uint8_t baseV = fd.vramY & 0xFF;
