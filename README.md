@@ -29,8 +29,8 @@ Build options:
 | `NOPARSER=1` | Strip Lua parser, use precompiled bytecode |
 | `PSXSPLASH_MEMOVERLAY=1` | Runtime memory usage overlay |
 | `PSXSPLASH_FPSOVERLAY=1` | FPS counter overlay |
-| `OT_SIZE=N` | Ordering table size |
-| `BUMP_SIZE=N` | Bump allocator size |
+| `OT_SIZE=N` | Ordering table size when a scene does not set one |
+| `BUMP_SIZE=N` | Bump allocator size when a scene does not set one |
 | `FEATURES=...` | Subsystems to compile in, space or comma separated, from `bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision` (`bootlogo` is the psxsplash logo animation shown before the first scene). Unset builds all of them; `FEATURES=none` builds the smallest engine. SplashEdit passes the set the exported scenes use. |
 
 ## Contributing

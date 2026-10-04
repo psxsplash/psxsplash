@@ -98,17 +98,24 @@ struct SPLASHPACKFileHeader {
     // --- v24 (appended; the header grows from 144 to 148) ---
     // Offset to the point light table, or 0 if none.
     uint32_t lightTableOffset;
+    // --- v25 (appended; the header grows from 148 to 156) ---
+    // Ordering table buckets and bump allocator bytes, 0 for the engine
+    // default. Every scene of a game carries the same values.
+    uint32_t orderingTableSize;
+    uint32_t bumpAllocatorSize;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == 148, "SPLASHPACKFileHeader must be 148 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == 156, "SPLASHPACKFileHeader must be 156 bytes");
 
 // Historical header sizes. The header has only ever grown by appending, so an
 // older pack is parsed by starting the cursor at the size it had back then.
 static constexpr uint32_t kSplashpackHeaderSizeV20 = 120;
 static constexpr uint32_t kSplashpackHeaderSizeV21 = 128;
 static constexpr uint32_t kSplashpackHeaderSizeV22 = 144;
+static constexpr uint32_t kSplashpackHeaderSizeV24 = 148;
 
 static uint32_t splashpackHeaderSize(uint16_t version) {
-    if (version >= 24) return sizeof(SPLASHPACKFileHeader);
+    if (version >= 25) return sizeof(SPLASHPACKFileHeader);
+    if (version >= 24) return kSplashpackHeaderSizeV24;
     if (version >= 22) return kSplashpackHeaderSizeV22;
     if (version >= 21) return kSplashpackHeaderSizeV21;
     return kSplashpackHeaderSizeV20;
@@ -166,6 +173,10 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.interactables.reserve(header->interactableCount);
     // agentCount was pad_skin before v22, so an older pack carries no agents.
     const uint16_t agentCount = header->version >= 22 ? header->agentCount : 0;
+    if (header->version >= 25) {
+        setup.orderingTableSize = header->orderingTableSize;
+        setup.bumpAllocatorSize = header->bumpAllocatorSize;
+    }
     setup.agents.reserve(agentCount);
 
     uint8_t *cursor = data + splashpackHeaderSize(header->version);

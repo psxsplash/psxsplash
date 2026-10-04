@@ -122,6 +122,9 @@ struct SplashpackSceneSetup {
 
     BVHManager bvh;  // Spatial acceleration structure for culling
     NavRegionSystem navRegions;    
+    /// Render buffer sizes (v25+), 0 for the engine default.
+    uint32_t orderingTableSize = 0;
+    uint32_t bumpAllocatorSize = 0;
     psyqo::GTE::PackedVec3 playerStartPosition;
     psyqo::GTE::PackedVec3 playerStartRotation;
     psyqo::FixedPoint<12, uint16_t> playerHeight;

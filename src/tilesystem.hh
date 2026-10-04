@@ -61,8 +61,8 @@ class TileSystem {
 
     /// Insert this frame's tile primitives. Called from the renderer BEFORE the
     /// sprite system's, so sprites land on top of the floor.
-    void renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                  psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+    void renderOT(Renderer::OT& ot,
+                  Renderer::Balloc& balloc);
 
   private:
     psyqo::PrimPieces::TPageAttr makeTPage() const;

@@ -48,8 +48,12 @@ class Renderer final {
 #ifndef BUMP_SIZE
 #define BUMP_SIZE (8096 * 24)
 #endif
-    static constexpr size_t ORDERING_TABLE_SIZE = OT_SIZE;
-    static constexpr size_t BUMP_ALLOCATOR_SIZE = BUMP_SIZE;
+    // Used when a splashpack does not carry its own sizes (v24 and older).
+    static constexpr uint32_t DEFAULT_ORDERING_TABLE_SIZE = OT_SIZE;
+    static constexpr uint32_t DEFAULT_BUMP_ALLOCATOR_SIZE = BUMP_SIZE;
+
+    using OT = psyqo::DynamicOrderingTable<>;
+    using Balloc = psyqo::DynamicBumpAllocator<>;
     static constexpr size_t MAX_VISIBLE_TRIANGLES = 4096;
 
     // Ordering-table depth bands.
@@ -85,6 +89,18 @@ class Renderer final {
     static constexpr int32_t SCREEN_CY = 120;
 
     static void Init(psyqo::GPU& gpuInstance);
+    /// Allocates the ordering tables and bump allocators. Only the first call
+    /// allocates: a scene load happens while the GPU still owes the previous
+    /// frame's chain and an ordering-table clear on these buffers, so they are
+    /// never freed. Every scene of a game carries the same sizes, the largest
+    /// any of them needs; a later scene asking for more is an export mistake.
+    void Configure(uint32_t otSize, uint32_t bumpSize);
+    uint32_t OrderingTableSize() const { return m_otSize; }
+    uint32_t BumpAllocatorSize() const { return m_bumpSize; }
+    /// Most bump allocator bytes any frame has used so far.
+    uint32_t PeakBumpUse() const { return m_peakBump; }
+    /// Largest ordering-table depth any triangle has asked for so far, drawn or not.
+    int32_t PeakDepth() const { return m_peakZ; }
     void SetCamera(Camera& camera);
     void SetFog(const FogConfig& fog);
 
@@ -139,9 +155,19 @@ class Renderer final {
     psyqo::GPU& m_gpu;
     psyqo::Trig<> m_trig;
 
-    psyqo::OrderingTable<ORDERING_TABLE_SIZE> m_ots[2];
+    OT* m_ots[2] = {nullptr, nullptr};
     psyqo::Fragments::SimpleFragment<psyqo::Prim::FastFill> m_clear[2];
-    psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE> m_ballocs[2];
+    Balloc* m_ballocs[2] = {nullptr, nullptr};
+    uint32_t m_otSize = 0;
+    uint32_t m_bumpSize = 0;
+    uint32_t m_peakBump = 0;
+    int32_t m_peakZ = 0;
+    int32_t m_reportedZ = 0;
+    uint32_t m_reportedBump = 0;
+    void reportPeaks();
+    void notePeakBump(const Balloc& balloc) {
+        if (balloc.used() > m_peakBump) m_peakBump = balloc.used();
+    }
 
     FogConfig m_fog;
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
@@ -186,8 +212,8 @@ class Renderer final {
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
 
     void processTriangle(Tri& tri, int32_t fogFarSZ,
-                         psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
-                         psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+                         OT& ot,
+                         Balloc& balloc,
                          int depth = 0,
                          psyqo::PrimPieces::UVCoords uvOffset = { 0 });
 
@@ -195,8 +221,8 @@ class Renderer final {
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,
                               const psyqo::Vec3& cameraPosition,
                               int32_t fogFarSZ,
-                              psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
-                              psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+                              OT& ot,
+                              Balloc& balloc,
                               const Frustum* frustum = nullptr);
 #endif
 };

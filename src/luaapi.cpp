@@ -4808,8 +4808,8 @@ int LuaAPI::UI_GetElementByIndex(lua_State* L) {
     return 1;
 }
 
-/*void renderLine(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-    psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc)
+/*void renderLine(Renderer::OT& ot,
+    Renderer::Balloc& balloc)
 {
 
 }*/

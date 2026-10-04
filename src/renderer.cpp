@@ -16,6 +16,8 @@
 #include <psyqo/trigonometry.hh>
 #include <psyqo/vector.hh>
 
+#include "common/syscalls/syscalls.h"
+
 #include "gtemath.hh"
 #if PSXSPLASH_FEATURE_LIGHTS
 #include "lightgte.hh"
@@ -46,9 +48,38 @@ void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
     write<Register::OFX, Safe>(psyqo::FixedPoint<16>(160.0).raw());
     write<Register::OFY, Safe>(psyqo::FixedPoint<16>(120.0).raw());
     write<Register::H, Safe>(PROJ_H);
-    write<Register::ZSF3, Safe>(ORDERING_TABLE_SIZE / 3);
-    write<Register::ZSF4, Safe>(ORDERING_TABLE_SIZE / 4);
     if (!instance) { instance = new Renderer(gpuInstance); }
+}
+
+void psxsplash::Renderer::Configure(uint32_t otSize, uint32_t bumpSize) {
+    if (otSize == 0) otSize = DEFAULT_ORDERING_TABLE_SIZE;
+    if (bumpSize == 0) bumpSize = DEFAULT_BUMP_ALLOCATOR_SIZE;
+    if (m_otSize != 0) {
+        psyqo::Kernel::assert(otSize <= m_otSize && bumpSize <= m_bumpSize,
+                              "Scene needs larger render buffers than the first one: re-export the whole project");
+        return;
+    }
+    m_otSize = otSize;
+    m_bumpSize = (bumpSize + 3) & ~3u;
+    for (int i = 0; i < 2; i++) {
+        m_ots[i] = new OT(new psyqo::Fragments::ChainEntry[m_otSize + 1], m_otSize);
+        m_ballocs[i] = new Balloc(new uint32_t[m_bumpSize / 4], m_bumpSize);
+    }
+    write<Register::ZSF3, Safe>(m_otSize / 3);
+    write<Register::ZSF4, Safe>(m_otSize / 4);
+}
+
+void psxsplash::Renderer::reportPeaks() {
+#ifdef PCDRV_SUPPORT
+    // Development builds tell the editor what a scene really used, at most
+    // once a second and only when a peak grew.
+    if (m_frameCount % 60 != 0) return;
+    if (m_peakZ == m_reportedZ && m_peakBump == m_reportedBump) return;
+    m_reportedZ = m_peakZ;
+    m_reportedBump = m_peakBump;
+    ramsyscall_printf("psxsplash: render peak depth %d of %u, bump %u of %u\n", (int)m_peakZ, m_otSize,
+                      m_peakBump, m_bumpSize);
+#endif
 }
 
 void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {
@@ -180,8 +211,8 @@ static inline psyqo::Color fogTexColor(psyqo::Color vc, int32_t ir) {
 
 void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
-    psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
-    psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+    OT& ot,
+    Balloc& balloc,
     int depth,
     psyqo::PrimPieces::UVCoords uvOffset) {
 
@@ -207,7 +238,8 @@ void psxsplash::Renderer::processTriangle(
     if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) return;
 
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
-    if (zIndex >= (int32_t)ORDERING_TABLE_SIZE) return;
+    if (zIndex > m_peakZ) m_peakZ = zIndex;
+    if (zIndex >= (int32_t)m_otSize) return;
     // Clamp above the reserved 2D bands, never to 0: geometry this close to the
     // camera must not land in the slots the sprites and UI draw from.
     if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
@@ -391,12 +423,13 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
     uint8_t parity = m_gpu.getParity();
-    auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
+    auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
+    notePeakBump(balloc);
     balloc.reset();
     auto& ditherCmd = balloc.allocateFragment<psyqo::Prim::TPage>();
     ditherCmd.primitive.attr.setDithering(true);
     ditherCmd.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
-    ot.insert(ditherCmd, ORDERING_TABLE_SIZE - 1);
+    ot.insert(ditherCmd, m_otSize - 1);
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
@@ -436,6 +469,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
+    reportPeaks();
     m_frameCount++;
 }
 
@@ -445,12 +479,13 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
     uint8_t parity = m_gpu.getParity();
-    auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
+    auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
+    notePeakBump(balloc);
     balloc.reset();
     auto& ditherCmd2 = balloc.allocateFragment<psyqo::Prim::TPage>();
     ditherCmd2.primitive.attr.setDithering(true);
     ditherCmd2.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
-    ot.insert(ditherCmd2, ORDERING_TABLE_SIZE - 1);
+    ot.insert(ditherCmd2, m_otSize - 1);
 
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
     int visibleCount = bvh.cullFrustum(frustum, m_visibleRefs, MAX_VISIBLE_TRIANGLES);
@@ -531,6 +566,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
+    reportPeaks();
     m_frameCount++;
 }
 
@@ -759,12 +795,13 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
 
     uint8_t parity = m_gpu.getParity();
-    auto& ot = m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = m_ballocs[parity];
+    auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
+    notePeakBump(balloc);
     balloc.reset();
     auto& ditherCmd3 = balloc.allocateFragment<psyqo::Prim::TPage>();
     ditherCmd3.primitive.attr.setDithering(true);
     ditherCmd3.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
-    ot.insert(ditherCmd3, ORDERING_TABLE_SIZE - 1);
+    ot.insert(ditherCmd3, m_otSize - 1);
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
@@ -1044,7 +1081,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int32_t sz0 = (int32_t)u0, sz1 = (int32_t)u1, sz2 = (int32_t)u2;
                 if (sz0 < 1 && sz1 < 1 && sz2 < 1) continue;
                 int32_t zMax = eastl::max(eastl::max(sz0, sz1), sz2);
-                if (zMax < 0 || zMax >= (int32_t)ORDERING_TABLE_SIZE) continue;
+                if (zMax < 0 || zMax >= (int32_t)m_otSize) continue;
 
                 psyqo::Vertex projected[3];
                 read<Register::SXY0>(&projected[0].packed);
@@ -1058,7 +1095,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 // Depth-modulate brightness: near = full color, far = dimmer.
                 // Also dim triangles from rooms that were NOT visited (culled).
                 int32_t avgSZ = (sz0 + sz1 + sz2) / 3;
-                int32_t bright = 4096 - (avgSZ * 4096 / (int32_t)ORDERING_TABLE_SIZE);
+                int32_t bright = 4096 - (avgSZ * 4096 / (int32_t)m_otSize);
                 if (bright < 512) bright = 512;
                 if (bright > 4096) bright = 4096;
 
@@ -1234,6 +1271,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
+    reportPeaks();
     m_frameCount++;
 }
 
@@ -1246,8 +1284,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
     eastl::vector<GameObject*>& objects,
     const psyqo::Vec3& cameraPosition,
     int32_t fogFarSZ,
-    psyqo::OrderingTable<ORDERING_TABLE_SIZE>& ot,
-    psyqo::BumpAllocator<BUMP_ALLOCATOR_SIZE>& balloc,
+    OT& ot,
+    Balloc& balloc,
     const Frustum* frustum) {
 
     if (!m_skinSets || !m_skinStates || m_skinCount == 0) return;
@@ -1414,7 +1452,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
             if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) continue;
 
             int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
-            if (zIndex >= (int32_t)ORDERING_TABLE_SIZE) continue;
+            if (zIndex > m_peakZ) m_peakZ = zIndex;
+            if (zIndex >= (int32_t)m_otSize) continue;
             if (zIndex < 1) zIndex = 1;
 
             // Skip near-plane vertices (no subdivision for skinned meshes)

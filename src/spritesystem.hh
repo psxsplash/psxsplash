@@ -76,8 +76,8 @@ class SpriteSystem {
 
     /// Insert this frame's primitives. Called from the renderer before the UI's,
     /// so the UI stays on top.
-    void renderOT(psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                  psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+    void renderOT(Renderer::OT& ot,
+                  Renderer::Balloc& balloc);
 
     int sheetIndex(const char* name) const;
     int animIndex(const char* name) const;
@@ -119,8 +119,8 @@ class SpriteSystem {
     bool valid(int id) const { return id >= 0 && id < SPRITE_MAX && m_sprites[id].active; }
 
     void renderSprite(SpriteInstance& s, int depth,
-                      psyqo::OrderingTable<Renderer::ORDERING_TABLE_SIZE>& ot,
-                      psyqo::BumpAllocator<Renderer::BUMP_ALLOCATOR_SIZE>& balloc);
+                      Renderer::OT& ot,
+                      Renderer::Balloc& balloc);
 
     static psyqo::PrimPieces::TPageAttr makeTPage(const SpriteSheet& sheet);
 

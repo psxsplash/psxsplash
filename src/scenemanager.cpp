@@ -113,6 +113,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     SplashpackSceneSetup sceneSetup;
     m_loader.LoadSplashpack(splashpackData, sceneSetup);
+    Renderer::GetInstance().Configure(sceneSetup.orderingTableSize, sceneSetup.bumpAllocatorSize);
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 40);
 
