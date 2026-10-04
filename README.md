@@ -31,7 +31,7 @@ Build options:
 | `PSXSPLASH_FPSOVERLAY=1` | FPS counter overlay |
 | `OT_SIZE=N` | Ordering table size |
 | `BUMP_SIZE=N` | Bump allocator size |
-| `FEATURES=...` | Subsystems to compile in, space or comma separated, from `net ui sprites skin cutscene lights streaming memcard nav agents collision`. Unset builds all of them; `FEATURES=none` builds the smallest engine. SplashEdit passes the set the exported scenes use. |
+| `FEATURES=...` | Subsystems to compile in, space or comma separated, from `bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision` (`bootlogo` is the psxsplash logo animation shown before the first scene). Unset builds all of them; `FEATURES=none` builds the smallest engine. SplashEdit passes the set the exported scenes use. |
 
 ## Contributing
 
