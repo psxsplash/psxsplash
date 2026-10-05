@@ -1311,39 +1311,14 @@ void psxsplash::Renderer::renderSkinnedObjects(
             if (!frustum->testAABB(objBox)) continue;
         }
 
-        // Get current clip and frame
-        uint8_t clipIdx = animState.currentClip;
-        if (clipIdx >= animSet.clipCount) clipIdx = 0;
-        const SkinAnimClip& clip = animSet.clips[clipIdx];
-        if (!clip.frames || clip.frameCount == 0) continue;
+        const BakedBoneMatrix* boneMatricesA;
+        const BakedBoneMatrix* boneMatricesB;
+        uint16_t sf;
+        if (!SkinMesh_CurrentFrames(animSet, animState, &boneMatricesA, &boneMatricesB, &sf)) continue;
+        const BakedBoneMatrix* boneMatrices = boneMatricesA;
 
-        uint16_t frame = animState.currentFrame;
-        if (frame >= clip.frameCount) frame = clip.frameCount - 1;
-
-        const BakedBoneMatrix* boneMatricesA = &clip.frames[(uint32_t)frame * animSet.boneCount];
-        const BakedBoneMatrix* boneMatrices = boneMatricesA; // default: no interpolation
-
-        // Interpolate between frames when subFrame > 0
-        uint16_t sf = animState.subFrame;
-        if (sf > 0 && frame + 1 < clip.frameCount) {
-            const BakedBoneMatrix* boneMatricesB = &clip.frames[(uint32_t)(frame + 1) * animSet.boneCount];
-            for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
-                const BakedBoneMatrix& bA = boneMatricesA[bi];
-                const BakedBoneMatrix& bB = boneMatricesB[bi];
-                BakedBoneMatrix& out = lerpedBones[bi];
-                for (int k = 0; k < 9; k++) {
-                    int32_t a = bA.r[k], b = bB.r[k];
-                    out.r[k] = (int16_t)(a + (((b - a) * sf) >> 12));
-                }
-                for (int k = 0; k < 3; k++) {
-                    int32_t a = bA.t[k], b = bB.t[k];
-                    out.t[k] = (int16_t)(a + (((b - a) * sf) >> 12));
-                }
-            }
-            boneMatrices = lerpedBones;
-        } else if (sf > 0 && (animState.loop || (clip.flags & 0x01)) && clip.frameCount > 1) {
-            // Looping: interpolate last frame -> first frame
-            const BakedBoneMatrix* boneMatricesB = &clip.frames[0];
+        // Interpolate between frames
+        if (boneMatricesB) {
             for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
                 const BakedBoneMatrix& bA = boneMatricesA[bi];
                 const BakedBoneMatrix& bB = boneMatricesB[bi];

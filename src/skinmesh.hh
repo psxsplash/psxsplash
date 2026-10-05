@@ -47,6 +47,12 @@ struct SkinAnimClip {
 struct SkinAnimSet {
     Tri*         polygons;          // stolen from the GO at init (regular render sees polyCount=0)
     const uint8_t* boneIndices;    // polyCountx3 bone index bytes, points into splashpack data
+    // v26+, null on older packs. Bind-pose joint positions, boneCount x {x, y, z}
+    // in the vertices' space and units (4.12 GTE units, Y down), so a baked bone
+    // matrix maps a joint's bind position to its posed position.
+    const int16_t* bindPositions;
+    // v26+, null on older packs. boneCount records of {u8 len, name, u8 0}.
+    const uint8_t* boneNames;
     uint16_t     polyCount;        // triangle count (moved from GO)
     uint8_t      clipCount;
     uint8_t      boneCount;        // from the skin data (shared across clips)
@@ -70,5 +76,14 @@ struct SkinAnimState {
 /// Tick the animation state.  dt12 is the frame delta in 0.12 fixed-point
 /// (4096 = one 30fps frame).  Framerate-independent.
 void SkinMesh_Tick(SkinAnimState* state, lua_State* L, int32_t dt12);
+
+/// The two baked frames the renderer blends this frame, and the blend weight
+/// (0..4095). b is null when a single frame is drawn. Returns false when the
+/// object has nothing to draw.
+bool SkinMesh_CurrentFrames(const SkinAnimSet& set, const SkinAnimState& state,
+                            const BakedBoneMatrix** a, const BakedBoneMatrix** b, uint16_t* blend);
+
+/// Bone index for a joint name, or -1.
+int SkinMesh_FindBone(const SkinAnimSet& set, const char* name);
 
 }  // namespace psxsplash
