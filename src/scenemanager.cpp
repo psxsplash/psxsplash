@@ -156,6 +156,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     }
     // Copy component arrays
     m_interactables = std::move(sceneSetup.interactables);
+    m_legacyInteractables = std::move(sceneSetup.legacyInteractables);
 
     // Audio clip names are stored in the splashpack. ADPCM data is loaded
     // separately via uploadSpuData() before InitializeScene() is called.
@@ -986,18 +987,24 @@ void psxsplash::SceneManager::updateInteractionSystem() {
 
         if (distSq > interactable->radiusSquared) continue;
 
-        // Line-of-sight check: dot product of forward vector and direction to object
+        // Facing check, in the XZ plane. dx/dz point from the object to the
+        // player, so the direction to the object is (-dx, -dz). The object is
+        // faced when the angle between it and forward has a cosine of at least
+        // facingCosine: dot >= facingCosine * |(dx, dz)|, compared squared to
+        // avoid the square root. Done on the raw values in 64 bits, because
+        // scene distances are small fractions of a unit and fp12 squares of
+        // them round to zero.
         if (interactable->requireLineOfSight()) {
-            // dot = forwardX * dx + forwardZ * dz (XZ plane only)
-            // Negative dot means object is behind the player
-            psyqo::FixedPoint<12> dot = forwardX * dx + forwardZ * dz;
-            // Object must be in front of the player (dot < 0 in the coordinate system
-            // because dx points FROM player TO object, and forward points where player faces)
-            // Actually: dx = playerX - objX, so it points FROM object TO player.
-            // We want the object in front, so we need -dx direction to align with forward.
-            // dot(forward, objDir) where objDir = obj - player = -dx, -dz
-            psyqo::FixedPoint<12> facingDot = -(forwardX * dx + forwardZ * dz);
-            if (facingDot.value <= 0) continue;  // Object is behind the player
+            int64_t dot = -((int64_t)forwardX.value * dx.value + (int64_t)forwardZ.value * dz.value);
+            int64_t lenSq = (int64_t)dx.value * dx.value + (int64_t)dz.value * dz.value;
+            int64_t cosine = interactable->facingCosine;
+            int64_t dotSq = dot * dot;
+            int64_t limitSq = cosine * cosine * lenSq;
+            if (cosine >= 0) {
+                if (dot <= 0 || dotSq < limitSq) continue;
+            } else {
+                if (dot < 0 && dotSq > limitSq) continue;
+            }
         }
 
         if (distSq < closestDistSq) {
@@ -1703,6 +1710,7 @@ void psxsplash::SceneManager::clearScene() {
     { eastl::vector<const char*>    tmp; tmp.swap(m_objectNames); }
     { eastl::vector<const char*>    tmp; tmp.swap(m_audioClipNames); }
     { eastl::vector<Interactable*>  tmp; tmp.swap(m_interactables); }
+    { eastl::vector<Interactable>   tmp; tmp.swap(m_legacyInteractables); }
     { eastl::vector<SceneManager::AgentRuntimeState> tmp; tmp.swap(m_agentStates); }
 
     // 3. Reset hardware / subsystems

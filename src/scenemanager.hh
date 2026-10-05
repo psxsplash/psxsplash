@@ -563,6 +563,7 @@ namespace psxsplash {
 
         // Component arrays
         eastl::vector<Interactable*> m_interactables;
+        eastl::vector<Interactable> m_legacyInteractables;  // pre-v27 packs only
 
         // Audio system
         AudioManager m_audio;
