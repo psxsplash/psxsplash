@@ -69,6 +69,13 @@ void psxsplash::Renderer::Configure(uint32_t otSize, uint32_t bumpSize) {
     write<Register::ZSF4, Safe>(m_otSize / 4);
 }
 
+void psxsplash::Renderer::ReserveVisibleTriangles(uint32_t count) {
+    if (count <= m_visibleCapacity) return;
+    delete[] m_visibleRefs;
+    m_visibleRefs = new TriangleRef[count];
+    m_visibleCapacity = count;
+}
+
 void psxsplash::Renderer::reportPeaks() {
 #ifdef PCDRV_SUPPORT
     // Development builds tell the editor what a scene really used, at most
@@ -488,7 +495,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     ot.insert(ditherCmd2, m_otSize - 1);
 
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
-    int visibleCount = bvh.cullFrustum(frustum, m_visibleRefs, MAX_VISIBLE_TRIANGLES);
+    int visibleCount = bvh.cullFrustum(frustum, m_visibleRefs, m_visibleCapacity);
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     int16_t lastObjectIndex = -1;

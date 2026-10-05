@@ -54,7 +54,6 @@ class Renderer final {
 
     using OT = psyqo::DynamicOrderingTable<>;
     using Balloc = psyqo::DynamicBumpAllocator<>;
-    static constexpr size_t MAX_VISIBLE_TRIANGLES = 4096;
 
     // Ordering-table depth bands.
     //
@@ -95,6 +94,9 @@ class Renderer final {
     /// never freed. Every scene of a game carries the same sizes, the largest
     /// any of them needs; a later scene asking for more is an export mistake.
     void Configure(uint32_t otSize, uint32_t bumpSize);
+    /// Sizes the frustum culling output for a scene's BVH, which never yields
+    /// more triangles than it references. The buffer only grows.
+    void ReserveVisibleTriangles(uint32_t count);
     uint32_t OrderingTableSize() const { return m_otSize; }
     uint32_t BumpAllocatorSize() const { return m_bumpSize; }
     /// Most bump allocator bytes any frame has used so far.
@@ -205,7 +207,8 @@ class Renderer final {
     void prepareObjectLights(const GameObject* obj);
 #endif
 
-    TriangleRef m_visibleRefs[MAX_VISIBLE_TRIANGLES];
+    TriangleRef* m_visibleRefs = nullptr;
+    uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
 
     psyqo::Vec3 computeCameraViewPos();
