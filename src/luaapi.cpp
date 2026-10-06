@@ -2683,7 +2683,7 @@ int LuaAPI::Actor_GetName(lua_State* L) {
 
     uint16_t actorId = ReadActorId(lua, 1);
     const char* name = s_sceneManager->getActorName(actorId);
-    if (name) lua.push(name);
+    if (name) lua.push(eastl::string_view(name));
     else lua.push();
     return 1;
 }
@@ -4443,7 +4443,7 @@ int LuaAPI::SkinnedAnim_GetClip(lua_State* L) {
 
     if (animState.currentClip < animSet.clipCount &&
         animSet.clips[animState.currentClip].name) {
-        lua.push(animSet.clips[animState.currentClip].name);
+        lua.push(eastl::string_view(animSet.clips[animState.currentClip].name));
     } else {
         lua_pushnil(L);
     }
@@ -4680,7 +4680,7 @@ int LuaAPI::UI_GetText(lua_State* L) {
         return 1;
     }
     int handle = static_cast<int>(lua.toNumber(1));
-    lua.push(s_uiSystem->getText(handle));
+    lua.push(eastl::string_view(s_uiSystem->getText(handle)));
     return 1;
 }
 
