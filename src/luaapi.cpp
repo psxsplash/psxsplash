@@ -728,6 +728,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(SkinnedAnim_GetClip);
     L.setField(-2, "GetClip");
 
+    L.push(SkinnedAnim_GetBone);
+    L.setField(-2, "GetBone");
+
     L.setGlobal("SkinnedAnim");
 #else
     RegisterCompiledOut(L, "SkinnedAnim", "skin");
@@ -4423,6 +4426,98 @@ int LuaAPI::SkinnedAnim_IsPlaying(lua_State* L) {
 
     lua.push(s_sceneManager->getSkinAnimState(si).playing);
     return 1;
+}
+
+static uint32_t isqrt32(uint32_t v) {
+    uint32_t r = 0;
+    for (uint32_t bit = 1u << 30; bit; bit >>= 2) {
+        if (v >= r + bit) {
+            v -= r + bit;
+            r = (r >> 1) + bit;
+        } else {
+            r >>= 1;
+        }
+    }
+    return r;
+}
+
+int LuaAPI::SkinnedAnim_GetBone(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_sceneManager || !lua.isString(1)) {
+        lua.push();
+        return 1;
+    }
+    int si = s_sceneManager->findSkinAnimByObjectName(lua.toString(1));
+    if (si < 0) {
+        lua.push();
+        return 1;
+    }
+    const SkinAnimSet& set = s_sceneManager->getSkinAnimSet(si);
+    const SkinAnimState& state = s_sceneManager->getSkinAnimState(si);
+    GameObject* go = s_sceneManager->getGameObject(set.gameObjectIndex);
+
+    int bi = -1;
+    if (lua_type(L, 2) == LUA_TSTRING) {
+        bi = SkinMesh_FindBone(set, lua.toString(2));
+    } else if (lua.isNumber(2)) {
+        bi = static_cast<int>(lua.toNumber(2));
+    }
+    const BakedBoneMatrix* a;
+    const BakedBoneMatrix* b;
+    uint16_t blend;
+    if (!go || !set.bindPositions || bi < 0 || bi >= set.boneCount ||
+        !SkinMesh_CurrentFrames(set, state, &a, &b, &blend)) {
+        lua.push();
+        return 1;
+    }
+
+    // The same blend the renderer draws.
+    int16_t m[12];
+    for (int k = 0; k < 9; k++) m[k] = a[bi].r[k];
+    for (int k = 0; k < 3; k++) m[9 + k] = a[bi].t[k];
+    if (b) {
+        for (int k = 0; k < 9; k++) m[k] += ((b[bi].r[k] - a[bi].r[k]) * blend) >> 12;
+        for (int k = 0; k < 3; k++) m[9 + k] += ((b[bi].t[k] - a[bi].t[k]) * blend) >> 12;
+    }
+    psyqo::Matrix33 boneRot;
+    for (int r = 0; r < 3; r++) {
+        boneRot.vs[r].x.value = m[r * 3];
+        boneRot.vs[r].y.value = m[r * 3 + 1];
+        boneRot.vs[r].z.value = m[r * 3 + 2];
+    }
+
+    // Object space: bone matrix applied to the joint's bind position.
+    const int16_t* bind = &set.bindPositions[bi * 3];
+    psyqo::Vec3 joint;
+    joint.x.value = bind[0];
+    joint.y.value = bind[1];
+    joint.z.value = bind[2];
+    psyqo::Vec3 local;
+    psyqo::SoftMath::matrixVecMul3(boneRot, joint, &local);
+    local.x.value += m[9];
+    local.y.value += m[10];
+    local.z.value += m[11];
+
+    psyqo::Vec3 world;
+    psyqo::SoftMath::matrixVecMul3(go->rotation, local, &world);
+    PushVec3(lua, world.x + go->position.x, world.y + go->position.y, world.z + go->position.z);
+
+    // R = objRot * boneRot, split as Ry * Rx * Rz to match Entity.SetRotation.
+    psyqo::Matrix33 rot = psyqo::SoftMath::multiplyMatrix33(boneRot, go->rotation);
+    int32_t r10 = rot.vs[1].x.value, r11 = rot.vs[1].y.value, r12 = rot.vs[1].z.value;
+    int32_t c = isqrt32(static_cast<uint32_t>(r10 * r10) + static_cast<uint32_t>(r11 * r11));
+    psyqo::Angle rx = psyqo::atan2(-r12, c);
+    psyqo::Angle ry, rz;
+    if (c > 16) {
+        ry = psyqo::atan2(rot.vs[0].z.value, rot.vs[2].z.value);
+        rz = psyqo::atan2(r10, r11);
+    } else {
+        // Pointing straight up or down: roll and yaw are one axis.
+        ry = psyqo::atan2(-rot.vs[2].x.value, rot.vs[0].x.value);
+        rz.value = 0;
+    }
+    PushVec3(lua, LuaUtility::ToFp12(rx), LuaUtility::ToFp12(ry), LuaUtility::ToFp12(rz));
+    return 2;
 }
 
 int LuaAPI::SkinnedAnim_GetClip(lua_State* L) {

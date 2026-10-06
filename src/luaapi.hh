@@ -647,6 +647,12 @@ private:
     // SkinnedAnim.GetClip(objectName) -> string or nil
     static int SkinnedAnim_GetClip(lua_State* L);
 
+    // SkinnedAnim.GetBone(objectName, bone) -> position, rotation or nil
+    // bone is a joint name or a 0-based joint index. position is in world
+    // units like Entity.GetPosition; rotation is in the units and order
+    // Entity.SetRotation takes. nil if the pack predates bone data (v26).
+    static int SkinnedAnim_GetBone(lua_State* L);
+
     // Controls.SetEnabled(bool) - enable/disable all player input
     static int Controls_SetEnabledPlayer1(lua_State* L);
     static int Controls_SetEnabledPlayer2(lua_State* L);

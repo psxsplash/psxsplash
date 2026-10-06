@@ -635,6 +635,18 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                 skinPtr += (uint32_t)clip.frameCount * (uint32_t)animSet.boneCount * sizeof(BakedBoneMatrix);
             }
 
+            // v26: after the last clip, 2-aligned, boneCount bind joint
+            // positions {x, y, z} then boneCount names {len, chars, 0}.
+            animSet.bindPositions = nullptr;
+            animSet.boneNames = nullptr;
+            if (header->version >= 26) {
+                addr = reinterpret_cast<uintptr_t>(skinPtr);
+                skinPtr = reinterpret_cast<uint8_t*>((addr + 1) & ~1);
+                animSet.bindPositions = reinterpret_cast<const int16_t*>(skinPtr);
+                skinPtr += (uint32_t)animSet.boneCount * 6;
+                animSet.boneNames = skinPtr;
+            }
+
             // Zero unused clip slots
             for (uint8_t ci = animSet.clipCount; ci < SKINMESH_MAX_CLIPS; ci++) {
                 animSet.clips[ci].name = nullptr;
