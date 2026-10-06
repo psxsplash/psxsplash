@@ -20,3 +20,5 @@ LICENSEE.DAT
 system.cnf
 iso.xml
 .build-flags
+.xmake/
+build/
