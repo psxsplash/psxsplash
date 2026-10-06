@@ -121,6 +121,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_gameObjects = std::move(sceneSetup.objects);
     m_objectNames = std::move(sceneSetup.objectNames);
     m_bvh = sceneSetup.bvh;  // Copy BVH for frustum culling
+    Renderer::GetInstance().ReserveVisibleTriangles(m_bvh.getTriangleRefCount());
     m_navRegions = sceneSetup.navRegions;          // Nav region system (v7+)
     m_playerNavRegion = m_navRegions.isLoaded() ? m_navRegions.getStartRegion() : NAV_NO_REGION;
 
