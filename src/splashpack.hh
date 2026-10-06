@@ -105,6 +105,9 @@ struct SplashpackSceneSetup {
 
     // New component arrays
     eastl::vector<Interactable *> interactables;
+    /// Storage for interactables read from packs older than v27, whose
+    /// records are shorter than Interactable. Empty for newer packs.
+    eastl::vector<Interactable> legacyInteractables;
 
     eastl::vector<const char *> objectNames;
 

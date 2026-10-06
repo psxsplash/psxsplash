@@ -31,6 +31,12 @@ struct Interactable {
     // Prompt canvas name (null-terminated, max 15 chars + null)
     char promptCanvasName[16];
 
+    // v27+: cosine (fp12) of the widest angle between the player's forward
+    // direction and the object that still counts as facing it, for
+    // requireLineOfSight. 0 is 90 degrees either side. Older packs read as 0.
+    int16_t facingCosine;
+    uint16_t reserved;
+
     // Flag accessors
     bool isRepeatable() const { return flags & 0x01; }
     bool showPrompt() const { return flags & 0x02; }
@@ -66,6 +72,8 @@ struct Interactable {
         if (currentCooldown > 0 && currentCooldown != 0xFFFF) currentCooldown--;
     }
 };
-static_assert(sizeof(Interactable) == 28, "Interactable must be 28 bytes");
+static_assert(sizeof(Interactable) == 32, "Interactable must be 32 bytes");
+// Record size before v27, which ended at the prompt canvas name.
+static constexpr uint32_t kInteractableSizeV26 = 28;
 
 }  // namespace psxsplash

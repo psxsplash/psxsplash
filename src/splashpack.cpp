@@ -225,10 +225,22 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
                              triangleRefs, header->bvhTriangleRefCount);
     }
 
-    for (uint16_t i = 0; i < header->interactableCount; i++) {
-        psxsplash::Interactable *interactable = reinterpret_cast<psxsplash::Interactable *>(cursor);
-        setup.interactables.push_back(interactable);
-        cursor += sizeof(psxsplash::Interactable);
+    if (header->version >= 27) {
+        for (uint16_t i = 0; i < header->interactableCount; i++) {
+            psxsplash::Interactable *interactable = reinterpret_cast<psxsplash::Interactable *>(cursor);
+            setup.interactables.push_back(interactable);
+            cursor += sizeof(psxsplash::Interactable);
+        }
+    } else {
+        setup.legacyInteractables.resize(header->interactableCount);
+        for (uint16_t i = 0; i < header->interactableCount; i++) {
+            psxsplash::Interactable &interactable = setup.legacyInteractables[i];
+            __builtin_memcpy(&interactable, cursor, psxsplash::kInteractableSizeV26);
+            interactable.facingCosine = 0;
+            interactable.reserved = 0;
+            setup.interactables.push_back(&interactable);
+            cursor += psxsplash::kInteractableSizeV26;
+        }
     }
 
     for (uint16_t i = 0; i < agentCount; i++) {
