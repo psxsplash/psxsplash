@@ -127,32 +127,55 @@ static int sio_pcdrv_seek(int fd, int offset, int whence) {
 }
 
 // =========================================================================
-// Public PCDRV API - runtime dispatch between emulator and real hardware
+// psxmon detection
+// =========================================================================
+
+// psxmon (the pcsx-redux debug monitor) copies the exception trampoline at
+// 0x80 to the debug vector at 0x40 when it hooks the kernel. Without it 0x40
+// holds zeros on a retail BIOS, or a jump of its own under Unirom. With the
+// monitor present the host serves PCDRV through break instructions, and SIO1
+// belongs to the monitor: it drains whatever is waiting on the line each time
+// an interrupt is taken, so the raw protocol above would lose replies.
+static bool psxmon_present() {
+    volatile const uint32_t* vec = (volatile const uint32_t*)0x80000040;
+    for (int i = 0; i < 4; i++) {
+        if (vec[i] != vec[i + 16]) return false;
+    }
+    return vec[0] != 0;
+}
+
+// The emulator and psxmon both answer `break 0, 0x10x` (pcdrv.h). Keep
+// pcsx_present() first: with its kernel checker on, PCSX-Redux pauses on a
+// user-mode read of 0x40.
+static bool pcdrv_uses_break() { return pcsx_present() || psxmon_present(); }
+
+// =========================================================================
+// Public PCDRV API - runtime dispatch between break calls and SIO1
 // Use these instead of pcdrv.h functions (PCopen, PCread, etc.)
 // =========================================================================
 
 static int pcdrv_init() {
-    if (pcsx_present()) return PCinit();
+    if (pcdrv_uses_break()) return PCinit();
     return sio_pcdrv_init();
 }
 
 static int pcdrv_open(const char* name, int flags, int perms) {
-    if (pcsx_present()) return PCopen(name, flags, perms);
+    if (pcdrv_uses_break()) return PCopen(name, flags, perms);
     return sio_pcdrv_open(name, flags);
 }
 
 static int pcdrv_close(int fd) {
-    if (pcsx_present()) return PCclose(fd);
+    if (pcdrv_uses_break()) return PCclose(fd);
     return sio_pcdrv_close(fd);
 }
 
 static int pcdrv_read(int fd, void* buf, int len) {
-    if (pcsx_present()) return PCread(fd, buf, len);
+    if (pcdrv_uses_break()) return PCread(fd, buf, len);
     return sio_pcdrv_read(fd, buf, len);
 }
 
 static int pcdrv_seek(int fd, int offset, int whence) {
-    if (pcsx_present()) return PClseek(fd, offset, whence);
+    if (pcdrv_uses_break()) return PClseek(fd, offset, whence);
     return sio_pcdrv_seek(fd, offset, whence);
 }
 
@@ -170,7 +193,7 @@ static void sio1Init() {
 
 
 static void pcdrv_sio1_init() {
-    if (pcsx_present()) return;  // emulator handles PCDRV natively
+    if (pcdrv_uses_break()) return;  // the emulator or psxmon serves PCDRV
 
     sio1Init();
 

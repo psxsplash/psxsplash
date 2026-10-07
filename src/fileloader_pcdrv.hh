@@ -9,9 +9,9 @@ namespace psxsplash {
  * FileLoaderPCdrv - loads files via the PCdrv protocol.
  *
  * Works transparently in two modes (handled by pcdrv_handler.hh):
- *   - Emulator mode: break instructions intercepted by PCSX-Redux
- *   - Real hardware mode: SIO1 serial protocol (break handler installed
- *     by pcdrv_sio1_init, then pcdrv_init detects which path to use)
+ *   - break instructions, served by PCSX-Redux or by the host of psxmon
+ *   - otherwise on real hardware: psxsplash's own SIO1 protocol (SIO1 set
+ *     up by pcdrv_sio1_init)
  */
 class FileLoaderPCdrv final : public FileLoader {
   public:
