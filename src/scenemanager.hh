@@ -524,6 +524,12 @@ namespace psxsplash {
         // Check and process pending scene load (called from GameTick)
         void processPendingSceneLoad();
 
+        // Hot reload for an editor driving a PCdrv build: when "reload.flag"
+        // exists beside the scene at boot, its contents are re-read every few
+        // frames and a change reloads the current scene, keeping the player
+        // where they stand. Absent at boot, nothing is ever polled.
+        void pollHotReload();
+
         static Random m_random;
         static Random m_randomGenerator;
 
@@ -638,6 +644,15 @@ namespace psxsplash {
         // Scene transition state
         int m_currentSceneIndex = 0;
         int m_pendingSceneIndex = -1;        // -1 = no pending load
+        static constexpr int HOT_RELOAD_TAG_MAX = 16;
+        static constexpr uint8_t HOT_RELOAD_PERIOD = 15;  // frames between polls
+        bool m_hotReloadWatch = false;
+        bool m_hotReloadKeepPose = false;
+        uint8_t m_hotReloadCountdown = 0;
+        uint8_t m_hotReloadTagLen = 0;
+        uint8_t m_hotReloadTag[HOT_RELOAD_TAG_MAX];
+        // Reads reload.flag into `tag`; false when it does not exist.
+        bool readHotReloadTag(uint8_t* tag, uint8_t& len);
         uint8_t* m_currentSceneData = nullptr; // Owned pointer to loaded splashpack data
 
         // ---- Agent runtime (native AI: pathing, perception, state machine) ----

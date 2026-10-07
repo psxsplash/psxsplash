@@ -931,6 +931,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 #endif
 
     // Process pending scene transitions (at end of frame)
+    pollHotReload();
     processPendingSceneLoad();
 
 #ifdef PSXSPLASH_PROFILER
@@ -1358,6 +1359,39 @@ void psxsplash::SceneManager::requestSceneLoad(int sceneIndex) {
     m_pendingSceneIndex = sceneIndex;
 }
 
+bool psxsplash::SceneManager::readHotReloadTag(uint8_t* tag, uint8_t& len) {
+#if defined(LOADER_CDROM)
+    return false;
+#else
+    int size = 0;
+    uint8_t* data = FileLoader::Get().LoadFileSync("reload.flag", size);
+    if (!data) return false;
+    len = size > HOT_RELOAD_TAG_MAX ? HOT_RELOAD_TAG_MAX : (size < 0 ? 0 : (uint8_t)size);
+    for (int i = 0; i < len; i++) tag[i] = data[i];
+    FileLoader::Get().FreeFile(data);
+    return true;
+#endif
+}
+
+void psxsplash::SceneManager::pollHotReload() {
+    if (!m_hotReloadWatch || m_pendingSceneIndex >= 0) return;
+    if (m_hotReloadCountdown > 0) {
+        m_hotReloadCountdown--;
+        return;
+    }
+    m_hotReloadCountdown = HOT_RELOAD_PERIOD;
+    uint8_t tag[HOT_RELOAD_TAG_MAX];
+    uint8_t len = 0;
+    if (!readHotReloadTag(tag, len)) return;
+    bool same = len == m_hotReloadTagLen;
+    for (int i = 0; same && i < len; i++) same = tag[i] == m_hotReloadTag[i];
+    if (same) return;
+    m_hotReloadTagLen = len;
+    for (int i = 0; i < len; i++) m_hotReloadTag[i] = tag[i];
+    m_hotReloadKeepPose = true;
+    m_pendingSceneIndex = m_currentSceneIndex;
+}
+
 void psxsplash::SceneManager::processPendingSceneLoad() {
     if (m_pendingSceneIndex < 0) return;
 
@@ -1546,12 +1580,27 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     CDRomHelper::SilenceDrive();
 #endif
 
+    // A hot reload keeps the player where they stand; anything else starts
+    // the scene from its spawn point.
+    const bool keepPose = m_hotReloadKeepPose && sceneIndex == m_currentSceneIndex;
+    m_hotReloadKeepPose = false;
+    psyqo::Vec3 keptPosition = m_playerPosition;
+    psyqo::Angle keptRotX = playerRotationX, keptRotY = playerRotationY, keptRotZ = playerRotationZ;
+
     m_currentSceneData = newData;
     m_currentSceneIndex = sceneIndex;
 
     // Initialize with new data (creates fresh Lua VM inside).
     // Audio is already uploaded by this point - see Step 2 above.
     InitializeScene(newData, loading.isActive() ? &loading : nullptr);
+
+    if (keepPose) {
+        m_playerPosition = keptPosition;
+        playerRotationX = keptRotX;
+        playerRotationY = keptRotY;
+        playerRotationZ = keptRotZ;
+    }
+    if (isFirstScene) m_hotReloadWatch = readHotReloadTag(m_hotReloadTag, m_hotReloadTagLen);
 }
 
 // ============================================================================
