@@ -127,32 +127,65 @@ static int sio_pcdrv_seek(int fd, int offset, int whence) {
 }
 
 // =========================================================================
-// Public PCDRV API - runtime dispatch between emulator and real hardware
+// psxmon detection
+// =========================================================================
+
+// psxmon (the pcsx-redux debug monitor) hooks the kernel when it starts. It
+// copies the exception trampoline at 0x80 to the debug vector at 0x40
+// (without it 0x40 holds zeros on a retail BIOS, or a jump of its own under
+// Unirom), and it may patch slot 4 of the kernel's exception handler with a
+// call to itself: lui at / ori at, at / jalr at. Only through that slot does
+// it see a `break` here, because psyqo's kernel setup empties the handler
+// chain it also registers on. A monitor that has the slot also drains SIO1
+// whenever an interrupt is taken, so the SIO1 protocol above would lose
+// replies under it; one without the slot never runs again after that setup
+// and leaves SIO1 alone.
+static bool psxmon_owns_breaks() {
+    volatile const uint32_t* vec = (volatile const uint32_t*)0x80000040;
+    for (int i = 0; i < 4; i++) {
+        if (vec[i] != vec[i + 16]) return false;
+    }
+    // The trampoline is lui k0, hi / addiu k0, k0, lo / jr k0.
+    const uint32_t lui = vec[16], addiu = vec[17];
+    if ((lui >> 16) != 0x3c1a || (addiu >> 16) != 0x275a) return false;
+    const uint32_t handler = ((lui << 16) + (int16_t)(addiu & 0xffff)) | 0x80000000;
+    if (handler & 3) return false;
+    volatile const uint32_t* slot = (volatile const uint32_t*)(handler + 0xa0);
+    return (slot[0] >> 16) == 0x3c01 && (slot[1] >> 16) == 0x3421 && slot[2] == 0x0020f809;
+}
+
+// The emulator and a slotted psxmon both answer `break 0, 0x10x` (pcdrv.h). Keep
+// pcsx_present() first: with its kernel checker on, PCSX-Redux pauses on a
+// user-mode read of 0x40.
+static bool pcdrv_uses_break() { return pcsx_present() || psxmon_owns_breaks(); }
+
+// =========================================================================
+// Public PCDRV API - runtime dispatch between break calls and SIO1
 // Use these instead of pcdrv.h functions (PCopen, PCread, etc.)
 // =========================================================================
 
 static int pcdrv_init() {
-    if (pcsx_present()) return PCinit();
+    if (pcdrv_uses_break()) return PCinit();
     return sio_pcdrv_init();
 }
 
 static int pcdrv_open(const char* name, int flags, int perms) {
-    if (pcsx_present()) return PCopen(name, flags, perms);
+    if (pcdrv_uses_break()) return PCopen(name, flags, perms);
     return sio_pcdrv_open(name, flags);
 }
 
 static int pcdrv_close(int fd) {
-    if (pcsx_present()) return PCclose(fd);
+    if (pcdrv_uses_break()) return PCclose(fd);
     return sio_pcdrv_close(fd);
 }
 
 static int pcdrv_read(int fd, void* buf, int len) {
-    if (pcsx_present()) return PCread(fd, buf, len);
+    if (pcdrv_uses_break()) return PCread(fd, buf, len);
     return sio_pcdrv_read(fd, buf, len);
 }
 
 static int pcdrv_seek(int fd, int offset, int whence) {
-    if (pcsx_present()) return PClseek(fd, offset, whence);
+    if (pcdrv_uses_break()) return PClseek(fd, offset, whence);
     return sio_pcdrv_seek(fd, offset, whence);
 }
 
@@ -170,7 +203,7 @@ static void sio1Init() {
 
 
 static void pcdrv_sio1_init() {
-    if (pcsx_present()) return;  // emulator handles PCDRV natively
+    if (pcdrv_uses_break()) return;  // the emulator or psxmon serves PCDRV
 
     sio1Init();
 
