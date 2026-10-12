@@ -246,10 +246,8 @@ void psxsplash::Renderer::processTriangle(
 
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
     if (zIndex > m_peakZ) m_peakZ = zIndex;
-    if (zIndex >= (int32_t)m_otSize) {
-        if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) return;
-        zIndex = (int32_t)m_otSize - 1;
-    }
+    // Past the table entirely -> dropped; straddling it -> the insert clamps it to the last bucket.
+    if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) return;
     // Clamp above the reserved 2D bands, never to 0: geometry this close to the
     // camera must not land in the slots the sprites and UI draw from.
     if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
@@ -1438,10 +1436,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
 
             int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
             if (zIndex > m_peakZ) m_peakZ = zIndex;
-            if (zIndex >= (int32_t)m_otSize) {
-                if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) continue;
-                zIndex = (int32_t)m_otSize - 1;
-            }
+            // Past the table entirely -> dropped; straddling it -> the insert clamps it to the last bucket.
+            if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) continue;
             if (zIndex < 1) zIndex = 1;
 
             // Skip near-plane vertices (no subdivision for skinned meshes)
