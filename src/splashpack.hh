@@ -139,6 +139,7 @@ struct SplashpackSceneSetup {
     bool fogEnabled = false;
     uint8_t fogR = 0, fogG = 0, fogB = 0;
     uint8_t fogDensity = 5;
+    uint16_t fogMaskClut4 = 0, fogMaskClut8 = 0;
 
     const RoomData* rooms = nullptr;
     uint16_t roomCount = 0;

@@ -53,10 +53,13 @@ struct SPLASHPACKFileHeader {
     uint16_t jumpVelocity;
     uint16_t gravity;
     uint16_t playerRadius;
-    uint16_t pad1;
+    // CLUT attribute words (y << 6 | x / 16) of the fog mask palettes for 4bpp
+    // and 8bpp cutout textures, or 0 when the pack has none (these were pad
+    // fields, so older packs read as none).
+    uint16_t fogMaskClut4;
     uint32_t nameTableOffset;
     uint16_t audioClipCount;
-    uint16_t pad2;
+    uint16_t fogMaskClut8;
     uint32_t audioTableOffset;
     uint8_t fogEnabled;
     uint8_t fogR, fogG, fogB;
@@ -370,6 +373,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.fogG = header->fogG;
     setup.fogB = header->fogB;
     setup.fogDensity = header->fogDensity;
+    setup.fogMaskClut4 = header->fogMaskClut4;
+    setup.fogMaskClut8 = header->fogMaskClut8;
     setup.sceneType = header->sceneType;
 
 #if !PSXSPLASH_FEATURE_CUTSCENE
