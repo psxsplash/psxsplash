@@ -35,6 +35,10 @@ struct FogConfig {
     psyqo::Color color = {.r = 0, .g = 0, .b = 0};
     uint8_t density = 5;
     int32_t fogFarSZ = 0;
+    // Fog mask CLUTs (CLUT attribute words, 0 = none) for 4bpp and 8bpp
+    // textures: entry 0 transparent, every other entry white with STP set.
+    uint16_t maskClut4 = 0;
+    uint16_t maskClut8 = 0;
 };
 
 class Renderer final {
@@ -213,6 +217,11 @@ class Renderer final {
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
+
+    // The additive fog pass over a textured triangle.
+    void insertFogPass(const Tri& tri, const psyqo::Vertex& a, const psyqo::Vertex& b, const psyqo::Vertex& c,
+                       psyqo::PrimPieces::UVCoords uvOffset, const int32_t fogIR[3],
+                       OT& ot, Balloc& balloc, int32_t zIndex);
 
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          OT& ot,

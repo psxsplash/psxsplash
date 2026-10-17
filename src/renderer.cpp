@@ -215,6 +215,59 @@ static inline psyqo::Color fogTexColor(psyqo::Color vc, int32_t ir) {
     };
 }
 
+// A white texel modulated by colour c gives c * 31 / 128 per 5-bit channel, so
+// the mask pass draws with ~c / 2 (c * 33 / 64) to add what the untextured
+// pass adds with c.
+static inline psyqo::Color fogMaskTint(psyqo::Color c) {
+    return {
+        .r = (uint8_t)((c.r * 33 + 32) >> 6),
+        .g = (uint8_t)((c.g * 33 + 32) >> 6),
+        .b = (uint8_t)((c.b * 33 + 32) >> 6),
+    };
+}
+
+// The fog is added over the darkened textured triangle. For a 4bpp or 8bpp
+// cutout texture with a fog mask CLUT in VRAM, the fog pass is the same
+// triangle drawn through that CLUT: entry 0 is transparent, so the texture's
+// holes are skipped, and every other entry is white with STP set, so the
+// additive blend applies to every texel the texture drew. Otherwise (16bpp,
+// opaque textures, packs without mask CLUTs) it is an untextured triangle
+// over the whole triangle.
+void psxsplash::Renderer::insertFogPass(const Tri& tri, const psyqo::Vertex& a, const psyqo::Vertex& b,
+                                        const psyqo::Vertex& c, psyqo::PrimPieces::UVCoords uvOffset,
+                                        const int32_t fogIR[3], OT& ot, Balloc& balloc, int32_t zIndex) {
+    psyqo::Color fogA = fogBaseColor(fogIR[0], m_fog.color);
+    psyqo::Color fogB = fogBaseColor(fogIR[1], m_fog.color);
+    psyqo::Color fogC = fogBaseColor(fogIR[2], m_fog.color);
+
+    uint16_t mask = 0;
+    if (tri.flags & CUTOUT_FLAG) {
+        auto mode = tri.tpage.getColorMode();
+        if (mode == psyqo::Prim::TPageAttr::Tex4Bits) mask = m_fog.maskClut4;
+        else if (mode == psyqo::Prim::TPageAttr::Tex8Bits) mask = m_fog.maskClut8;
+    }
+
+    if (mask) {
+        auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
+        p.primitive.pointA = a; p.primitive.pointB = b; p.primitive.pointC = c;
+        p.primitive.uvA.u = tri.uvA.u + uvOffset.u; p.primitive.uvA.v = tri.uvA.v + uvOffset.v;
+        p.primitive.uvB.u = tri.uvB.u + uvOffset.u; p.primitive.uvB.v = tri.uvB.v + uvOffset.v;
+        p.primitive.uvC.u = tri.uvC.u + uvOffset.u; p.primitive.uvC.v = tri.uvC.v + uvOffset.v;
+        p.primitive.tpage = tri.tpage;
+        p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
+        p.primitive.clutIndex = psyqo::PrimPieces::ClutIndex(mask & 0x3f, mask >> 6);
+        p.primitive.setColorA(fogMaskTint(fogA)); p.primitive.setColorB(fogMaskTint(fogB)); p.primitive.setColorC(fogMaskTint(fogC));
+        p.primitive.setSemiTrans();
+        ot.insert(p, zIndex);
+    } else {
+        auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
+        p.primitive.pointA = a; p.primitive.pointB = b; p.primitive.pointC = c;
+        p.primitive.setColorA(fogA); p.primitive.setColorB(fogB); p.primitive.setColorC(fogC);
+        p.primitive.setSemiTrans();
+        ot.insert(p, zIndex);
+    }
+}
+
 
 void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
@@ -380,18 +433,11 @@ void psxsplash::Renderer::processTriangle(
         p.primitive.setOpaque();
         ot.insert(p, zIndex);
     } else if (hasFog) {
-        psyqo::Color fogA = fogBaseColor(fogIR[0], m_fog.color);
-        psyqo::Color fogB = fogBaseColor(fogIR[1], m_fog.color);
-        psyqo::Color fogC = fogBaseColor(fogIR[2], m_fog.color);
         psyqo::Color texA = fogTexColor(cA, fogIR[0]);
         psyqo::Color texB = fogTexColor(cB, fogIR[1]);
         psyqo::Color texC = fogTexColor(cC, fogIR[2]);
 
-        auto& fogP = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
-        fogP.primitive.pointA = projected[0]; fogP.primitive.pointB = projected[1]; fogP.primitive.pointC = projected[2];
-        fogP.primitive.setColorA(fogA); fogP.primitive.setColorB(fogB); fogP.primitive.setColorC(fogC);
-        fogP.primitive.setSemiTrans();
-        ot.insert(fogP, zIndex);
+        insertFogPass(tri, projected[0], projected[1], projected[2], uvOffset, fogIR, ot, balloc, zIndex);
 
         auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
         texP.primitive.pointA = projected[0]; texP.primitive.pointB = projected[1]; texP.primitive.pointC = projected[2];
@@ -1490,18 +1536,11 @@ void psxsplash::Renderer::renderSkinnedObjects(
                 p.primitive.setOpaque();
                 ot.insert(p, zIndex);
             } else if (hasFog) {
-                psyqo::Color fogA = fogBaseColor(fogIR[0], m_fog.color);
-                psyqo::Color fogB = fogBaseColor(fogIR[1], m_fog.color);
-                psyqo::Color fogC = fogBaseColor(fogIR[2], m_fog.color);
                 psyqo::Color texA = fogTexColor(cA, fogIR[0]);
                 psyqo::Color texB = fogTexColor(cB, fogIR[1]);
                 psyqo::Color texC = fogTexColor(cC, fogIR[2]);
 
-                auto& fogP = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
-                fogP.primitive.pointA = projected0; fogP.primitive.pointB = projected1; fogP.primitive.pointC = projected2;
-                fogP.primitive.setColorA(fogA); fogP.primitive.setColorB(fogB); fogP.primitive.setColorC(fogC);
-                fogP.primitive.setSemiTrans();
-                ot.insert(fogP, zIndex);
+                insertFogPass(tri, projected0, projected1, projected2, uvOffset, fogIR, ot, balloc, zIndex);
 
                 auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
                 texP.primitive.pointA = projected0; texP.primitive.pointB = projected1; texP.primitive.pointC = projected2;
