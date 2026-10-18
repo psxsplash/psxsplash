@@ -1102,23 +1102,34 @@ void psxsplash::SceneManager::processEnableDisableEvents() {
     }
 }
 
+psxsplash::SceneManager::AgentRuntimeState* psxsplash::SceneManager::ensureAgent(uint16_t actorId) {
+    if (actorId >= m_agentStates.size()) return nullptr;
+    auto*& slot = m_agentStates[actorId];
+    if (!slot) {
+        slot = new AgentRuntimeState{};
+        slot->moveSpeed = m_defaultAgentMoveSpeed;
+        slot->stopDistance = m_defaultAgentStopDistance;
+        slot->targetActorId = 0xFFFF;
+    }
+    return slot;
+}
+
+void psxsplash::SceneManager::freeAgentStates() {
+    for (auto* agent : m_agentStates) delete agent;
+    eastl::vector<AgentRuntimeState*> tmp;
+    tmp.swap(m_agentStates);
+}
+
 #if PSXSPLASH_FEATURE_AGENTS
 void psxsplash::SceneManager::initializeAgentStates(const SplashpackSceneSetup& sceneSetup) {
-    m_agentStates.resize(getActorCount());
+    freeAgentStates();
+    m_agentStates.resize(getActorCount(), nullptr);
     m_defaultAgentMoveSpeed = sceneSetup.moveSpeed;
     m_defaultAgentStopDistance.value = 64;
 
-    for (size_t i = 0; i < m_agentStates.size(); ++i) {
-        m_agentStates[i] = AgentRuntimeState{};
-        m_agentStates[i].moveSpeed = m_defaultAgentMoveSpeed;
-        m_agentStates[i].stopDistance = m_defaultAgentStopDistance;
-        m_agentStates[i].targetActorId = 0xFFFF;
-    }
-
-    if (!m_agentStates.empty()) {
-        auto& playerAgent = m_agentStates[PLAYER_ACTOR_ID];
-        playerAgent.flags = AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED;
-        playerAgent.moveSpeed = sceneSetup.moveSpeed;
+    if (auto* playerAgent = ensureAgent(PLAYER_ACTOR_ID)) {
+        playerAgent->flags = AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED;
+        playerAgent->moveSpeed = sceneSetup.moveSpeed;
     }
 
     // Walk through agents and their trailing waypoints together
@@ -1133,7 +1144,7 @@ void psxsplash::SceneManager::initializeAgentStates(const SplashpackSceneSetup& 
             continue;
         }
 
-        auto& agent = m_agentStates[actorId];
+        auto& agent = *ensureAgent(actorId);
         agent.flags |= AGENT_FLAG_REGISTERED;
         if (cfg->flags & 0x01) agent.flags |= AGENT_FLAG_ENABLED;
         if (cfg->flags & 0x02) agent.flags |= AGENT_FLAG_HAS_VISION;
@@ -1168,7 +1179,9 @@ void psxsplash::SceneManager::tickAgents() {
     if (!m_navRegions.isLoaded() || m_agentStates.empty()) return;
 
     for (uint16_t actorId = 0; actorId < m_agentStates.size(); ++actorId) {
-        auto& agent = m_agentStates[actorId];
+        auto* agentPtr = m_agentStates[actorId];
+        if (!agentPtr) continue;
+        auto& agent = *agentPtr;
         if ((agent.flags & (AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED)) !=
             (AGENT_FLAG_REGISTERED | AGENT_FLAG_ENABLED)) {
             continue;
@@ -1761,7 +1774,7 @@ void psxsplash::SceneManager::clearScene() {
     { eastl::vector<const char*>    tmp; tmp.swap(m_audioClipNames); }
     { eastl::vector<Interactable*>  tmp; tmp.swap(m_interactables); }
     { eastl::vector<Interactable>   tmp; tmp.swap(m_legacyInteractables); }
-    { eastl::vector<SceneManager::AgentRuntimeState> tmp; tmp.swap(m_agentStates); }
+    freeAgentStates();
 
     // 3. Reset hardware / subsystems
     m_audio.reset();           // Free SPU RAM and stop all voices
@@ -1883,8 +1896,9 @@ static int findSkinAnimByObjectIndex(const psxsplash::SkinAnimSet* sets, int cou
 #endif
 
 void psxsplash::SceneManager::setActorAgentState(uint16_t actorId, AgentState newState) {
-    if (actorId >= m_agentStates.size()) return;
-    auto& agent = m_agentStates[actorId];
+    auto* agentPtr = ensureAgent(actorId);
+    if (!agentPtr) return;
+    auto& agent = *agentPtr;
     AgentState oldState = agent.currentState;
     if (oldState == newState) return;
 
@@ -1926,8 +1940,9 @@ void psxsplash::SceneManager::applyAgentStateAnimation(uint16_t actorId, AgentRu
 }
 
 bool psxsplash::SceneManager::canActorSeeActor(uint16_t observerActorId, uint16_t targetActorId) const {
-    if (observerActorId >= m_agentStates.size()) return false;
-    const auto& ag = m_agentStates[observerActorId];
+    const auto* agPtr = findAgent(observerActorId);
+    if (!agPtr) return false;
+    const auto& ag = *agPtr;
     if ((ag.flags & AGENT_FLAG_HAS_VISION) == 0 || ag.visionRange.value == 0) return false;
     if (!isValidActor(targetActorId)) return false;
 
@@ -1978,8 +1993,9 @@ bool psxsplash::SceneManager::canActorSeeActor(uint16_t observerActorId, uint16_
 }
 
 bool psxsplash::SceneManager::canActorHearActor(uint16_t observerActorId, uint16_t targetActorId) const {
-    if (observerActorId >= m_agentStates.size()) return false;
-    const auto& ag = m_agentStates[observerActorId];
+    const auto* agPtr = findAgent(observerActorId);
+    if (!agPtr) return false;
+    const auto& ag = *agPtr;
     if ((ag.flags & AGENT_FLAG_HAS_HEARING) == 0 || ag.hearingRange.value == 0) return false;
     if (!isValidActor(targetActorId)) return false;
 

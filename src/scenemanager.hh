@@ -250,18 +250,23 @@ namespace psxsplash {
         }
 
         bool isActorAgent(uint16_t actorId) const {
-            return actorId < m_agentStates.size() && (m_agentStates[actorId].flags & AGENT_FLAG_REGISTERED) != 0;
+            auto* agent = findAgent(actorId);
+            return agent && (agent->flags & AGENT_FLAG_REGISTERED) != 0;
         }
         bool isActorAgentEnabled(uint16_t actorId) const {
-            return actorId < m_agentStates.size() && (m_agentStates[actorId].flags & AGENT_FLAG_ENABLED) != 0;
+            auto* agent = findAgent(actorId);
+            return agent && (agent->flags & AGENT_FLAG_ENABLED) != 0;
         }
         bool isActorMoving(uint16_t actorId) const {
-            return actorId < m_agentStates.size() && (m_agentStates[actorId].flags & AGENT_FLAG_MOVING) != 0;
+            auto* agent = findAgent(actorId);
+            return agent && (agent->flags & AGENT_FLAG_MOVING) != 0;
         }
         bool setActorAgentEnabled(uint16_t actorId, bool enabled) {
-            if (!isValidActor(actorId) || actorId >= m_agentStates.size()) return false;
+            if (!isValidActor(actorId)) return false;
+            auto* agentPtr = ensureAgent(actorId);
+            if (!agentPtr) return false;
 
-            auto& agent = m_agentStates[actorId];
+            auto& agent = *agentPtr;
             agent.flags |= AGENT_FLAG_REGISTERED;
             if (enabled) agent.flags |= AGENT_FLAG_ENABLED;
             else {
@@ -278,7 +283,7 @@ namespace psxsplash {
         bool moveActorToPosition(uint16_t actorId, const psyqo::Vec3& targetPosition) {
             if (!setActorAgentEnabled(actorId, true)) return false;
 
-            auto& agent = m_agentStates[actorId];
+            auto& agent = *findAgent(actorId);
             agent.flags &= ~AGENT_FLAG_TARGET_ACTOR;
             agent.flags |= AGENT_FLAG_MOVING;
             agent.targetActorId = 0xFFFF;
@@ -290,16 +295,17 @@ namespace psxsplash {
             if (!isValidActor(targetActorId)) return false;
             if (!setActorAgentEnabled(actorId, true)) return false;
 
-            auto& agent = m_agentStates[actorId];
+            auto& agent = *findAgent(actorId);
             agent.flags |= AGENT_FLAG_MOVING | AGENT_FLAG_TARGET_ACTOR;
             agent.targetActorId = targetActorId;
             agent.repathCounter = 0;
             return rebuildAgentPath(actorId, agent);
         }
         void stopActor(uint16_t actorId) {
-            if (actorId >= m_agentStates.size()) return;
+            auto* agentPtr = findAgent(actorId);
+            if (!agentPtr) return;
 
-            auto& agent = m_agentStates[actorId];
+            auto& agent = *agentPtr;
             agent.flags &= ~(AGENT_FLAG_MOVING | AGENT_FLAG_TARGET_ACTOR);
             agent.currentPathIndex = 0;
             agent.repathCounter = 0;
@@ -307,64 +313,66 @@ namespace psxsplash {
             agent.path.stepCount = 0;
         }
         bool setActorMoveSpeed(uint16_t actorId, psyqo::FixedPoint<12> speed) {
-            if (!isValidActor(actorId) || actorId >= m_agentStates.size()) return false;
-            auto& agent = m_agentStates[actorId];
-            agent.flags |= AGENT_FLAG_REGISTERED;
-            agent.moveSpeed.value = speed.value > 0 ? static_cast<uint16_t>(speed.value) : 0;
+            if (!isValidActor(actorId)) return false;
+            auto* agent = ensureAgent(actorId);
+            if (!agent) return false;
+            agent->flags |= AGENT_FLAG_REGISTERED;
+            agent->moveSpeed.value = speed.value > 0 ? static_cast<uint16_t>(speed.value) : 0;
             return true;
         }
         psyqo::FixedPoint<12> getActorMoveSpeed(uint16_t actorId) const {
             psyqo::FixedPoint<12> speed;
             if (actorId >= m_agentStates.size()) return speed;
-            speed.value = m_agentStates[actorId].moveSpeed.value;
+            auto* agent = findAgent(actorId);
+            speed.value = agent ? agent->moveSpeed.value : m_defaultAgentMoveSpeed.value;
             return speed;
         }
         bool getActorTarget(uint16_t actorId, uint16_t& outTargetActor) const {
             outTargetActor = 0xFFFF;
-            if (actorId >= m_agentStates.size()) return false;
-            const auto& agent = m_agentStates[actorId];
-            if ((agent.flags & AGENT_FLAG_TARGET_ACTOR) == 0 || !isValidActor(agent.targetActorId)) return false;
-            outTargetActor = agent.targetActorId;
+            auto* agent = findAgent(actorId);
+            if (!agent) return false;
+            if ((agent->flags & AGENT_FLAG_TARGET_ACTOR) == 0 || !isValidActor(agent->targetActorId)) return false;
+            outTargetActor = agent->targetActorId;
             return true;
         }
 
         // ---- State machine API ----
         AgentState getActorAgentState(uint16_t actorId) const {
-            if (actorId >= m_agentStates.size()) return AGENT_STATE_IDLE;
-            return m_agentStates[actorId].currentState;
+            auto* agent = findAgent(actorId);
+            return agent ? agent->currentState : AGENT_STATE_IDLE;
         }
         void setActorAgentState(uint16_t actorId, AgentState newState);
 
         // ---- Vision / hearing config API ----
         void setActorVisionRange(uint16_t actorId, psyqo::FixedPoint<12> range) {
-            if (actorId >= m_agentStates.size()) return;
-            auto& ag = m_agentStates[actorId];
-            ag.visionRange.value = static_cast<uint16_t>(range.value > 0 ? range.value : 0);
-            if (ag.visionRange.value > 0) ag.flags |= AGENT_FLAG_HAS_VISION;
-            else ag.flags &= ~AGENT_FLAG_HAS_VISION;
+            auto* ag = ensureAgent(actorId);
+            if (!ag) return;
+            ag->visionRange.value = static_cast<uint16_t>(range.value > 0 ? range.value : 0);
+            if (ag->visionRange.value > 0) ag->flags |= AGENT_FLAG_HAS_VISION;
+            else ag->flags &= ~AGENT_FLAG_HAS_VISION;
         }
         psyqo::FixedPoint<12> getActorVisionRange(uint16_t actorId) const {
             psyqo::FixedPoint<12> r; r.value = 0;
-            if (actorId < m_agentStates.size()) r.value = m_agentStates[actorId].visionRange.value;
+            if (auto* ag = findAgent(actorId)) r.value = ag->visionRange.value;
             return r;
         }
         void setActorVisionAngleCos(uint16_t actorId, int16_t cosAngleFP12) {
-            if (actorId < m_agentStates.size()) m_agentStates[actorId].visionCosAngle = cosAngleFP12;
+            if (auto* ag = ensureAgent(actorId)) ag->visionCosAngle = cosAngleFP12;
         }
         void setActorHearingRange(uint16_t actorId, psyqo::FixedPoint<12> range) {
-            if (actorId >= m_agentStates.size()) return;
-            auto& ag = m_agentStates[actorId];
-            ag.hearingRange.value = static_cast<uint16_t>(range.value > 0 ? range.value : 0);
-            if (ag.hearingRange.value > 0) ag.flags |= AGENT_FLAG_HAS_HEARING;
-            else ag.flags &= ~AGENT_FLAG_HAS_HEARING;
+            auto* ag = ensureAgent(actorId);
+            if (!ag) return;
+            ag->hearingRange.value = static_cast<uint16_t>(range.value > 0 ? range.value : 0);
+            if (ag->hearingRange.value > 0) ag->flags |= AGENT_FLAG_HAS_HEARING;
+            else ag->flags &= ~AGENT_FLAG_HAS_HEARING;
         }
         psyqo::FixedPoint<12> getActorHearingRange(uint16_t actorId) const {
             psyqo::FixedPoint<12> r; r.value = 0;
-            if (actorId < m_agentStates.size()) r.value = m_agentStates[actorId].hearingRange.value;
+            if (auto* ag = findAgent(actorId)) r.value = ag->hearingRange.value;
             return r;
         }
         void setActorAlertTimeout(uint16_t actorId, uint16_t frames) {
-            if (actorId < m_agentStates.size()) m_agentStates[actorId].alertTimeoutFrames = frames;
+            if (auto* ag = ensureAgent(actorId)) ag->alertTimeoutFrames = frames;
         }
 
         // ---- Vision check (public for Lua CanSee) ----
@@ -373,33 +381,35 @@ namespace psxsplash {
 
         // ---- Last known position ----
         bool getActorLastKnownPos(uint16_t actorId, psyqo::Vec3& outPos) const {
-            if (actorId >= m_agentStates.size()) return false;
-            const auto& ag = m_agentStates[actorId];
+            auto* ag = findAgent(actorId);
+            if (!ag) return false;
             // Only valid if target was ever seen
-            if ((ag.flags & AGENT_FLAG_HAS_VISION) == 0) return false;
-            outPos = ag.lastKnownPos;
+            if ((ag->flags & AGENT_FLAG_HAS_VISION) == 0) return false;
+            outPos = ag->lastKnownPos;
             return true;
         }
 
         // ---- Patrol waypoints ----
         void addActorWaypoint(uint16_t actorId, const psyqo::Vec3& wp) {
-            if (actorId >= m_agentStates.size()) return;
-            auto& ag = m_agentStates[actorId];
-            if (ag.waypointCount >= 8) return;
-            ag.waypoints[ag.waypointCount++] = wp;
-            if (ag.waypointCount > 0) ag.flags |= AGENT_FLAG_HAS_PATROL;
+            auto* ag = ensureAgent(actorId);
+            if (!ag) return;
+            if (ag->waypointCount >= 8) return;
+            ag->waypoints[ag->waypointCount++] = wp;
+            if (ag->waypointCount > 0) ag->flags |= AGENT_FLAG_HAS_PATROL;
         }
         void clearActorWaypoints(uint16_t actorId) {
-            if (actorId >= m_agentStates.size()) return;
-            auto& ag = m_agentStates[actorId];
-            ag.waypointCount = 0;
-            ag.waypointIndex = 0;
-            ag.flags &= ~AGENT_FLAG_HAS_PATROL;
+            auto* ag = findAgent(actorId);
+            if (!ag) return;
+            ag->waypointCount = 0;
+            ag->waypointIndex = 0;
+            ag->flags &= ~AGENT_FLAG_HAS_PATROL;
         }
         void setActorPatrolEnabled(uint16_t actorId, bool enabled) {
-            if (actorId >= m_agentStates.size()) return;
-            if (enabled) m_agentStates[actorId].flags |= AGENT_FLAG_HAS_PATROL;
-            else m_agentStates[actorId].flags &= ~AGENT_FLAG_HAS_PATROL;
+            if (enabled) {
+                if (auto* ag = ensureAgent(actorId)) ag->flags |= AGENT_FLAG_HAS_PATROL;
+            } else if (auto* ag = findAgent(actorId)) {
+                ag->flags &= ~AGENT_FLAG_HAS_PATROL;
+            }
         }
 
         // Get object name by index (returns nullptr if no name table or out of range)
@@ -759,8 +769,20 @@ namespace psxsplash {
         void uploadVramData(uint8_t* vramData, int vramSize);
         void uploadSpuData(uint8_t* spuData, int spuSize);
 
-        // Agent runtime state, indexed by actorId (fixed-size, sized at scene load).
-        eastl::vector<AgentRuntimeState> m_agentStates;
+        // Agent runtime state, indexed by actorId. The index is sized at scene
+        // load; a state is only allocated for actors that are agents (the player,
+        // splashpack agents, and any actor a script first configures as one), so
+        // a scene full of props pays one pointer per object. States never move
+        // once allocated, so references stay valid across Lua callbacks.
+        eastl::vector<AgentRuntimeState*> m_agentStates;
+        AgentRuntimeState* findAgent(uint16_t actorId) {
+            return actorId < m_agentStates.size() ? m_agentStates[actorId] : nullptr;
+        }
+        const AgentRuntimeState* findAgent(uint16_t actorId) const {
+            return actorId < m_agentStates.size() ? m_agentStates[actorId] : nullptr;
+        }
+        AgentRuntimeState* ensureAgent(uint16_t actorId);
+        void freeAgentStates();
         psyqo::FixedPoint<12, uint16_t> m_defaultAgentMoveSpeed = 0;
         psyqo::FixedPoint<12, uint16_t> m_defaultAgentStopDistance = 0;
     };
