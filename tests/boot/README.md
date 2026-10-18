@@ -9,6 +9,11 @@ the 60th frame. CI runs it on every push and pull request.
     tests/boot/fetch-redux.sh /tmp/redux
     tests/boot/boot.sh /tmp/redux/squashfs-root/AppRun third_party/nugget/openbios/openbios.bin psxsplash.ps-exe
 
+A second fixture, `fixture-cutscene/`, plays two cutscenes chained through `onComplete` with keys on
+their last frame, under frames slow enough that a tick never lands on that frame:
+
+    tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
+
 `fetch-redux.sh` downloads the newest Linux dev build of pcsx-redux and unpacks the AppImage, so
 no FUSE is needed. Any other `pcsx-redux` binary works as the first argument.
 
@@ -21,5 +26,7 @@ reading the committed version (the job then fails with the engine's own version 
     cmake -S <splashedit-ng> -B build -DSPLASHEDIT_BUILD_EDITOR=OFF
     cmake --build build --target splashpack-cli
     build/cli/splashpack-cli export tests/boot/scene/boot.scene -o tests/boot/fixture/scene_0.splashpack
+
+    build/cli/splashpack-cli export tests/boot/scene/cutscene.scene -o tests/boot/fixture-cutscene/scene_0.splashpack
 
 The export writes `scene_0.vram` and `scene_0.spu` beside the `.splashpack`. Commit all three.
