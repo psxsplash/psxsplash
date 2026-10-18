@@ -10,6 +10,9 @@ namespace psxsplash {
 
   // Flags for tris, was going to use Utilities::BitField but I couldn't get it to be in 2 bytes
   static constexpr uint16_t ANIM_FLAG = 0x1;
+  // The texture is a paletted cutout (palette entry 0 is the transparent texel),
+  // so the fog pass can draw through the fog mask CLUT and skip its holes.
+  static constexpr uint16_t CUTOUT_FLAG = 0x2;
 
   class Tri final {
     public:
