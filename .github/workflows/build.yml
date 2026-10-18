@@ -46,7 +46,8 @@ jobs:
       - name: Boot the test scene
         run: tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 120
       - name: Chained cutscenes
-        run: tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
+        run: |
+          tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
 
   host-tests:
     runs-on: ubuntu-latest
