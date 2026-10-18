@@ -3853,7 +3853,10 @@ int LuaAPI::Random_Number(lua_State* L) {
         return 0;
     }
 
-    uint32_t max = lua.toNumber(1);
+    // A max below 1 has no value in 1..max; read signed so a negative max does
+    // not become a ~2^32 modulus, and answer 1 as Number(0) already did.
+    int32_t max = lua.toNumber(1);
+    if (max < 1) max = 1;
     uint32_t value = s_sceneManager->m_random.number(max)+1;
 
     lua.pushNumber(value);
@@ -3867,7 +3870,10 @@ int LuaAPI::Random_GeneratorNumber(lua_State* L) {
         return 0;
     }
 
-    uint32_t max = lua.toNumber(1);
+    // A max below 1 has no value in 1..max; read signed so a negative max does
+    // not become a ~2^32 modulus, and answer 1 as Number(0) already did.
+    int32_t max = lua.toNumber(1);
+    if (max < 1) max = 1;
     uint32_t value = s_sceneManager->m_randomGenerator.number(max)+1;
 
     lua.pushNumber(value);

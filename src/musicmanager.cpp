@@ -95,8 +95,8 @@ void MusicManager::tellCDDA(lua_State* L) {
             luaState.rawGetI(LUA_REGISTRYINDEX, cb);
             if (luaState.isFunction(-1)) {
                 luaState.push(loc);
+                // A failed pcall leaves exactly one value, the error message.
                 if (luaState.pcall(1, 0) != LUA_OK) {
-                    luaState.pop();
                     luaState.pop();
                 }
             } else {
