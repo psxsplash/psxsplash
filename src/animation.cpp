@@ -65,8 +65,10 @@ void AnimationPlayer::stop(const char* name) {
     if (!name) return;
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         if (m_slots[i].anim && m_slots[i].anim->name && streq(m_slots[i].anim->name, name)) {
-            fireSlotComplete(m_slots[i]);
+            // Free the slot first: setOnCompleteRef must not find it if the
+            // callback plays this animation again.
             m_slots[i].anim = nullptr;
+            fireSlotComplete(m_slots[i]);
         }
     }
     // Stop vibration in case any stopped animation was driving motors
@@ -76,8 +78,8 @@ void AnimationPlayer::stop(const char* name) {
 void AnimationPlayer::stopAll() {
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         if (m_slots[i].anim) {
-            fireSlotComplete(m_slots[i]);
             m_slots[i].anim = nullptr;
+            fireSlotComplete(m_slots[i]);
         }
     }
     // Stop vibration motors
@@ -104,38 +106,42 @@ void AnimationPlayer::setOnCompleteRef(const char* name, int ref) {
     }
 }
 
+void AnimationPlayer::applySlotFrame(ActiveSlot& slot) {
+    // Apply all tracks
+    for (uint8_t ti = 0; ti < slot.anim->trackCount; ti++) {
+        applyTrack(slot.anim->tracks[ti], slot.frame, slot.subFrame);
+    }
+
+    // Process skin animation events
+    while (slot.nextSkinAnim < slot.anim->skinAnimEventCount) {
+        CutsceneSkinAnimEvent& evt = slot.anim->skinAnimEvents[slot.nextSkinAnim];
+        if (evt.frame <= slot.frame) {
+#if PSXSPLASH_FEATURE_SKIN
+            if (m_sceneMgr) {
+                int skinIdx = (int)evt.skinMeshIndex;
+                if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
+                    SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
+                    state.currentClip  = evt.clipIndex;
+                    state.currentFrame = 0;
+                    state.subFrame     = 0;
+                    state.playing      = true;
+                    state.loop         = (evt.loop != 0);
+                }
+            }
+#endif
+            slot.nextSkinAnim++;
+        } else {
+            break;
+        }
+    }
+}
+
 void AnimationPlayer::tick(int32_t dt12) {
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         ActiveSlot& slot = m_slots[i];
         if (!slot.anim) continue;
 
-        // Apply all tracks
-        for (uint8_t ti = 0; ti < slot.anim->trackCount; ti++) {
-            applyTrack(slot.anim->tracks[ti], slot.frame, slot.subFrame);
-        }
-
-        // Process skin animation events
-        while (slot.nextSkinAnim < slot.anim->skinAnimEventCount) {
-            CutsceneSkinAnimEvent& evt = slot.anim->skinAnimEvents[slot.nextSkinAnim];
-            if (evt.frame <= slot.frame) {
-#if PSXSPLASH_FEATURE_SKIN
-                if (m_sceneMgr) {
-                    int skinIdx = (int)evt.skinMeshIndex;
-                    if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
-                        SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
-                        state.currentClip  = evt.clipIndex;
-                        state.currentFrame = 0;
-                        state.subFrame     = 0;
-                        state.playing      = true;
-                        state.loop         = (evt.loop != 0);
-                    }
-                }
-#endif
-                slot.nextSkinAnim++;
-            } else {
-                break;
-            }
-        }
+        applySlotFrame(slot);
 
         // Advance frame using dt12
         uint32_t accum = (uint32_t)slot.subFrame + (uint32_t)dt12;
@@ -149,6 +155,11 @@ void AnimationPlayer::tick(int32_t dt12) {
                 slot.subFrame = 0;
                 slot.nextSkinAnim = 0;
             } else {
+                // A tick can step over the last frame on a slow frame; land
+                // on it once so its keys and events still apply.
+                slot.frame = slot.anim->totalFrames;
+                slot.subFrame = 0;
+                applySlotFrame(slot);
                 Animation* finished = slot.anim;
                 slot.anim = nullptr;
                 // Stop vibration when animation ends naturally
@@ -402,8 +413,12 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t 
 
 void AnimationPlayer::fireSlotComplete(ActiveSlot& slot) {
     if (slot.onCompleteRef == LUA_NOREF || !m_luaState) return;
+    // One-shot: detach the ref before calling. A callback that plays an
+    // animation can reuse this slot and set a new ref on it.
+    int ref = slot.onCompleteRef;
+    slot.onCompleteRef = LUA_NOREF;
     psyqo::Lua L(m_luaState);
-    L.rawGetI(LUA_REGISTRYINDEX, slot.onCompleteRef);
+    L.rawGetI(LUA_REGISTRYINDEX, ref);
     if (L.isFunction(-1)) {
         if (L.pcall(0, 0) != LUA_OK) {
             L.pop();
@@ -411,8 +426,7 @@ void AnimationPlayer::fireSlotComplete(ActiveSlot& slot) {
     } else {
         L.pop();
     }
-    luaL_unref(m_luaState, LUA_REGISTRYINDEX, slot.onCompleteRef);
-    slot.onCompleteRef = LUA_NOREF;
+    luaL_unref(m_luaState, LUA_REGISTRYINDEX, ref);
 }
 
 }  // namespace psxsplash

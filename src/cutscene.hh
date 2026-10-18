@@ -189,6 +189,9 @@ private:
 
     psyqo::Trig<> m_trig;
 
+    /// Apply every track at m_frame/m_subFrame and fire the audio and skin
+    /// events due by m_frame.
+    void applyFrame();
     void applyTrack(CutsceneTrack& track);
     void fireOnComplete();
 };

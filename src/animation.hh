@@ -76,6 +76,7 @@ private:
 
     Animation* findByName(const char* name) const;
     void applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t subFrame);
+    void applySlotFrame(ActiveSlot& slot);
     void captureInitialValues(Animation* anim);
     void fireSlotComplete(ActiveSlot& slot);
 };

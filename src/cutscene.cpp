@@ -167,6 +167,38 @@ bool CutscenePlayer::hasCameraTracks() const {
 void CutscenePlayer::tick(int32_t dt12) {
     if (!m_active) return;
 
+    applyFrame();
+
+    // Advance frame using dt12
+    uint32_t accum = (uint32_t)m_subFrame + (uint32_t)dt12;
+    uint16_t wholeFrames = (uint16_t)(accum >> 12);
+    m_subFrame = (uint16_t)(accum & 0xFFF);
+    m_frame += wholeFrames;
+
+    if (m_frame > m_active->totalFrames) {
+        if (m_loop) {
+            m_frame = 0;
+            m_subFrame = 0;
+            m_nextAudio = 0;
+            m_nextSkinAnim = 0;
+        } else {
+            // A tick can step over the last frame (dt12 is wall-clock, more
+            // than one frame when the game runs slow), which would drop the
+            // keys and events placed on it. Land on it once before ending.
+            m_frame = m_active->totalFrames;
+            m_subFrame = 0;
+            applyFrame();
+            // Stop vibration when cutscene ends naturally
+            if (m_controls) {
+                m_controls->stopMotors();
+            }
+            m_active = nullptr;
+            fireOnComplete();
+        }
+    }
+}
+
+void CutscenePlayer::applyFrame() {
     for (uint8_t i = 0; i < m_active->trackCount; i++) {
         applyTrack(m_active->tracks[i]);
     }
@@ -205,34 +237,17 @@ void CutscenePlayer::tick(int32_t dt12) {
             break;
         }
     }
-
-    // Advance frame using dt12
-    uint32_t accum = (uint32_t)m_subFrame + (uint32_t)dt12;
-    uint16_t wholeFrames = (uint16_t)(accum >> 12);
-    m_subFrame = (uint16_t)(accum & 0xFFF);
-    m_frame += wholeFrames;
-
-    if (m_frame > m_active->totalFrames) {
-        if (m_loop) {
-            m_frame = 0;
-            m_subFrame = 0;
-            m_nextAudio = 0;
-            m_nextSkinAnim = 0;
-        } else {
-            // Stop vibration when cutscene ends naturally
-            if (m_controls) {
-                m_controls->stopMotors();
-            }
-            m_active = nullptr;
-            fireOnComplete();
-        }
-    }
 }
 
 void CutscenePlayer::fireOnComplete() {
     if (m_onCompleteRef == LUA_NOREF || !m_luaState) return;
+    // One-shot: detach the ref before calling, so a callback that starts
+    // another cutscene installs its own callback instead of having it freed
+    // here (Cutscene.Play would also free this ref as the "old" one).
+    int ref = m_onCompleteRef;
+    m_onCompleteRef = LUA_NOREF;
     psyqo::Lua L(m_luaState);
-    L.rawGetI(LUA_REGISTRYINDEX, m_onCompleteRef);
+    L.rawGetI(LUA_REGISTRYINDEX, ref);
     if (L.isFunction(-1)) {
         if (L.pcall(0, 0) != LUA_OK) {
             L.pop();
@@ -240,9 +255,7 @@ void CutscenePlayer::fireOnComplete() {
     } else {
         L.pop();
     }
-    // Unreference the callback (one-shot)
-    luaL_unref(m_luaState, LUA_REGISTRYINDEX, m_onCompleteRef);
-    m_onCompleteRef = LUA_NOREF;
+    luaL_unref(m_luaState, LUA_REGISTRYINDEX, ref);
 }
 
 void CutscenePlayer::applyTrack(CutsceneTrack& track) {
