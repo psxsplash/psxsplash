@@ -231,8 +231,13 @@ void CutscenePlayer::tick(int32_t dt12) {
 
 void CutscenePlayer::fireOnComplete() {
     if (m_onCompleteRef == LUA_NOREF || !m_luaState) return;
+    // One-shot: detach the ref before calling, so a callback that starts
+    // another cutscene installs its own callback instead of having it freed
+    // here (Cutscene.Play would also free this ref as the "old" one).
+    int ref = m_onCompleteRef;
+    m_onCompleteRef = LUA_NOREF;
     psyqo::Lua L(m_luaState);
-    L.rawGetI(LUA_REGISTRYINDEX, m_onCompleteRef);
+    L.rawGetI(LUA_REGISTRYINDEX, ref);
     if (L.isFunction(-1)) {
         if (L.pcall(0, 0) != LUA_OK) {
             L.pop();
@@ -240,9 +245,7 @@ void CutscenePlayer::fireOnComplete() {
     } else {
         L.pop();
     }
-    // Unreference the callback (one-shot)
-    luaL_unref(m_luaState, LUA_REGISTRYINDEX, m_onCompleteRef);
-    m_onCompleteRef = LUA_NOREF;
+    luaL_unref(m_luaState, LUA_REGISTRYINDEX, ref);
 }
 
 void CutscenePlayer::applyTrack(CutsceneTrack& track) {

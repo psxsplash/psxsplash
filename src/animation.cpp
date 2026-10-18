@@ -65,8 +65,10 @@ void AnimationPlayer::stop(const char* name) {
     if (!name) return;
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         if (m_slots[i].anim && m_slots[i].anim->name && streq(m_slots[i].anim->name, name)) {
-            fireSlotComplete(m_slots[i]);
+            // Free the slot first: setOnCompleteRef must not find it if the
+            // callback plays this animation again.
             m_slots[i].anim = nullptr;
+            fireSlotComplete(m_slots[i]);
         }
     }
     // Stop vibration in case any stopped animation was driving motors
@@ -76,8 +78,8 @@ void AnimationPlayer::stop(const char* name) {
 void AnimationPlayer::stopAll() {
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         if (m_slots[i].anim) {
-            fireSlotComplete(m_slots[i]);
             m_slots[i].anim = nullptr;
+            fireSlotComplete(m_slots[i]);
         }
     }
     // Stop vibration motors
@@ -402,8 +404,12 @@ void AnimationPlayer::applyTrack(CutsceneTrack& track, uint16_t frame, uint16_t 
 
 void AnimationPlayer::fireSlotComplete(ActiveSlot& slot) {
     if (slot.onCompleteRef == LUA_NOREF || !m_luaState) return;
+    // One-shot: detach the ref before calling. A callback that plays an
+    // animation can reuse this slot and set a new ref on it.
+    int ref = slot.onCompleteRef;
+    slot.onCompleteRef = LUA_NOREF;
     psyqo::Lua L(m_luaState);
-    L.rawGetI(LUA_REGISTRYINDEX, slot.onCompleteRef);
+    L.rawGetI(LUA_REGISTRYINDEX, ref);
     if (L.isFunction(-1)) {
         if (L.pcall(0, 0) != LUA_OK) {
             L.pop();
@@ -411,8 +417,7 @@ void AnimationPlayer::fireSlotComplete(ActiveSlot& slot) {
     } else {
         L.pop();
     }
-    luaL_unref(m_luaState, LUA_REGISTRYINDEX, slot.onCompleteRef);
-    slot.onCompleteRef = LUA_NOREF;
+    luaL_unref(m_luaState, LUA_REGISTRYINDEX, ref);
 }
 
 }  // namespace psxsplash
