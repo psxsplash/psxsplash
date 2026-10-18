@@ -106,38 +106,42 @@ void AnimationPlayer::setOnCompleteRef(const char* name, int ref) {
     }
 }
 
+void AnimationPlayer::applySlotFrame(ActiveSlot& slot) {
+    // Apply all tracks
+    for (uint8_t ti = 0; ti < slot.anim->trackCount; ti++) {
+        applyTrack(slot.anim->tracks[ti], slot.frame, slot.subFrame);
+    }
+
+    // Process skin animation events
+    while (slot.nextSkinAnim < slot.anim->skinAnimEventCount) {
+        CutsceneSkinAnimEvent& evt = slot.anim->skinAnimEvents[slot.nextSkinAnim];
+        if (evt.frame <= slot.frame) {
+#if PSXSPLASH_FEATURE_SKIN
+            if (m_sceneMgr) {
+                int skinIdx = (int)evt.skinMeshIndex;
+                if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
+                    SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
+                    state.currentClip  = evt.clipIndex;
+                    state.currentFrame = 0;
+                    state.subFrame     = 0;
+                    state.playing      = true;
+                    state.loop         = (evt.loop != 0);
+                }
+            }
+#endif
+            slot.nextSkinAnim++;
+        } else {
+            break;
+        }
+    }
+}
+
 void AnimationPlayer::tick(int32_t dt12) {
     for (int i = 0; i < MAX_SIMULTANEOUS_ANIMS; i++) {
         ActiveSlot& slot = m_slots[i];
         if (!slot.anim) continue;
 
-        // Apply all tracks
-        for (uint8_t ti = 0; ti < slot.anim->trackCount; ti++) {
-            applyTrack(slot.anim->tracks[ti], slot.frame, slot.subFrame);
-        }
-
-        // Process skin animation events
-        while (slot.nextSkinAnim < slot.anim->skinAnimEventCount) {
-            CutsceneSkinAnimEvent& evt = slot.anim->skinAnimEvents[slot.nextSkinAnim];
-            if (evt.frame <= slot.frame) {
-#if PSXSPLASH_FEATURE_SKIN
-                if (m_sceneMgr) {
-                    int skinIdx = (int)evt.skinMeshIndex;
-                    if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
-                        SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
-                        state.currentClip  = evt.clipIndex;
-                        state.currentFrame = 0;
-                        state.subFrame     = 0;
-                        state.playing      = true;
-                        state.loop         = (evt.loop != 0);
-                    }
-                }
-#endif
-                slot.nextSkinAnim++;
-            } else {
-                break;
-            }
-        }
+        applySlotFrame(slot);
 
         // Advance frame using dt12
         uint32_t accum = (uint32_t)slot.subFrame + (uint32_t)dt12;
@@ -151,6 +155,11 @@ void AnimationPlayer::tick(int32_t dt12) {
                 slot.subFrame = 0;
                 slot.nextSkinAnim = 0;
             } else {
+                // A tick can step over the last frame on a slow frame; land
+                // on it once so its keys and events still apply.
+                slot.frame = slot.anim->totalFrames;
+                slot.subFrame = 0;
+                applySlotFrame(slot);
                 Animation* finished = slot.anim;
                 slot.anim = nullptr;
                 // Stop vibration when animation ends naturally
