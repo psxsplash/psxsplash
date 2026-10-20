@@ -26,7 +26,7 @@ src/loadbuffer_patch.cpp
 #                comma separated. Unset builds all of them. SplashEdit passes
 #                the set the exported scenes use, e.g. FEATURES=ui,collision,nav.
 #                FEATURES= or FEATURES=none builds the smallest engine.
-ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision
+ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows
 ifeq ($(origin FEATURES),undefined)
 FEATURES := $(ALL_FEATURES)
 endif
