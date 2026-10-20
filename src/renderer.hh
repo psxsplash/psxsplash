@@ -170,6 +170,16 @@ class Renderer final {
     int32_t m_peakZ = 0;
     int32_t m_reportedZ = 0;
     uint32_t m_reportedBump = 0;
+#ifdef PCDRV_SUPPORT
+    // Triangles the renderer lost or bent since the last report, by cause:
+    // dropped past the ordering table, skinned ones dropped at the near
+    // plane, near-plane pieces drawn unsplit at the last subdivision depth,
+    // and ones whose screen vertices were clamped. Out of `tris` considered.
+    struct LostCounts {
+        uint32_t ot = 0, skinNear = 0, leaf = 0, clamp = 0, tris = 0;
+    };
+    LostCounts m_lost;
+#endif
     void reportPeaks();
     void notePeakBump(const Balloc& balloc) {
         if (balloc.used() > m_peakBump) m_peakBump = balloc.used();

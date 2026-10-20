@@ -37,6 +37,14 @@ using namespace psyqo::fixed_point_literals;
 using namespace psyqo::trig_literals;
 using namespace psyqo::GTE;
 
+// Development builds count the triangles the renderer loses or bends
+// (m_lost, printed by reportPeaks); other builds compile the counting out.
+#ifdef PCDRV_SUPPORT
+#define RENDER_LOST(...) __VA_ARGS__
+#else
+#define RENDER_LOST(...)
+#endif
+
 psxsplash::Renderer* psxsplash::Renderer::instance = nullptr;
 
 void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
@@ -81,6 +89,11 @@ void psxsplash::Renderer::reportPeaks() {
     // Development builds tell the editor what a scene really used, at most
     // once a second and only when a peak grew.
     if (m_frameCount % 60 != 0) return;
+    // And how many triangles it lost or bent over that second, when any.
+    if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp)
+        ramsyscall_printf("psxsplash: render lost ot %u skinnear %u leaf %u clamp %u of %u tris\n", m_lost.ot,
+                          m_lost.skinNear, m_lost.leaf, m_lost.clamp, m_lost.tris);
+    m_lost = LostCounts();
     if (m_peakZ == m_reportedZ && m_peakBump == m_reportedBump) return;
     m_reportedZ = m_peakZ;
     m_reportedBump = m_peakBump;
@@ -300,7 +313,10 @@ void psxsplash::Renderer::processTriangle(
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
     if (zIndex > m_peakZ) m_peakZ = zIndex;
     // Past the table entirely -> dropped; straddling it -> the insert clamps it to the last bucket.
-    if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) return;
+    if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) {
+        RENDER_LOST(m_lost.ot++);
+        return;
+    }
     // Clamp above the reserved 2D bands, never to 0: geometry this close to the
     // camera must not land in the slots the sprites and UI draw from.
     if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
@@ -385,12 +401,19 @@ void psxsplash::Renderer::processTriangle(
         int32_t mac0 = 0;
         read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
         if (mac0 <= 0) return;
+    } else {
+        // Still near the plane at MAX_SUBDIV_DEPTH: drawn from unreliable SXY.
+        RENDER_LOST(m_lost.leaf++);
     }
 
     // Clamp to safe rasterizer range (1023x511 max delta).
+#ifdef PCDRV_SUPPORT
+    if (clampTriangleForRasterizer(projected[0], projected[1], projected[2])) m_lost.clamp++;
+#else
     clampForRasterizer(projected[0]);
     clampForRasterizer(projected[1]);
     clampForRasterizer(projected[2]);
+#endif
 
     // Per-vertex fog (deferred to leaf to avoid wasted divisions during subdivision).
     int32_t fogIR[3] = {0, 0, 0};
@@ -491,6 +514,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
         if (!obj->isActive()) continue;
         if (obj->isSkinned()) continue;
         setupObjectTransform(obj, cameraPosition);
+        RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int i = 0; i < obj->polyCount; i++)
             processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
@@ -547,6 +571,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     int32_t fogFarSZ = m_fog.fogFarSZ;
     int16_t lastObjectIndex = -1;
     bool lastObjCulled = false;
+    RENDER_LOST(uint32_t submitted = 0);
     for (int i = 0; i < visibleCount; i++) {
         const TriangleRef& ref = m_visibleRefs[i];
         if (ref.objectIndex >= objects.size()) continue;
@@ -571,8 +596,10 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         if (lastObjCulled) continue;
         // polyCount is 0 while a streamed object's geometry is not resident.
         if (ref.triangleIndex >= obj->polyCount) continue;
+        RENDER_LOST(submitted++);
         processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
     }
+    RENDER_LOST(m_lost.tris += submitted);
 
     // Second pass: render dynamically-moved objects (their BVH references are stale).
     // Uses per-object AABB frustum test then renders all triangles - like the non-BVH path.
@@ -585,6 +612,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
+        RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
@@ -896,6 +924,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     // object transforms when consecutive refs share an object.
     auto renderTriRefs = [&](const TriangleRef* refs, int count,
                              int16_t& lastObj, bool& lastObjCulled) {
+        RENDER_LOST(uint32_t submitted = 0);
         for (int ti = 0; ti < count; ti++) {
             const TriangleRef& ref = refs[ti];
             if (ref.objectIndex >= objects.size()) continue;
@@ -918,8 +947,10 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             }
             if (lastObjCulled) continue;
             if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
+            RENDER_LOST(submitted++);
             processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
+        RENDER_LOST(m_lost.tris += submitted);
     };
 
     ScreenRect full = {-512, -512, 832, 752};
@@ -1290,6 +1321,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
+        RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, 0, obj->uvOffset);
         }
@@ -1435,6 +1467,7 @@ void psxsplash::Renderer::renderSkinnedObjects(
         }
 
         const uint8_t* boneIdx = animSet.boneIndices;
+        RENDER_LOST(m_lost.tris += animSet.polyCount);
         for (int ti = 0; ti < animSet.polyCount; ti++) {
             Tri& tri = animSet.polygons[ti];
 
@@ -1483,13 +1516,19 @@ void psxsplash::Renderer::renderSkinnedObjects(
             int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
             if (zIndex > m_peakZ) m_peakZ = zIndex;
             // Past the table entirely -> dropped; straddling it -> the insert clamps it to the last bucket.
-            if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) continue;
+            if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) {
+                RENDER_LOST(m_lost.ot++);
+                continue;
+            }
             if (zIndex < 1) zIndex = 1;
 
             // Skip near-plane vertices (no subdivision for skinned meshes)
             static constexpr int32_t NEAR_SZ_THRESHOLD = 4;
             if (sz0 < NEAR_SZ_THRESHOLD || sz1 < NEAR_SZ_THRESHOLD ||
-                sz2 < NEAR_SZ_THRESHOLD) continue;
+                sz2 < NEAR_SZ_THRESHOLD) {
+                RENDER_LOST(m_lost.skinNear++);
+                continue;
+            }
 
             // Off-screen reject
             if (isCompletelyOutside(projected0, projected1, projected2)) continue;
@@ -1500,9 +1539,13 @@ void psxsplash::Renderer::renderSkinnedObjects(
             read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
             if (mac0 <= 0) continue;
 
+#ifdef PCDRV_SUPPORT
+            if (clampTriangleForRasterizer(projected0, projected1, projected2)) m_lost.clamp++;
+#else
             clampForRasterizer(projected0);
             clampForRasterizer(projected1);
             clampForRasterizer(projected2);
+#endif
 
             // Per-vertex fog
             psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
