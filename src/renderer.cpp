@@ -90,9 +90,10 @@ void psxsplash::Renderer::reportPeaks() {
     // once a second and only when a peak grew.
     if (m_frameCount % 60 != 0) return;
     // And how many triangles it lost or bent over that second, when any.
-    if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp)
-        ramsyscall_printf("psxsplash: render lost ot %u skinnear %u leaf %u clamp %u of %u tris\n", m_lost.ot,
-                          m_lost.skinNear, m_lost.leaf, m_lost.clamp, m_lost.tris);
+    // The clip count goes last, so parsers of the fields before it keep working.
+    if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp || m_lost.clip)
+        ramsyscall_printf("psxsplash: render lost ot %u skinnear %u leaf %u clamp %u of %u tris clip %u\n", m_lost.ot,
+                          m_lost.skinNear, m_lost.leaf, m_lost.clamp, m_lost.tris, m_lost.clip);
     m_lost = LostCounts();
     if (m_peakZ == m_reportedZ && m_peakBump == m_reportedBump) return;
     m_reportedZ = m_peakZ;
@@ -105,7 +106,12 @@ void psxsplash::Renderer::reportPeaks() {
 void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {
     m_currentCamera = &camera;
     // Update GTE H register to match camera's projection distance
-    write<Register::H, Unsafe>(camera.GetProjectionH());
+    setProjectionH(camera.GetProjectionH());
+}
+
+void psxsplash::Renderer::setProjectionH(int32_t h) {
+    write<Register::H, Unsafe>(h);
+    m_nearSZ = (h >> 1) + 1;
 }
 
 void psxsplash::Renderer::SetFog(const FogConfig& fog) {
@@ -286,7 +292,6 @@ void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
     OT& ot,
     Balloc& balloc,
-    int depth,
     psyqo::PrimPieces::UVCoords uvOffset) {
 
     if (!(tri.flags & ANIM_FLAG)) {
@@ -326,110 +331,74 @@ void psxsplash::Renderer::processTriangle(
     read<Register::SXY1>(&projected[1].packed);
     read<Register::SXY2>(&projected[2].packed);
 
-    // SZ below this threshold -> GTE SXY output is garbage (near-zero Z division).
-    static constexpr int32_t NEAR_SZ_THRESHOLD = 4;
-    bool hasNearPlane = (sz0 < NEAR_SZ_THRESHOLD || sz1 < NEAR_SZ_THRESHOLD ||
-                         sz2 < NEAR_SZ_THRESHOLD);
+    // The GTE projects a vertex exactly only when SZ > H/2 (m_nearSZ and up):
+    // below that its H/SZ division overflows and SXY comes out as if H/SZ were
+    // 2. And the GPU drops a triangle spanning more than 1023x511 pixels. A
+    // triangle reaching either goes through clipTriangle instead, which cuts
+    // it exactly and projects the pieces itself.
+    const int32_t nearSZ = m_nearSZ;
+    bool nearPlane = (sz0 < nearSZ) | (sz1 < nearSZ) | (sz2 < nearSZ);
+    bool offBox = outsideRasterizerRange(projected[0]) | outsideRasterizerRange(projected[1]) |
+                  outsideRasterizerRange(projected[2]);
 
-    // Near-plane subdivision: split on edge with largest SZ delta, re-project halves.
-    static constexpr int MAX_SUBDIV_DEPTH = 5;
-    if (hasNearPlane && depth < MAX_SUBDIV_DEPTH) {
-        auto iabs = [](int32_t v) -> int32_t { return v < 0 ? -v : v; };
-        int32_t score01 = iabs(sz0 - sz1);
-        int32_t score12 = iabs(sz1 - sz2);
-        int32_t score20 = iabs(sz2 - sz0);
-
-        Tri childA = tri, childB = tri;
-
-        if (score01 >= score12 && score01 >= score20) {
-            // Split edge v0-v1 -> midpoint M.  childA = {v0, M, v2}, childB = {M, v1, v2}.
-            psyqo::GTE::PackedVec3 m;
-            m.x.value = (int16_t)(((int32_t)tri.v0.x.value + (int32_t)tri.v1.x.value) >> 1);
-            m.y.value = (int16_t)(((int32_t)tri.v0.y.value + (int32_t)tri.v1.y.value) >> 1);
-            m.z.value = (int16_t)(((int32_t)tri.v0.z.value + (int32_t)tri.v1.z.value) >> 1);
-            uint8_t mu = (uint8_t)(((int)tri.uvA.u + (int)tri.uvB.u) >> 1);
-            uint8_t mv = (uint8_t)(((int)tri.uvA.v + (int)tri.uvB.v) >> 1);
-            psyqo::Color mc = {
-                .r = (uint8_t)(((int)tri.colorA.r + (int)tri.colorB.r) >> 1),
-                .g = (uint8_t)(((int)tri.colorA.g + (int)tri.colorB.g) >> 1),
-                .b = (uint8_t)(((int)tri.colorA.b + (int)tri.colorB.b) >> 1),
-            };
-            childA.v1 = m; childA.uvB.u = mu; childA.uvB.v = mv; childA.colorB = mc;
-            childB.v0 = m; childB.uvA.u = mu; childB.uvA.v = mv; childB.colorA = mc;
-        } else if (score12 >= score20) {
-            // Split edge v1-v2 -> midpoint M.  childA = {v0, v1, M}, childB = {v0, M, v2}.
-            psyqo::GTE::PackedVec3 m;
-            m.x.value = (int16_t)(((int32_t)tri.v1.x.value + (int32_t)tri.v2.x.value) >> 1);
-            m.y.value = (int16_t)(((int32_t)tri.v1.y.value + (int32_t)tri.v2.y.value) >> 1);
-            m.z.value = (int16_t)(((int32_t)tri.v1.z.value + (int32_t)tri.v2.z.value) >> 1);
-            uint8_t mu = (uint8_t)(((int)tri.uvB.u + (int)tri.uvC.u) >> 1);
-            uint8_t mv = (uint8_t)(((int)tri.uvB.v + (int)tri.uvC.v) >> 1);
-            psyqo::Color mc = {
-                .r = (uint8_t)(((int)tri.colorB.r + (int)tri.colorC.r) >> 1),
-                .g = (uint8_t)(((int)tri.colorB.g + (int)tri.colorC.g) >> 1),
-                .b = (uint8_t)(((int)tri.colorB.b + (int)tri.colorC.b) >> 1),
-            };
-            childA.v2 = m; childA.uvC.u = mu; childA.uvC.v = mv; childA.colorC = mc;
-            childB.v1 = m; childB.uvB.u = mu; childB.uvB.v = mv; childB.colorB = mc;
-        } else {
-            // Split edge v2-v0 -> midpoint M.  childA = {M, v1, v2}, childB = {v0, v1, M}.
-            psyqo::GTE::PackedVec3 m;
-            m.x.value = (int16_t)(((int32_t)tri.v2.x.value + (int32_t)tri.v0.x.value) >> 1);
-            m.y.value = (int16_t)(((int32_t)tri.v2.y.value + (int32_t)tri.v0.y.value) >> 1);
-            m.z.value = (int16_t)(((int32_t)tri.v2.z.value + (int32_t)tri.v0.z.value) >> 1);
-            uint8_t mu = (uint8_t)(((int)tri.uvC.u + (int)tri.uvA.u) >> 1);
-            uint8_t mv = (uint8_t)(((int)tri.uvC.v + (int)tri.uvA.v) >> 1);
-            psyqo::Color mc = {
-                .r = (uint8_t)(((int)tri.colorC.r + (int)tri.colorA.r) >> 1),
-                .g = (uint8_t)(((int)tri.colorC.g + (int)tri.colorA.g) >> 1),
-                .b = (uint8_t)(((int)tri.colorC.b + (int)tri.colorA.b) >> 1),
-            };
-            childA.v0 = m; childA.uvA.u = mu; childA.uvA.v = mv; childA.colorA = mc;
-            childB.v2 = m; childB.uvC.u = mu; childB.uvC.v = mv; childB.colorC = mc;
+    if (!nearPlane) {
+        // Off-screen reject: exact, the GTE saturates SXY but keeps its side.
+        if (isCompletelyOutside(projected[0], projected[1], projected[2])) return;
+        // Backface cull, unless SXY was saturated, which can flip the winding:
+        // then the pieces are culled instead.
+        if (!offBox || !gteSaturated(projected[0], projected[1], projected[2])) {
+            Kernels::nclip();
+            int32_t mac0 = 0;
+            read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
+            if (mac0 <= 0) return;
         }
+    }
 
-        processTriangle(childA, fogFarSZ, ot, balloc, depth + 1, uvOffset);
-        processTriangle(childB, fogFarSZ, ot, balloc, depth + 1, uvOffset);
+    if (nearPlane | offBox) {
+        RENDER_LOST(m_lost.clip++);
+        // The clipper's trivial reject, decided from the GTE's own output when
+        // it can be: wholly behind its near plane (SZ is z clamped at 0), or
+        // wholly beyond one side of the screen by 3 pixels as the GTE projects
+        // it, for corners with 0 < SZ < 0xffff. Where the GTE's divide overflowed (0 < SZ <= H/2) its SXY sits
+        // about 2*x from the centre while the true one sits x*H/z >= 2*x
+        // away, on the same side; elsewhere it is within a pixel. Either way
+        // the corner is beyond that side by more than a pixel, as the
+        // clipper's own test would find.
+        auto outcode = [](const psyqo::Vertex& p, int32_t sz) {
+            unsigned c = sz < CLIP_NEAR_Z ? 1u : 0u;
+            if (sz > 0 && sz < 0xffff)  // at 0xffff SZ may have saturated, below the true z
+                c |= (p.x < -3 ? 2u : 0u) | (p.x > 323 ? 4u : 0u) | (p.y < -3 ? 8u : 0u) | (p.y > 243 ? 16u : 0u);
+            return c;
+        };
+        if (outcode(projected[0], sz0) & outcode(projected[1], sz1) & outcode(projected[2], sz2)) return;
+        clipTriangle(tri, projected, fogFarSZ, ot, balloc, uvOffset);
         return;
     }
 
-    // Leaf path: off-screen reject + backface cull (skipped for near-plane leaves).
-    if (!hasNearPlane) {
-        if (isCompletelyOutside(projected[0], projected[1], projected[2])) return;
+    const int32_t sz[3] = {sz0, sz1, sz2};
+    emitTriangle(tri, projected[0], projected[1], projected[2], sz, zIndex, fogFarSZ, ot, balloc, uvOffset);
+}
 
-        Kernels::nclip();
-        int32_t mac0 = 0;
-        read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
-        if (mac0 <= 0) return;
-    } else {
-        // Still near the plane at MAX_SUBDIV_DEPTH: drawn from unreliable SXY.
-        RENDER_LOST(m_lost.leaf++);
-    }
-
-    // Clamp to safe rasterizer range (1023x511 max delta).
-#ifdef PCDRV_SUPPORT
-    if (clampTriangleForRasterizer(projected[0], projected[1], projected[2])) m_lost.clamp++;
-#else
-    clampForRasterizer(projected[0]);
-    clampForRasterizer(projected[1]);
-    clampForRasterizer(projected[2]);
-#endif
-
-    // Per-vertex fog (deferred to leaf to avoid wasted divisions during subdivision).
+// The leaf both processTriangle and clipTriangle end in: per-vertex fog from
+// sz, lights, and the primitives, at ordering-table depth zIndex.
+void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, const psyqo::Vertex& p1,
+                                       const psyqo::Vertex& p2, const int32_t sz[3], int32_t zIndex,
+                                       int32_t fogFarSZ, OT& ot, Balloc& balloc,
+                                       psyqo::PrimPieces::UVCoords uvOffset) {
+    // Per-vertex fog.
     int32_t fogIR[3] = {0, 0, 0};
     if (fogFarSZ > 0) {
         int32_t fogNear = fogFarSZ >> 3;
         int32_t range = fogFarSZ - fogNear;
         if (range < 1) range = 1;
-        int32_t szArr[3] = {sz0, sz1, sz2};
         for (int vi = 0; vi < 3; vi++) {
             int32_t ir;
-            if (szArr[vi] <= fogNear) {
+            if (sz[vi] <= fogNear) {
                 ir = 0;
-            } else if (szArr[vi] >= fogFarSZ) {
+            } else if (sz[vi] >= fogFarSZ) {
                 ir = 4096;
             } else {
-                ir = ((szArr[vi] - fogNear) * 4096) / range;
+                ir = ((sz[vi] - fogNear) * 4096) / range;
             }
             fogIR[vi] = ir;
         }
@@ -451,7 +420,7 @@ void psxsplash::Renderer::processTriangle(
             cC = fogBlend(cC, fogIR[2], m_fog.color);
         }
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
-        p.primitive.pointA = projected[0]; p.primitive.pointB = projected[1]; p.primitive.pointC = projected[2];
+        p.primitive.pointA = p0; p.primitive.pointB = p1; p.primitive.pointC = p2;
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
         p.primitive.setOpaque();
         ot.insert(p, zIndex);
@@ -460,10 +429,10 @@ void psxsplash::Renderer::processTriangle(
         psyqo::Color texB = fogTexColor(cB, fogIR[1]);
         psyqo::Color texC = fogTexColor(cC, fogIR[2]);
 
-        insertFogPass(tri, projected[0], projected[1], projected[2], uvOffset, fogIR, ot, balloc, zIndex);
+        insertFogPass(tri, p0, p1, p2, uvOffset, fogIR, ot, balloc, zIndex);
 
         auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-        texP.primitive.pointA = projected[0]; texP.primitive.pointB = projected[1]; texP.primitive.pointC = projected[2];
+        texP.primitive.pointA = p0; texP.primitive.pointB = p1; texP.primitive.pointC = p2;
         texP.primitive.uvA.u = tri.uvA.u + uvOffset.u; texP.primitive.uvA.v = tri.uvA.v + uvOffset.v;
         texP.primitive.uvB.u = tri.uvB.u + uvOffset.u; texP.primitive.uvB.v = tri.uvB.v + uvOffset.v;
         texP.primitive.uvC.u = tri.uvC.u + uvOffset.u; texP.primitive.uvC.v = tri.uvC.v + uvOffset.v;
@@ -477,7 +446,7 @@ void psxsplash::Renderer::processTriangle(
     } else {
 
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-        p.primitive.pointA = projected[0]; p.primitive.pointB = projected[1]; p.primitive.pointC = projected[2];
+        p.primitive.pointA = p0; p.primitive.pointB = p1; p.primitive.pointC = p2;
         p.primitive.uvA.u = tri.uvA.u + uvOffset.u; p.primitive.uvA.v = tri.uvA.v + uvOffset.v;
         p.primitive.uvB.u = tri.uvB.u + uvOffset.u; p.primitive.uvB.v = tri.uvB.v + uvOffset.v;
         p.primitive.uvC.u = tri.uvC.u + uvOffset.u; p.primitive.uvC.v = tri.uvC.v + uvOffset.v;
@@ -492,13 +461,284 @@ void psxsplash::Renderer::processTriangle(
 }
 
 // ============================================================================
+// Exact clipping
+// ============================================================================
+
+namespace {
+
+// A polygon vertex while clipping: its view-space position (MAC1-3 of
+// RT*V + TR, in SZ units, unsaturated), its model-space position (for the
+// lights) and the attributes interpolated along with it. gte: the vertex is
+// one of the triangle's own and the GTE projected it exactly, into sxy.
+struct ClipVert {
+    int32_t x, y, z;
+    int16_t mx, my, mz;
+    uint8_t u, v, r, g, b;
+    bool gte;
+    psyqo::Vertex sxy;
+};
+
+// View-space position of the model-space vertex in V0, V1 or V2: the same
+// MAC1-3 RTPS computes before it projects.
+template <Kernels::MV vreg>
+inline void viewPosition(ClipVert& c) {
+    Kernels::mvmva<Kernels::MX::RT, vreg, Kernels::TV::TR>();
+    c.x = (int32_t)readRaw<Register::MAC1, Safe>();
+    c.y = (int32_t)readRaw<Register::MAC2, Safe>();
+    c.z = (int32_t)readRaw<Register::MAC3, Safe>();
+}
+
+inline ClipVert clipCorner(const psyqo::GTE::PackedVec3& p, psyqo::PrimPieces::UVCoords uv, psyqo::Color c) {
+    ClipVert v;
+    v.mx = p.x.value; v.my = p.y.value; v.mz = p.z.value;
+    v.u = uv.u; v.v = uv.v;
+    v.r = c.r; v.g = c.g; v.b = c.b;
+    return v;
+}
+
+// a + (b - a) * t, t in 12-bit fixed point (0..4096).
+inline int32_t clipLerp(int32_t a, int32_t b, int32_t t) { return a + (((b - a) * t + 2048) >> 12); }
+// The same for view coordinates, whose difference times t can pass 32 bits:
+// a 32x32->64 multiply, shifted back down.
+inline int32_t clipLerpWide(int32_t a, int32_t b, int32_t t) {
+    return a + (int32_t)(((int64_t)(b - a) * t + 2048) >> 12);
+}
+
+// floor(n / d) for d > 0, rounding as the GTE's projection does.
+inline int32_t floorDiv(int32_t n, int32_t d) {
+    int32_t q = n / d;
+    return (q * d > n) ? q - 1 : q;
+}
+
+inline void setCorner(psyqo::GTE::PackedVec3& p, uint8_t& u, uint8_t& v, psyqo::Color& c, const ClipVert& from) {
+    p.x.value = from.mx; p.y.value = from.my; p.z.value = from.mz;
+    u = from.u; v = from.v;
+    c.r = from.r; c.g = from.g; c.b = from.b;
+}
+
+}  // namespace
+
+// Sutherland-Hodgman against five planes, linear in view space (and so affine
+// in model space): the near plane z >= CLIP_NEAR_Z, and the four sides of the
+// rasterizer's safe box, inset by CLIP_BOX_MARGIN, written without the
+// division:
+//   sx >= X0  <=>  H*x + (OFX - X0)*z >= 0   (for z > 0, which the near plane
+// already ensured), and likewise for the other three. A new vertex is
+// interpolated from the edge's inside end, so the two triangles sharing an
+// edge cut it at the same point. The corners are then projected in software,
+// except the triangle's own corners the GTE projected exactly, so a clipped
+// triangle meets its unclipped neighbours on the same pixels; the pieces are
+// drawn as a fan through emitTriangle.
+void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex projected[3], int32_t fogFarSZ,
+                                       OT& ot, Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset) {
+    // RTPT left the third corner's view position in MAC1-3: RT*V2 + TR, the
+    // same as viewPosition<V2> would compute (nclip only writes MAC0).
+    const int32_t v2x = (int32_t)readRaw<Register::MAC1, Safe>();
+    const int32_t v2y = (int32_t)readRaw<Register::MAC2, Safe>();
+    const int32_t v2z = (int32_t)readRaw<Register::MAC3, Safe>();
+    const int32_t h = (int32_t)(readRaw<Register::H, Safe>() & 0xffff);  // reads back sign extended
+    const int32_t ofx = (int32_t)readRaw<Register::OFX, Safe>() >> 16;  // 16.16
+    const int32_t ofy = (int32_t)readRaw<Register::OFY, Safe>() >> 16;
+    // Plane distances, >= 0 inside: z - CLIP_NEAR_Z for the near plane, then
+    // k*(x or y) + c*z for the box sides, k = +-H.
+    const int32_t sideK[4] = {h, -h, h, -h};
+    const int32_t sideC[4] = {ofx - (SAFE_MIN_X + CLIP_BOX_MARGIN), (SAFE_MAX_X - CLIP_BOX_MARGIN) - ofx,
+                              ofy - (SAFE_MIN_Y + CLIP_BOX_MARGIN), (SAFE_MAX_Y - CLIP_BOX_MARGIN) - ofy};
+
+    // A triangle cut by five planes has at most 3 + 5 corners.
+    ClipVert bufA[8], bufB[8];
+    ClipVert* poly = bufA;
+    ClipVert* next = bufB;
+    poly[0] = clipCorner(tri.v0, tri.uvA, tri.colorA);
+    poly[1] = clipCorner(tri.v1, tri.uvB, tri.colorB);
+    poly[2] = clipCorner(tri.v2, {tri.uvC.u, tri.uvC.v}, tri.colorC);
+    // processTriangle left the triangle in V0-V2.
+    viewPosition<Kernels::MV::V0>(poly[0]);
+    viewPosition<Kernels::MV::V1>(poly[1]);
+    poly[2].x = v2x;
+    poly[2].y = v2y;
+    poly[2].z = v2z;
+    for (int i = 0; i < 3; i++) {
+        ClipVert& c = poly[i];
+        // Exact when SZ is past the divide overflow and did not saturate,
+        // IR1/IR2 did not saturate, and the GPU can take it.
+        c.gte = c.z >= m_nearSZ && c.z <= 0xffff && c.x >= -0x8000 && c.x < 0x8000 && c.y >= -0x8000 && c.y < 0x8000 &&
+                !outsideRasterizerRange(projected[i]);
+        c.sxy = projected[i];
+    }
+    int n = 3;
+    psyqo::Vertex sxy[8];
+    int32_t sz[8];
+
+    // Trivial reject: all three corners behind the near plane, or all beyond
+    // one side of the visible screen widened by a pixel. The sides are planes
+    // through the eye (H*x + (OFX + 1)*z < 0 is sx < -1 for z > 0), so the test
+    // holds whatever the corners' z: the whole triangle, and every piece S-H
+    // would cut from it, lies beyond that side, where the fan's screen test
+    // would drop it.
+    {
+        // In 32 bits when |x|, |y|, |z| < 2^21 and H < 512 (each product under
+        // 2^30, each sum under 2^31, for an OFX/OFY inside the screen), else 64.
+        auto small = [](int32_t v) { return (uint32_t)(v + (1 << 21)) < (2u << 21); };
+        bool narrow = h < 512 && (uint32_t)ofx <= 320 && (uint32_t)ofy <= 240;
+        for (int i = 0; i < 3; i++) narrow &= small(poly[i].x) & small(poly[i].y) & small(poly[i].z);
+        unsigned all = 0x1f;
+        for (int i = 0; i < 3; i++) {
+            const ClipVert& c = poly[i];
+            unsigned oc = c.z < CLIP_NEAR_Z ? 1u : 0u;
+            if (narrow) {
+                const int32_t hx = h * c.x, hy = h * c.y;
+                oc |= (hx + (ofx + 1) * c.z < 0 ? 2u : 0u) | (hx - (321 - ofx) * c.z > 0 ? 4u : 0u) |
+                      (hy + (ofy + 1) * c.z < 0 ? 8u : 0u) | (hy - (241 - ofy) * c.z > 0 ? 16u : 0u);
+            } else {
+                const int64_t hx = (int64_t)h * c.x, hy = (int64_t)h * c.y;
+                oc |= (hx + (int64_t)(ofx + 1) * c.z < 0 ? 2u : 0u) | (hx - (int64_t)(321 - ofx) * c.z > 0 ? 4u : 0u) |
+                      (hy + (int64_t)(ofy + 1) * c.z < 0 ? 8u : 0u) | (hy - (int64_t)(241 - ofy) * c.z > 0 ? 16u : 0u);
+            }
+            all &= oc;
+        }
+        if (all) return;
+    }
+
+    // Fast path: a triangle no plane cuts, which is most of them (near the
+    // camera, not crossing the near plane): project the corners and draw it
+    // whole. Inside a plane is tested on the projection, exactly as the plane
+    // distance would: floor(v) >= X0 iff v >= X0, and floor(v) < X1 implies
+    // v < X1 (a corner landing on X1 itself takes the slow path). The GTE's
+    // own SXY is within a pixel or two of floor(v), so it must be 3 pixels in.
+    constexpr int32_t X0 = SAFE_MIN_X + CLIP_BOX_MARGIN, X1 = SAFE_MAX_X - CLIP_BOX_MARGIN;
+    constexpr int32_t Y0 = SAFE_MIN_Y + CLIP_BOX_MARGIN, Y1 = SAFE_MAX_Y - CLIP_BOX_MARGIN;
+    bool fast = h < 512;
+    for (int i = 0; i < 3 && fast; i++) {
+        const ClipVert& c = poly[i];
+        sz[i] = c.z > 0xffff ? 0xffff : c.z;
+        if (c.z < CLIP_NEAR_Z) {
+            fast = false;
+        } else if (c.gte) {
+            sxy[i] = c.sxy;
+            fast = c.sxy.x >= X0 + 3 && c.sxy.x <= X1 - 3 && c.sxy.y >= Y0 + 3 && c.sxy.y <= Y1 - 3;
+        } else {
+            // |x|, |y| < 2^22 and H < 512 keep x*H and y*H inside 32 bits;
+            // z < 2^21 is the projection loop's bound, below which it does not
+            // halve, so this is its result to the bit.
+            fast = c.z < (1 << 21) && (uint32_t)(c.x + (1 << 22)) < (2u << 22) &&
+                   (uint32_t)(c.y + (1 << 22)) < (2u << 22);
+            if (fast) {
+                int32_t sx = ofx + floorDiv(c.x * h, c.z), sy = ofy + floorDiv(c.y * h, c.z);
+                sxy[i].x = (int16_t)sx;
+                sxy[i].y = (int16_t)sy;
+                fast = sx >= X0 && sx < X1 && sy >= Y0 && sy < Y1;
+            }
+        }
+    }
+
+    if (!fast) {
+        for (int p = 0; p < 5; p++) {
+            int64_t d[8];
+            int inside = 0;
+            if (p == 0) {
+                for (int i = 0; i < n; i++) {
+                    d[i] = poly[i].z - CLIP_NEAR_Z;
+                    inside += d[i] >= 0;
+                }
+            } else {
+                const int32_t k = sideK[p - 1], c = sideC[p - 1];
+                const bool useY = p >= 3;
+                for (int i = 0; i < n; i++) {
+                    d[i] = (int64_t)k * (useY ? poly[i].y : poly[i].x) + (int64_t)c * poly[i].z;
+                    inside += d[i] >= 0;
+                }
+            }
+            if (inside == n) continue;
+            if (inside == 0) return;
+            int m = 0;
+            for (int i = 0; i < n; i++) {
+                int j = i + 1 == n ? 0 : i + 1;
+                bool inI = d[i] >= 0, inJ = d[j] >= 0;
+                if (inI) next[m++] = poly[i];
+                if (inI == inJ) continue;
+                const ClipVert& a = inI ? poly[i] : poly[j];
+                const ClipVert& b = inI ? poly[j] : poly[i];
+                int64_t da = inI ? d[i] : d[j];     // >= 0
+                int64_t db = -(inI ? d[j] : d[i]);  // > 0
+                // t = da / (da + db) in 12 bits, with 32-bit division only.
+                while ((uint64_t)(da + db) >> 18) {
+                    da >>= 4;
+                    db >>= 4;
+                }
+                int32_t t = ((int32_t)da << 12) / (int32_t)(da + db);
+                ClipVert& c = next[m++];
+                c.x = clipLerpWide(a.x, b.x, t);
+                c.y = clipLerpWide(a.y, b.y, t);
+                c.z = clipLerpWide(a.z, b.z, t);
+                c.mx = (int16_t)clipLerp(a.mx, b.mx, t);
+                c.my = (int16_t)clipLerp(a.my, b.my, t);
+                c.mz = (int16_t)clipLerp(a.mz, b.mz, t);
+                c.u = (uint8_t)clipLerp(a.u, b.u, t);
+                c.v = (uint8_t)clipLerp(a.v, b.v, t);
+                c.r = (uint8_t)clipLerp(a.r, b.r, t);
+                c.g = (uint8_t)clipLerp(a.g, b.g, t);
+                c.b = (uint8_t)clipLerp(a.b, b.b, t);
+                c.gte = false;
+            }
+            ClipVert* t = poly; poly = next; next = t;
+            n = m;
+        }
+
+        // Project: sx = OFX + x*H/z, sy = OFY + y*H/z. Every corner is inside the
+        // inset box, so |x*H| <= 512*z and |y*H| <= 256*z (give or take the
+        // rounding of a few units); halving x, y and z together until z < 2^21
+        // keeps x*H and y*H under 2^30, inside 32 bits, and the ratio unchanged.
+        for (int i = 0; i < n; i++) {
+            const ClipVert& c = poly[i];
+            sz[i] = c.z > 0xffff ? 0xffff : c.z;
+            if (c.gte) {
+                sxy[i] = c.sxy;
+                continue;
+            }
+            int32_t x = c.x, y = c.y, z = c.z;
+            while (z >= (1 << 21)) {
+                x >>= 1;
+                y >>= 1;
+                z >>= 1;
+            }
+            sxy[i].x = (int16_t)(ofx + floorDiv(x * h, z));
+            sxy[i].y = (int16_t)(ofy + floorDiv(y * h, z));
+        }
+    }
+
+    for (int i = 1; i + 1 < n; i++) {
+        const psyqo::Vertex& a = sxy[0];
+        const psyqo::Vertex& b = sxy[i];
+        const psyqo::Vertex& c = sxy[i + 1];
+        // Off-screen reject against the visible screen, then the backface
+        // test: the signed area nclip would give, from the software SXY.
+        if ((a.x < 0 && b.x < 0 && c.x < 0) || (a.x >= 320 && b.x >= 320 && c.x >= 320) ||
+            (a.y < 0 && b.y < 0 && c.y < 0) || (a.y >= 240 && b.y >= 240 && c.y >= 240))
+            continue;
+        int32_t area = (int32_t)a.x * b.y + (int32_t)b.x * c.y + (int32_t)c.x * a.y - (int32_t)a.x * c.y -
+                       (int32_t)b.x * a.y - (int32_t)c.x * b.y;
+        if (area <= 0) continue;
+        Tri piece = tri;
+        setCorner(piece.v0, piece.uvA.u, piece.uvA.v, piece.colorA, poly[0]);
+        setCorner(piece.v1, piece.uvB.u, piece.uvB.v, piece.colorB, poly[i]);
+        setCorner(piece.v2, piece.uvC.u, piece.uvC.v, piece.colorC, poly[i + 1]);
+        // Ordering-table depth: the piece's deepest view z, floored as processTriangle does.
+        const int32_t psz[3] = {sz[0], sz[i], sz[i + 1]};
+        int32_t zIndex = eastl::max(eastl::max(psz[0], psz[1]), psz[2]);
+        if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
+        emitTriangle(piece, a, b, c, psz, zIndex, fogFarSZ, ot, balloc, uvOffset);
+    }
+}
+
+// ============================================================================
 // Render paths
 // ============================================================================
 
 void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
+    setProjectionH(m_currentCamera->GetProjectionH());
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
     notePeakBump(balloc);
@@ -516,7 +756,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
         setupObjectTransform(obj, cameraPosition);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int i = 0; i < obj->polyCount; i++)
-            processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, 0, obj->uvOffset);
+            processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, obj->uvOffset);
     }
 #if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
@@ -555,7 +795,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (!bvh.isLoaded()) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
+    setProjectionH(m_currentCamera->GetProjectionH());
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
     notePeakBump(balloc);
@@ -597,7 +837,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         // polyCount is 0 while a streamed object's geometry is not resident.
         if (ref.triangleIndex >= obj->polyCount) continue;
         RENDER_LOST(submitted++);
-        processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
+        processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, obj->uvOffset);
     }
     RENDER_LOST(m_lost.tris += submitted);
 
@@ -614,7 +854,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         setupObjectTransform(obj, cameraPosition);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
-            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, 0, obj->uvOffset);
+            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
         }
     }
 
@@ -874,7 +1114,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
+    setProjectionH(m_currentCamera->GetProjectionH());
 
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
@@ -948,7 +1188,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             if (lastObjCulled) continue;
             if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
             RENDER_LOST(submitted++);
-            processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, 0, obj->uvOffset);
+            processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, obj->uvOffset);
         }
         RENDER_LOST(m_lost.tris += submitted);
     };
@@ -1323,7 +1563,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         setupObjectTransform(obj, cameraPosition);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
-            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, 0, obj->uvOffset);
+            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
         }
     }
 

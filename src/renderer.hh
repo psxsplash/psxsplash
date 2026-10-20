@@ -173,10 +173,11 @@ class Renderer final {
 #ifdef PCDRV_SUPPORT
     // Triangles the renderer lost or bent since the last report, by cause:
     // dropped past the ordering table, skinned ones dropped at the near
-    // plane, near-plane pieces drawn unsplit at the last subdivision depth,
-    // and ones whose screen vertices were clamped. Out of `tris` considered.
+    // plane, `leaf` (no longer counted: kept for the report's format), and
+    // ones whose screen vertices were clamped. Out of `tris` considered;
+    // `clip` counts the ones that went through clipTriangle (not a loss).
     struct LostCounts {
-        uint32_t ot = 0, skinNear = 0, leaf = 0, clamp = 0, tris = 0;
+        uint32_t ot = 0, skinNear = 0, leaf = 0, clamp = 0, tris = 0, clip = 0;
     };
     LostCounts m_lost;
 #endif
@@ -236,8 +237,27 @@ class Renderer final {
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          OT& ot,
                          Balloc& balloc,
-                         int depth = 0,
                          psyqo::PrimPieces::UVCoords uvOffset = { 0 });
+    // Fog, lights and the primitives of one projected triangle (both paths;
+    // inlined into both, so the per-triangle path pays no call for it).
+    __attribute__((always_inline)) inline void emitTriangle(const Tri& tri, const psyqo::Vertex& p0, const psyqo::Vertex& p1, const psyqo::Vertex& p2,
+                      const int32_t sz[3], int32_t zIndex, int32_t fogFarSZ, OT& ot, Balloc& balloc,
+                      psyqo::PrimPieces::UVCoords uvOffset);
+    // Clips tri, whose vertices are loaded in V0-V2 and projected by the GTE
+    // into `projected`, to the near plane and the rasterizer's safe box, and
+    // draws the pieces, projected in software where the GTE could not.
+    void clipTriangle(const Tri& tri, const psyqo::Vertex projected[3], int32_t fogFarSZ, OT& ot,
+                      Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset);
+    // The GTE projects a vertex exactly only from SZ = (H >> 1) + 1: at
+    // SZ <= H/2 its H/SZ division overflows and SXY comes out as if H/SZ were
+    // 2. Triangles with a vertex nearer than that are clipped and projected
+    // in software. No margin is needed: SZ is the GTE's own integer.
+    int32_t m_nearSZ = (PROJ_H >> 1) + 1;
+    // The clipper's near plane, in SZ units; and the inset of its box from the
+    // rasterizer's safe box, in pixels, for the rounding of the projection.
+    static constexpr int32_t CLIP_NEAR_Z = 8;
+    static constexpr int32_t CLIP_BOX_MARGIN = 4;
+    void setProjectionH(int32_t h);
 
 #if PSXSPLASH_FEATURE_SKIN
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,
