@@ -175,9 +175,14 @@ class Renderer final {
     // dropped past the ordering table, skinned ones dropped at the near
     // plane, `leaf` (no longer counted: kept for the report's format), and
     // ones whose screen vertices were clamped. Out of `tris` considered;
-    // `clip` counts the ones that went through clipTriangle (not a loss).
+    // `clip` counts the ones that went through clipTriangle (not a loss),
+    // `split` the ones split against affine warp (not a loss either), `eqLo`
+    // and `eqHi` the lowest and highest split threshold the frames used, in
+    // quarter pixels, and `refused` the splits refused to keep the bump
+    // allocator from running out (drawn warped; may leave a T-junction).
     struct LostCounts {
-        uint32_t ot = 0, skinNear = 0, leaf = 0, clamp = 0, tris = 0, clip = 0;
+        uint32_t ot = 0, skinNear = 0, leaf = 0, clamp = 0, tris = 0, clip = 0, split = 0, refused = 0;
+        uint32_t eqLo = 0xffffffff, eqHi = 0;
     };
     LostCounts m_lost;
 #endif
@@ -237,7 +242,13 @@ class Renderer final {
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          OT& ot,
                          Balloc& balloc,
-                         psyqo::PrimPieces::UVCoords uvOffset = { 0 });
+                         psyqo::PrimPieces::UVCoords uvOffset = { 0 }, int depth = 0);
+    // Splits tri at the midpoints of the edges in `edges` (bit i: corner i to
+    // corner i + 1) into 2, 3 or 4 children and draws them through
+    // processTriangle at depth + 1; or returns false, leaving tri to the
+    // caller, when the bump allocator is nearly full.
+    bool splitTriangle(const Tri& tri, unsigned edges, int32_t fogFarSZ, OT& ot, Balloc& balloc,
+                       psyqo::PrimPieces::UVCoords uvOffset, int depth);
     // Fog, lights and the primitives of one projected triangle (both paths;
     // inlined into both, so the per-triangle path pays no call for it).
     __attribute__((always_inline)) inline void emitTriangle(const Tri& tri, const psyqo::Vertex& p0, const psyqo::Vertex& p1, const psyqo::Vertex& p2,
@@ -258,6 +269,41 @@ class Renderer final {
     static constexpr int32_t CLIP_NEAR_Z = 8;
     static constexpr int32_t CLIP_BOX_MARGIN = 4;
     void setProjectionH(int32_t h);
+    // Affine-warp split. The GPU interpolates texture coordinates linearly on
+    // screen; along an edge of screen length L between view depths z0 and z1
+    // the texel the 3D midpoint carries lands L*|z1 - z0| / (2*(z0 + z1))
+    // pixels from the screen midpoint where it belongs. An edge further off
+    // than m_splitQ quarter pixels is split at its model-space midpoint,
+    // decided from its two endpoints alone, so both triangles sharing it agree;
+    // down to SPLIT_DEPTH levels. Measured on the courtyard, lamplighter and
+    // the walk worlds: 8 pixels (SPLIT_ERR_Q) and 3 levels clear the near
+    // chevrons; 4 pixels or a fourth level cost frames without a visible
+    // difference near the camera.
+    static constexpr int32_t SPLIT_ERR_Q = 32;
+    static constexpr int SPLIT_DEPTH = 3;
+    // Only edges with an end nearer than SPLIT_NEAR halves of H are split:
+    // the corners the GTE cannot project, the warp the old near-plane
+    // subdivision hid. Each child there is a clipped triangle, and 2H or 4H
+    // cost the lamplighter 3 to 8 ms a frame. Farther geometry keeps the GPU's
+    // affine mapping and pays a single compare.
+    static constexpr int32_t SPLIT_NEAR = 1;
+    int32_t m_splitZ = 0;
+    // The threshold is one value for a whole frame, so no split is refused
+    // halfway through one (which would open a T-junction against a neighbour
+    // split earlier). Between frames beginSplitFrame moves it: a frame that
+    // made more than SPLIT_BUDGET children raises it by a quarter, up to
+    // SPLIT_ERR_Q_MAX; one under half the budget lowers it by an eighth, down
+    // to SPLIT_ERR_Q; in between it holds. 1024 keeps it at the base in the
+    // courtyard, lamplighter and walk worlds. At 512 it rose to 10 pixels in
+    // the courtyard, and at the walk worlds' end it sat at the ceiling while
+    // their children fell only a tenth: there most splits are of edges
+    // crossing the near plane, which qualify at any threshold.
+    static constexpr int32_t SPLIT_BUDGET = 1024;
+    static constexpr int32_t SPLIT_ERR_Q_MAX = 8 * SPLIT_ERR_Q;
+    int32_t m_splitQ = SPLIT_ERR_Q;
+    int32_t m_splitKids = 0;
+    void beginSplitFrame();
+    int32_t m_projH = 0;
 
 #if PSXSPLASH_FEATURE_SKIN
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,

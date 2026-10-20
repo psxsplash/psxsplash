@@ -90,10 +90,12 @@ void psxsplash::Renderer::reportPeaks() {
     // once a second and only when a peak grew.
     if (m_frameCount % 60 != 0) return;
     // And how many triangles it lost or bent over that second, when any.
-    // The clip count goes last, so parsers of the fields before it keep working.
-    if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp || m_lost.clip)
-        ramsyscall_printf("psxsplash: render lost ot %u skinnear %u leaf %u clamp %u of %u tris clip %u\n", m_lost.ot,
-                          m_lost.skinNear, m_lost.leaf, m_lost.clamp, m_lost.tris, m_lost.clip);
+    // The clip, split, threshold and refused fields go last, so parsers of the fields before them keep working.
+    if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp || m_lost.clip || m_lost.split || m_lost.refused)
+        ramsyscall_printf(
+            "psxsplash: render lost ot %u skinnear %u leaf %u clamp %u of %u tris clip %u split %u eq %u %u refused %u\n",
+            m_lost.ot, m_lost.skinNear, m_lost.leaf, m_lost.clamp, m_lost.tris, m_lost.clip, m_lost.split, m_lost.eqLo,
+            m_lost.eqHi, m_lost.refused);
     m_lost = LostCounts();
     if (m_peakZ == m_reportedZ && m_peakBump == m_reportedBump) return;
     m_reportedZ = m_peakZ;
@@ -111,6 +113,8 @@ void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {
 
 void psxsplash::Renderer::setProjectionH(int32_t h) {
     write<Register::H, Unsafe>(h);
+    m_projH = h;
+    m_splitZ = (h >> 1) * SPLIT_NEAR;
     m_nearSZ = (h >> 1) + 1;
 }
 
@@ -288,11 +292,33 @@ void psxsplash::Renderer::insertFogPass(const Tri& tri, const psyqo::Vertex& a, 
 }
 
 
+namespace {
+
+// Whether an edge between screen points (ax, ay) and (bx, by) at depths az
+// and bz (> 0) warps by more than q quarter pixels: the texel of
+// the 3D midpoint lands L*|bz - az| / (2*(az + bz)) pixels from the screen
+// midpoint. L is approximated by max + min/2 of |dx| and |dy|, within 12% of
+// the length (never under it). Symmetric in a and b. Unsigned products: the
+// ends lie on the safe box, so L < 1300, and |dz| < 2^16: 2*L*|dz| < 2^28.
+// Only edges with an end nearer than zs.
+__attribute__((always_inline)) inline unsigned warpEdge(int32_t ax, int32_t ay, int32_t az, int32_t bx, int32_t by,
+                                                       int32_t bz, int32_t q, int32_t zs) {
+    uint32_t dx = (uint32_t)(ax > bx ? ax - bx : bx - ax);
+    uint32_t dy = (uint32_t)(ay > by ? ay - by : by - ay);
+    uint32_t dz = (uint32_t)(az > bz ? az - bz : bz - az);
+    uint32_t l = dx > dy ? dx + (dy >> 1) : dy + (dx >> 1);
+    return (az < zs || bz < zs) && 2 * l * dz > (uint32_t)(q * (az + bz)) ? 1u : 0u;
+}
+
+inline int32_t clampTo(int32_t v, int32_t m) { return v < -m ? -m : v > m ? m : v; }
+
+}  // namespace
+
 void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
     OT& ot,
     Balloc& balloc,
-    psyqo::PrimPieces::UVCoords uvOffset) {
+    psyqo::PrimPieces::UVCoords uvOffset, int depth) {
 
     if (!(tri.flags & ANIM_FLAG)) {
         uvOffset = { 0,0 };
@@ -317,8 +343,9 @@ void psxsplash::Renderer::processTriangle(
 
     int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
     if (zIndex > m_peakZ) m_peakZ = zIndex;
+    const int32_t maxZ = zIndex, minZ = eastl::min(eastl::min(sz0, sz1), sz2);
     // Past the table entirely -> dropped; straddling it -> the insert clamps it to the last bucket.
-    if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) {
+    if (minZ >= (int32_t)m_otSize) {
         RENDER_LOST(m_lost.ot++);
         return;
     }
@@ -371,12 +398,187 @@ void psxsplash::Renderer::processTriangle(
             return c;
         };
         if (outcode(projected[0], sz0) & outcode(projected[1], sz1) & outcode(projected[2], sz2)) return;
+    }
+
+    // Affine-warp split. The edge test takes each corner at depth
+    // max(SZ, CLIP_NEAR_Z) and on screen where the GTE put it, or, nearer than
+    // H/2 where the GTE's SXY is wrong, projected in software from its view
+    // position; either clamped onto the rasterizer's safe box. That is a
+    // function of the corner alone, so the two triangles sharing an edge
+    // decide it alike; the clamp measures roughly the part of the edge that
+    // can be drawn. Only edges with an end nearer than m_splitZ qualify, so a
+    // triangle wholly beyond it pays one compare. With the box 1023 pixels
+    // wide, no edge can be split unless 3*1023*(maxZ - minZ) > 2*Q*minZ (the
+    // test's L is at most 1.5 times the box side, |z1 - z0| at most
+    // maxZ - minZ and z0 + z1 at least 2*minZ): level triangles pay that one
+    // more. Inside the box, the larger side of the triangle's bounding box
+    // replaces 1023.
+    const int32_t zSplit = m_splitZ;
+    const int32_t q = m_splitQ;
+    if (depth < SPLIT_DEPTH && minZ < zSplit) {
+        const int32_t zLo = nearPlane ? eastl::max(minZ, CLIP_NEAR_Z) : minZ;
+        const int32_t zHi = nearPlane ? eastl::max(maxZ, CLIP_NEAR_Z) : maxZ;
+        if (3 * (SAFE_MAX_X - SAFE_MIN_X) * (zHi - zLo) > 2 * q * zLo) {
+            const int32_t szs[3] = {sz0, sz1, sz2};
+            int32_t px[3], py[3], pz[3];
+            bool test = true;
+            if (!(nearPlane | offBox)) {
+                for (int i = 0; i < 3; i++) {
+                    px[i] = projected[i].x;
+                    py[i] = projected[i].y;
+                    pz[i] = szs[i];
+                }
+                const int32_t bw = eastl::max(eastl::max(px[0], px[1]), px[2]) - eastl::min(eastl::min(px[0], px[1]), px[2]);
+                const int32_t bh = eastl::max(eastl::max(py[0], py[1]), py[2]) - eastl::min(eastl::min(py[0], py[1]), py[2]);
+                test = 3 * eastl::max(bw, bh) * (zHi - zLo) > 2 * q * zLo;
+            } else {
+                int32_t vx[3], vy[3];
+                if (nearPlane) {
+                    // RTPT left the third corner's view position in MAC1-2.
+                    vx[2] = (int32_t)readRaw<Register::MAC1, Safe>();
+                    vy[2] = (int32_t)readRaw<Register::MAC2, Safe>();
+                    if (sz0 < nearSZ) {
+                        Kernels::mvmva<Kernels::MX::RT, Kernels::MV::V0, Kernels::TV::TR>();
+                        vx[0] = (int32_t)readRaw<Register::MAC1, Safe>();
+                        vy[0] = (int32_t)readRaw<Register::MAC2, Safe>();
+                    }
+                    if (sz1 < nearSZ) {
+                        Kernels::mvmva<Kernels::MX::RT, Kernels::MV::V1, Kernels::TV::TR>();
+                        vx[1] = (int32_t)readRaw<Register::MAC1, Safe>();
+                        vy[1] = (int32_t)readRaw<Register::MAC2, Safe>();
+                    }
+                    // clipTriangle reads V2's view position back from there.
+                    if ((sz0 < nearSZ) | (sz1 < nearSZ))
+                        Kernels::mvmva<Kernels::MX::RT, Kernels::MV::V2, Kernels::TV::TR>();
+                }
+                const int32_t h = m_projH;
+                const int32_t ofx = (int32_t)readRaw<Register::OFX, Safe>() >> 16;  // 16.16
+                const int32_t ofy = (int32_t)readRaw<Register::OFY, Safe>() >> 16;
+                for (int i = 0; i < 3; i++) {
+                    int32_t x, y;
+                    if (szs[i] >= nearSZ) {
+                        x = projected[i].x;
+                        y = projected[i].y;
+                        pz[i] = szs[i];
+                    } else {
+                        // |x| clamped under 2^21 keeps x*H (H < 1024) inside
+                        // 32 bits; at z < H/2 that is still far off the box.
+                        const int32_t z = eastl::max(szs[i], CLIP_NEAR_Z);
+                        x = ofx + clampTo(clampTo(vx[i], (1 << 21) - 1) * h / z, 4096);
+                        y = ofy + clampTo(clampTo(vy[i], (1 << 21) - 1) * h / z, 4096);
+                        pz[i] = z;
+                    }
+                    px[i] = x < SAFE_MIN_X ? SAFE_MIN_X : x > SAFE_MAX_X ? SAFE_MAX_X : x;
+                    py[i] = y < SAFE_MIN_Y ? SAFE_MIN_Y : y > SAFE_MAX_Y ? SAFE_MAX_Y : y;
+                }
+            }
+            if (test) {
+                unsigned edges = warpEdge(px[0], py[0], pz[0], px[1], py[1], pz[1], q, zSplit) |
+                                 warpEdge(px[1], py[1], pz[1], px[2], py[2], pz[2], q, zSplit) << 1 |
+                                 warpEdge(px[2], py[2], pz[2], px[0], py[0], pz[0], q, zSplit) << 2;
+                if (edges && splitTriangle(tri, edges, fogFarSZ, ot, balloc, uvOffset, depth)) return;
+            }
+        }
+    }
+
+    if (nearPlane | offBox) {
         clipTriangle(tri, projected, fogFarSZ, ot, balloc, uvOffset);
         return;
     }
 
     const int32_t sz[3] = {sz0, sz1, sz2};
     emitTriangle(tri, projected[0], projected[1], projected[2], sz, zIndex, fogFarSZ, ot, balloc, uvOffset);
+}
+
+void psxsplash::Renderer::beginSplitFrame() {
+    const int32_t kids = m_splitKids;
+    m_splitKids = 0;
+    if (kids > SPLIT_BUDGET) {
+        m_splitQ = eastl::min(m_splitQ + (m_splitQ >> 2), SPLIT_ERR_Q_MAX);
+    } else if (kids < (SPLIT_BUDGET >> 1) && m_splitQ > SPLIT_ERR_Q) {
+        m_splitQ = eastl::max(m_splitQ - (m_splitQ >> 3), SPLIT_ERR_Q);
+    }
+    RENDER_LOST(if ((uint32_t)m_splitQ < m_lost.eqLo) m_lost.eqLo = (uint32_t)m_splitQ;
+                if ((uint32_t)m_splitQ > m_lost.eqHi) m_lost.eqHi = (uint32_t)m_splitQ);
+}
+
+// The children of a split, by the edges split (bit i: corner i to i + 1),
+// as corners: 0-2 the triangle's own, 3 + i the midpoint of edge i; winding
+// kept. Two edges split leave a corner triangle and a quad, cut from the
+// unsplit edge's first corner.
+namespace {
+struct SplitCorner {
+    psyqo::GTE::PackedVec3 p;
+    uint8_t u, v;
+    psyqo::Color c;
+};
+constexpr uint8_t SPLIT_KIDS[8][4][3] = {
+    {},
+    {{0, 3, 2}, {3, 1, 2}},
+    {{1, 4, 0}, {4, 2, 0}},
+    {{3, 1, 4}, {2, 0, 3}, {2, 3, 4}},
+    {{2, 5, 1}, {5, 0, 1}},
+    {{5, 0, 3}, {1, 2, 5}, {1, 5, 3}},
+    {{4, 2, 5}, {0, 1, 4}, {0, 4, 5}},
+    {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}},
+};
+constexpr uint8_t SPLIT_COUNT[8] = {1, 2, 2, 3, 2, 3, 3, 4};
+}  // namespace
+
+bool psxsplash::Renderer::splitTriangle(const Tri& tri, unsigned edges, int32_t fogFarSZ, OT& ot, Balloc& balloc,
+                                        psyqo::PrimPieces::UVCoords uvOffset, int depth) {
+    const int n = SPLIT_COUNT[edges];
+    // Only to keep the frame's primitives inside the bump allocator, which
+    // asserts when full: a child that is clipped can draw up to six pieces,
+    // each with a fog pass. Not reached in the measured scenes; counted.
+    if (balloc.remaining() < (m_bumpSize >> 3)) {
+        RENDER_LOST(m_lost.refused++);
+        return false;
+    }
+    m_splitKids += n;
+    RENDER_LOST(m_lost.split++);
+    SplitCorner c[6];
+    c[0] = {tri.v0, tri.uvA.u, tri.uvA.v, tri.colorA};
+    c[1] = {tri.v1, tri.uvB.u, tri.uvB.v, tri.colorB};
+    c[2] = {tri.v2, tri.uvC.u, tri.uvC.v, tri.colorC};
+    Tri child = tri;
+#if PSXSPLASH_FEATURE_LIGHTS
+    // Lit once, at the corners: the children carry the lit colours, halved
+    // at the midpoints as the GPU's Gouraud shading would have, instead of
+    // each lighting its own corners again.
+    if (m_objLights.count > 0 && !(tri.flags & SPLIT_LIT_FLAG)) {
+        if (m_objLightsSmooth) applyPointLights(m_objLights, tri, c[0].c, c[1].c, c[2].c);
+        else applyPointLightsFlat(m_objLights, tri, c[0].c, c[1].c, c[2].c);
+        child.flags |= SPLIT_LIT_FLAG;
+    }
+#endif
+    for (int i = 0; i < 3; i++) {
+        if (!(edges & (1u << i))) continue;
+        // Halved as in the old near-plane subdivision: symmetric in the two
+        // ends, so the neighbour across the edge makes the same midpoint.
+        const SplitCorner& a = c[i];
+        const SplitCorner& b = c[i == 2 ? 0 : i + 1];
+        SplitCorner& m = c[3 + i];
+        m.p.x.value = (int16_t)(((int32_t)a.p.x.value + b.p.x.value) >> 1);
+        m.p.y.value = (int16_t)(((int32_t)a.p.y.value + b.p.y.value) >> 1);
+        m.p.z.value = (int16_t)(((int32_t)a.p.z.value + b.p.z.value) >> 1);
+        m.u = (uint8_t)((a.u + b.u) >> 1);
+        m.v = (uint8_t)((a.v + b.v) >> 1);
+        m.c = a.c;
+        m.c.r = (uint8_t)((a.c.r + b.c.r) >> 1);
+        m.c.g = (uint8_t)((a.c.g + b.c.g) >> 1);
+        m.c.b = (uint8_t)((a.c.b + b.c.b) >> 1);
+    }
+    for (int k = 0; k < n; k++) {
+        const SplitCorner& a = c[SPLIT_KIDS[edges][k][0]];
+        const SplitCorner& b = c[SPLIT_KIDS[edges][k][1]];
+        const SplitCorner& d = c[SPLIT_KIDS[edges][k][2]];
+        child.v0 = a.p; child.uvA.u = a.u; child.uvA.v = a.v; child.colorA = a.c;
+        child.v1 = b.p; child.uvB.u = b.u; child.uvB.v = b.v; child.colorB = b.c;
+        child.v2 = d.p; child.uvC.u = d.u; child.uvC.v = d.v; child.colorC = d.c;
+        processTriangle(child, fogFarSZ, ot, balloc, uvOffset, depth + 1);
+    }
+    return true;
 }
 
 // The leaf both processTriangle and clipTriangle end in: per-vertex fog from
@@ -406,7 +608,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
 
     psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
 #if PSXSPLASH_FEATURE_LIGHTS
-    if (m_objLights.count > 0) {
+    if (m_objLights.count > 0 && !(tri.flags & SPLIT_LIT_FLAG)) {
         if (m_objLightsSmooth) applyPointLights(m_objLights, tri, cA, cB, cC);
         else applyPointLightsFlat(m_objLights, tri, cA, cB, cC);
     }
@@ -739,6 +941,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     setProjectionH(m_currentCamera->GetProjectionH());
+    beginSplitFrame();
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
     notePeakBump(balloc);
@@ -796,6 +999,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     if (!bvh.isLoaded()) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     setProjectionH(m_currentCamera->GetProjectionH());
+    beginSplitFrame();
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
     notePeakBump(balloc);
@@ -1115,6 +1319,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     setProjectionH(m_currentCamera->GetProjectionH());
+    beginSplitFrame();
 
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
