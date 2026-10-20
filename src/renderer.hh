@@ -172,9 +172,11 @@ class Renderer final {
     uint32_t m_reportedBump = 0;
 #ifdef PCDRV_SUPPORT
     // Triangles the renderer lost or bent since the last report, by cause:
-    // dropped past the ordering table, skinned ones dropped at the near
-    // plane, `leaf` (no longer counted: kept for the report's format), and
-    // ones whose screen vertices were clamped. Out of `tris` considered;
+    // dropped past the ordering table, `skinNear` skinned ones whose view-space
+    // edges do not fit the 16 bits the clipper takes them in (they went
+    // through the static path's clipper otherwise, and so count in `clip` and
+    // `split` too), `leaf` (no longer counted: kept for the report's format),
+    // and `clamp` (no longer counted either: nothing clamps). Out of `tris` considered;
     // `clip` counts the ones that went through clipTriangle (not a loss),
     // `split` the ones split against affine warp (not a loss either), `eqLo`
     // and `eqHi` the lowest and highest split threshold the frames used, in

@@ -1821,6 +1821,17 @@ void psxsplash::Renderer::renderSkinnedObjects(
 
     if (!m_skinSets || !m_skinStates || m_skinCount == 0) return;
 
+#if PSXSPLASH_FEATURE_LIGHTS
+    // Skinned meshes take no point lights; the shared leaf would apply the
+    // last static object's.
+    m_objLights.count = 0;
+#endif
+    // A triangle with a corner nearer than this goes to processTriangle: the
+    // GTE's divide overflow bound, or the affine-warp split's reach.
+    const int32_t nearOrSplitZ = eastl::max(m_nearSZ, m_splitZ);
+    psyqo::Matrix33 identity = {};
+    identity.vs[0].x.value = identity.vs[1].y.value = identity.vs[2].z.value = 4096;
+
     static psyqo::Matrix33 composedRots[SKINMESH_MAX_BONES];
     static psyqo::Vec3 composedTrans[SKINMESH_MAX_BONES];
     static BakedBoneMatrix lerpedBones[SKINMESH_MAX_BONES];
@@ -1924,59 +1935,101 @@ void psxsplash::Renderer::renderSkinnedObjects(
             if (bC >= animSet.boneCount) bC = 0;
 
             // Per-vertex rtps (3 calls instead of rtpt) due to different bone matrices
-            // Vertex A
-            writeSafe<PseudoRegister::Rotation>(composedRots[bA]);
-            writeSafe<PseudoRegister::Translation>(composedTrans[bA]);
-            writeSafe<PseudoRegister::V0>(tri.v0);
-            Kernels::rtps();
-            uint32_t sz0Raw; read<Register::SZ3>(&sz0Raw);
-            psyqo::Vertex projected0;
-            read<Register::SXY2>(&projected0.packed);
+            psyqo::Vertex projected[3];
+            uint32_t szRaw[3];
+            const uint8_t bones[3] = {bA, bB, bC};
+            const psyqo::GTE::PackedVec3* corners[3] = {&tri.v0, &tri.v1, &tri.v2};
+            for (int k = 0; k < 3; k++) {
+                writeSafe<PseudoRegister::Rotation>(composedRots[bones[k]]);
+                writeSafe<PseudoRegister::Translation>(composedTrans[bones[k]]);
+                writeSafe<PseudoRegister::V0>(*corners[k]);
+                Kernels::rtps();
+                read<Register::SZ3>(&szRaw[k]);
+                read<Register::SXY2>(&projected[k].packed);
+            }
 
-            // Vertex B
-            writeSafe<PseudoRegister::Rotation>(composedRots[bB]);
-            writeSafe<PseudoRegister::Translation>(composedTrans[bB]);
-            writeSafe<PseudoRegister::V0>(tri.v1);
-            Kernels::rtps();
-            uint32_t sz1Raw; read<Register::SZ3>(&sz1Raw);
-            psyqo::Vertex projected1;
-            read<Register::SXY2>(&projected1.packed);
-
-            // Vertex C
-            writeSafe<PseudoRegister::Rotation>(composedRots[bC]);
-            writeSafe<PseudoRegister::Translation>(composedTrans[bC]);
-            writeSafe<PseudoRegister::V0>(tri.v2);
-            Kernels::rtps();
-            uint32_t sz2Raw; read<Register::SZ3>(&sz2Raw);
-            psyqo::Vertex projected2;
-            read<Register::SXY2>(&projected2.packed);
-
-            int32_t sz0 = (int32_t)sz0Raw, sz1 = (int32_t)sz1Raw, sz2 = (int32_t)sz2Raw;
+            int32_t sz0 = (int32_t)szRaw[0], sz1 = (int32_t)szRaw[1], sz2 = (int32_t)szRaw[2];
 
             // All behind camera -> invisible
             if (sz0 <= 0 && sz1 <= 0 && sz2 <= 0) continue;
             // Beyond fog wall -> invisible
             if (fogFarSZ > 0 && sz0 > fogFarSZ && sz1 > fogFarSZ && sz2 > fogFarSZ) continue;
 
+            const int32_t minZ = eastl::min(eastl::min(sz0, sz1), sz2);
+            // A corner nearer than H/2 (where the GTE's SXY is wrong), an edge
+            // the affine-warp split may take, or a corner off the rasterizer's
+            // safe box: the static path's clipper and splitter handle it. They
+            // take a triangle under one matrix, so this one is restated in view
+            // space: RT the identity, TR the first corner's view position, the
+            // corners their offsets from it. RTPT then gives each corner the
+            // same MAC1-3, SZ and SXY its own bone's RTPS did.
+            if ((minZ < nearOrSplitZ) | outsideRasterizerRange(projected[0]) | outsideRasterizerRange(projected[1]) |
+                outsideRasterizerRange(projected[2])) {
+                // Each corner's view position, RT*V + TR of its own bone,
+                // unsaturated: the MAC1-3 its RTPS computed, again (read here
+                // and not after each RTPS, so the other triangles pay nothing).
+                int32_t view[3][3];
+                for (int k = 0; k < 3; k++) {
+                    writeSafe<PseudoRegister::Rotation>(composedRots[bones[k]]);
+                    writeSafe<PseudoRegister::Translation>(composedTrans[bones[k]]);
+                    writeSafe<PseudoRegister::V0>(*corners[k]);
+                    Kernels::mvmva<Kernels::MX::RT, Kernels::MV::V0, Kernels::TV::TR>();
+                    view[k][0] = (int32_t)readRaw<Register::MAC1, Safe>();
+                    view[k][1] = (int32_t)readRaw<Register::MAC2, Safe>();
+                    view[k][2] = (int32_t)readRaw<Register::MAC3, Safe>();
+                }
+                int16_t d[3][3];
+                bool fits = true;
+                for (int k = 0; k < 3; k++) {
+                    for (int a = 0; a < 3; a++) {
+                        const int32_t v = view[k][a] - view[0][a];
+                        fits &= v >= -0x8000 && v < 0x8000;
+                        d[k][a] = (int16_t)v;
+                    }
+                }
+                // An edge longer than 16 bits in view space, which a skinned
+                // triangle never has unless its bones tear it apart: dropped.
+                if (!fits) {
+                    RENDER_LOST(m_lost.skinNear++);
+                    continue;
+                }
+                // Restated in place and put back after, not copied: a fourth
+                // Tri copy made GCC outline Tri's copy constructor, a call per
+                // piece in clipTriangle and per child in splitTriangle (the
+                // courtyard, with no skinned mesh, 280 us a frame slower).
+                const psyqo::GTE::PackedVec3 m0 = tri.v0, m1 = tri.v1, m2 = tri.v2;
+                const uint16_t flags = tri.flags;
+                psyqo::GTE::PackedVec3* out[3] = {&tri.v0, &tri.v1, &tri.v2};
+                for (int k = 0; k < 3; k++) {
+                    out[k]->x.value = d[k][0];
+                    out[k]->y.value = d[k][1];
+                    out[k]->z.value = d[k][2];
+                }
+                // Skinned triangles always took the object's UV offset.
+                tri.flags = flags | ANIM_FLAG;
+                writeSafe<PseudoRegister::Rotation>(identity);
+                psyqo::Vec3 tr;
+                tr.x.value = view[0][0]; tr.y.value = view[0][1]; tr.z.value = view[0][2];
+                writeSafe<PseudoRegister::Translation>(tr);
+                processTriangle(tri, fogFarSZ, ot, balloc, obj->uvOffset);
+                tri.v0 = m0; tri.v1 = m1; tri.v2 = m2;
+                tri.flags = flags;
+                continue;
+            }
+
+            // Wholly past H/2 and inside the safe box: what processTriangle
+            // does with such a triangle, on the RTPS output already here.
             int32_t zIndex = eastl::max(eastl::max(sz0, sz1), sz2);
             if (zIndex > m_peakZ) m_peakZ = zIndex;
             // Past the table entirely -> dropped; straddling it -> the insert clamps it to the last bucket.
-            if (eastl::min(eastl::min(sz0, sz1), sz2) >= (int32_t)m_otSize) {
+            if (minZ >= (int32_t)m_otSize) {
                 RENDER_LOST(m_lost.ot++);
                 continue;
             }
-            if (zIndex < 1) zIndex = 1;
-
-            // Skip near-plane vertices (no subdivision for skinned meshes)
-            static constexpr int32_t NEAR_SZ_THRESHOLD = 4;
-            if (sz0 < NEAR_SZ_THRESHOLD || sz1 < NEAR_SZ_THRESHOLD ||
-                sz2 < NEAR_SZ_THRESHOLD) {
-                RENDER_LOST(m_lost.skinNear++);
-                continue;
-            }
+            if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
 
             // Off-screen reject
-            if (isCompletelyOutside(projected0, projected1, projected2)) continue;
+            if (isCompletelyOutside(projected[0], projected[1], projected[2])) continue;
 
             // Backface cull (SXY FIFO holds A,B,C after 3 sequential rtps calls)
             Kernels::nclip();
@@ -1984,78 +2037,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
             read<Register::MAC0>(reinterpret_cast<uint32_t*>(&mac0));
             if (mac0 <= 0) continue;
 
-#ifdef PCDRV_SUPPORT
-            if (clampTriangleForRasterizer(projected0, projected1, projected2)) m_lost.clamp++;
-#else
-            clampForRasterizer(projected0);
-            clampForRasterizer(projected1);
-            clampForRasterizer(projected2);
-#endif
-
-            // Per-vertex fog
-            psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
-            bool hasFog = false;
-            int32_t fogIR[3] = {0, 0, 0};
-            if (m_fog.enabled && fogFarSZ > 0) {
-                int32_t fogNear = fogFarSZ >> 3;
-                int32_t range = fogFarSZ - fogNear;
-                if (range < 1) range = 1;
-                int32_t szArr[3] = {sz0, sz1, sz2};
-                for (int vi = 0; vi < 3; vi++) {
-                    if (szArr[vi] <= fogNear) fogIR[vi] = 0;
-                    else if (szArr[vi] >= fogFarSZ) fogIR[vi] = 4096;
-                    else fogIR[vi] = ((szArr[vi] - fogNear) * 4096) / range;
-                }
-                hasFog = (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
-            }
-
-            psyqo::PrimPieces::UVCoords uvOffset = obj->uvOffset;
-
-            // Emit GPU primitives
-            if (tri.isUntextured()) {
-                if (hasFog) {
-                    cA = fogBlend(cA, fogIR[0], m_fog.color);
-                    cB = fogBlend(cB, fogIR[1], m_fog.color);
-                    cC = fogBlend(cC, fogIR[2], m_fog.color);
-                }
-                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
-                p.primitive.pointA = projected0; p.primitive.pointB = projected1; p.primitive.pointC = projected2;
-                p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
-                p.primitive.setOpaque();
-                ot.insert(p, zIndex);
-            } else if (hasFog) {
-                psyqo::Color texA = fogTexColor(cA, fogIR[0]);
-                psyqo::Color texB = fogTexColor(cB, fogIR[1]);
-                psyqo::Color texC = fogTexColor(cC, fogIR[2]);
-
-                insertFogPass(tri, projected0, projected1, projected2, uvOffset, fogIR, ot, balloc, zIndex);
-
-                auto& texP = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-                texP.primitive.pointA = projected0; texP.primitive.pointB = projected1; texP.primitive.pointC = projected2;
-                texP.primitive.uvA.u = tri.uvA.u + uvOffset.u; texP.primitive.uvA.v = tri.uvA.v + uvOffset.v;
-                texP.primitive.uvB.u = tri.uvB.u + uvOffset.u; texP.primitive.uvB.v = tri.uvB.v + uvOffset.v;
-                texP.primitive.uvC.u = tri.uvC.u + uvOffset.u; texP.primitive.uvC.v = tri.uvC.v + uvOffset.v;
-                texP.primitive.tpage = tri.tpage;
-                texP.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
-                psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
-                texP.primitive.clutIndex = clut;
-                texP.primitive.setColorA(texA); texP.primitive.setColorB(texB); texP.primitive.setColorC(texC);
-                texP.primitive.setOpaque();
-                ot.insert(texP, zIndex);
-            } else {
-                auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-                p.primitive.pointA = projected0; p.primitive.pointB = projected1; p.primitive.pointC = projected2;
-                p.primitive.uvA.u = tri.uvA.u + uvOffset.u; p.primitive.uvA.v = tri.uvA.v + uvOffset.v;
-                p.primitive.uvB.u = tri.uvB.u + uvOffset.u; p.primitive.uvB.v = tri.uvB.v + uvOffset.v;
-                p.primitive.uvC.u = tri.uvC.u + uvOffset.u; p.primitive.uvC.v = tri.uvC.v + uvOffset.v;
-                p.primitive.tpage = tri.tpage;
-                p.primitive.tpage.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
-                psyqo::PrimPieces::ClutIndex clut(tri.clutX, tri.clutY);
-                p.primitive.clutIndex = clut;
-                p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
-                p.primitive.setOpaque();
-                ot.insert(p, zIndex);
-            }
+            const int32_t sz[3] = {sz0, sz1, sz2};
+            emitTriangle(tri, projected[0], projected[1], projected[2], sz, zIndex, fogFarSZ, ot, balloc, obj->uvOffset);
         }
     }
 }
