@@ -18,6 +18,7 @@
 #include "gameobject.hh"
 #include "features.hh"
 #include "lightmath.hh"
+#include "shadowmath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
 
@@ -26,6 +27,7 @@ namespace psxsplash {
 class UISystem; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
+class NavRegionSystem;
 #ifdef PSXSPLASH_MEMOVERLAY
 class MemOverlay; // Forward declaration
 #endif
@@ -145,6 +147,16 @@ class Renderer final {
     }
 #endif
 
+#if PSXSPLASH_FEATURE_SHADOWS
+    /// The scene's blob shadows (shadowmath.hh). nullptr / 0 draws none.
+    void SetShadows(const ShadowRecord* shadows, int count) {
+        m_shadows = shadows; m_shadowCount = count;
+    }
+    /// The floor shadows land on. nullptr (or nav not loaded) puts each blob
+    /// flat under its object's bounds.
+    void SetShadowFloor(const NavRegionSystem* nav) { m_shadowNav = nav; }
+#endif
+
     static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr,
                               "Access to renderer was tried without prior initialization");
@@ -209,6 +221,14 @@ class Renderer final {
     ColourLut m_colourLuts[MAX_SCENE_LIGHTS];
     const uint32_t* colourLutFor(int sceneIndex);
     void prepareObjectLights(const GameObject* obj);
+#endif
+
+#if PSXSPLASH_FEATURE_SHADOWS
+    const ShadowRecord* m_shadows = nullptr;
+    int m_shadowCount = 0;
+    const NavRegionSystem* m_shadowNav = nullptr;
+    void renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
+                       int32_t fogFarSZ, OT& ot, Balloc& balloc);
 #endif
 
     TriangleRef* m_visibleRefs = nullptr;

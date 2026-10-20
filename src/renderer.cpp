@@ -468,6 +468,7 @@ void psxsplash::Renderer::processTriangle(
     }
 }
 
+
 // ============================================================================
 // Render paths
 // ============================================================================
@@ -496,6 +497,9 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     }
 #if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
 #endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
@@ -592,6 +596,9 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 
 #if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
+#endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
 #endif
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
@@ -1297,6 +1304,9 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 
 #if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
+#endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
 #endif
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
