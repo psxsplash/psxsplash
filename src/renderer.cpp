@@ -80,7 +80,7 @@ void psxsplash::Renderer::reportPeaks() {
 #ifdef PCDRV_SUPPORT
     // Development builds tell the editor what a scene really used, at most
     // once a second and only when a peak grew.
-    if (m_frameCount % 60 != 0) return;
+    if (m_frameCount % 60 != 0 || reportsHeld()) return;
     if (m_peakZ == m_reportedZ && m_peakBump == m_reportedBump) return;
     m_reportedZ = m_peakZ;
     m_reportedBump = m_peakBump;

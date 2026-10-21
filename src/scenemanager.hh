@@ -28,6 +28,9 @@
 #include "animation.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#include "perfmap.hh"
+#endif
 #include "tilesystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -539,6 +542,19 @@ namespace psxsplash {
         // frames and a change reloads the current scene, keeping the player
         // where they stand. Absent at boot, nothing is ever polled.
         void pollHotReload();
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+        // Performance map walk (src/perfmap.hh): with "perfmap.pos" beside the
+        // first scene, pins the player to each point and yaw in turn and prints
+        // the profiler's readings per pose.
+        void perfMapSceneStart(bool isFirstScene);
+        void perfMapPin();
+        void perfMapFrameEnded();
+        void perfMapPoseChanged();
+        uint8_t* m_perfMapData = nullptr;
+        perfmap::Walk m_perfMapWalk;
+        uint16_t m_perfMapRegion = NAV_NO_REGION;
+#endif
 
         static Random m_random;
         static Random m_randomGenerator;

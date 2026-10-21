@@ -11,6 +11,9 @@
 #include "loadingscreen.hh"
 #include "gtemath.hh"
 #include "networkmanager.hh"
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#include "common/syscalls/syscalls.h"
+#endif
 
 #include <psyqo/primitives/misc.hh>
 #include <psyqo/soft-math.hh>
@@ -555,6 +558,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     NetworkManager::Get().preTick(*this, m_dt12);
 #endif
 
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    perfMapPin();
+#endif
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameStart = gpu.now();
     uint32_t animationStart = frameStart;
@@ -900,6 +906,11 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // (no nav regions / no PSXPlayer), the camera is driven entirely
     // by cutscenes and Lua. After a cutscene ends in free mode, the
     // camera stays at the last cutscene position.
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    // Again after controls, collision, nav and Lua had their go, so the
+    // camera follows the pinned pose.
+    perfMapPin();
+#endif
     if (m_cameraFollowsPlayer && !cutsceneDrivesCamera()) {
         psyqo::Vec3 actorPos;
         psyqo::Vec3 actorRot;
@@ -939,6 +950,10 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameEnd = gpu.now();
     psxsplash::debug::Profiler::getInstance().endFrame(frameEnd - frameStart);
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    // After the frame is closed, so the walk's own output is not measured.
+    perfMapFrameEnded();
+#endif
 #endif
 }
 
@@ -1616,6 +1631,9 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         playerRotationZ = keptRotZ;
     }
     if (isFirstScene) m_hotReloadWatch = readHotReloadTag(m_hotReloadTag, m_hotReloadTagLen);
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    perfMapSceneStart(isFirstScene);
+#endif
 }
 
 // ============================================================================
@@ -2158,6 +2176,101 @@ void psxsplash::SceneManager::tickAgentStateMachine(uint16_t actorId, AgentRunti
         default:
             // All Lua-driven; C++ does nothing automatic.
             break;
+    }
+}
+#endif
+
+// ============================================================================
+// PERFORMANCE MAP WALK (profiler dev builds, src/perfmap.hh)
+// ============================================================================
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+void psxsplash::SceneManager::perfMapSceneStart(bool isFirstScene) {
+    auto& profiler = debug::Profiler::getInstance();
+    if (m_perfMapWalk.walking()) {
+        // A script changed scene mid-walk: the remaining points belong to the old one.
+        ramsyscall_printf("psxsplash: perf abort %d\n", (int)m_perfMapWalk.point());
+        m_perfMapWalk.stop();
+        profiler.setHidden(false);
+        Renderer::GetInstance().setReportsHeld(false);
+    }
+    if (m_perfMapData) {
+        FileLoader::Get().FreeFile(m_perfMapData);
+        m_perfMapData = nullptr;
+    }
+    if (!isFirstScene) return;
+
+    int size = 0;
+    uint8_t* data = FileLoader::Get().LoadFileSync("perfmap.pos", size);
+    if (!data) return;
+    perfmap::Header h;
+    if (!perfmap::parse(data, size, h)) {
+        ramsyscall_printf("psxsplash: perf badfile %d\n", size);
+        FileLoader::Get().FreeFile(data);
+        return;
+    }
+    // No nav regions means no PSXPlayer: the camera is the scene's own.
+    if (!m_navRegions.isLoaded()) {
+        ramsyscall_printf("psxsplash: perf noplayer\n");
+        FileLoader::Get().FreeFile(data);
+        return;
+    }
+    m_perfMapData = data;
+    m_perfMapWalk.begin(h);
+    ramsyscall_printf("psxsplash: perf begin %d %d\n", (int)h.count, (int)h.yawCount);
+    profiler.setHidden(true);
+    Renderer::GetInstance().setReportsHeld(true);
+    perfMapPoseChanged();
+}
+
+void psxsplash::SceneManager::perfMapPoseChanged() {
+    perfmap::Point p = perfmap::pointAt(m_perfMapData, m_perfMapWalk.point());
+    m_perfMapRegion = m_navRegions.findRegionClosest(p.x, p.y, p.z);
+}
+
+// Every frame, so gravity, collision push-back, nav clamping, pad input and
+// Lua cannot move the player or turn the follow camera off the pose.
+void psxsplash::SceneManager::perfMapPin() {
+    if (!m_perfMapWalk.walking()) return;
+    perfmap::Point p = perfmap::pointAt(m_perfMapData, m_perfMapWalk.point());
+    m_playerPosition.x.value = p.x;
+    m_playerPosition.y.value = p.y;
+    m_playerPosition.z.value = p.z;
+    m_playerNavRegion = m_perfMapRegion;  // picks the room the renderer starts from
+    m_velocityY = 0;
+    m_isGrounded = true;
+    playerRotationX.value = 0;
+    playerRotationY.value = perfmap::yawRaw(m_perfMapWalk.yaw(), m_perfMapWalk.header().yawCount);
+    playerRotationZ.value = 0;
+}
+
+static_assert(psxsplash::perfmap::SECTIONS == psxsplash::debug::PROFILER_SECTION_COUNT, "perfmap section count");
+
+void psxsplash::SceneManager::perfMapFrameEnded() {
+    if (!m_perfMapWalk.walking()) return;
+    auto& profiler = debug::Profiler::getInstance();
+    uint32_t sections[perfmap::SECTIONS];
+    for (int i = 0; i < perfmap::SECTIONS; i++) sections[i] = profiler.sectionTime((debug::ProfilerSection)i);
+    perfmap::Result r;
+    uint16_t point = m_perfMapWalk.point();
+    bool streaming = false;
+#if PSXSPLASH_FEATURE_STREAMING
+    streaming = StreamReader::Get().busy();
+#endif
+    if (!m_perfMapWalk.frameEnded(sections, profiler.totalFrameTime(), profiler.otherTime(), streaming, r)) return;
+    ramsyscall_printf("psxsplash: perf point %d yaw %d total %u max %u render %u anim %u coll %u lua %u ctrl %u nav %u other %u stream %d\n",
+                      (int)r.point, (int)r.yaw, r.total, r.maxTotal, r.section[debug::PROFILER_RENDERING],
+                      r.section[debug::PROFILER_ANIMATION], r.section[debug::PROFILER_COLLISION],
+                      r.section[debug::PROFILER_LUA], r.section[debug::PROFILER_CONTROLS],
+                      r.section[debug::PROFILER_NAVMESH], r.other, (int)r.streamFrames);
+    if (!m_perfMapWalk.walking()) {
+        ramsyscall_printf("psxsplash: perf done %d\n", (int)m_perfMapWalk.header().count);
+        FileLoader::Get().FreeFile(m_perfMapData);
+        m_perfMapData = nullptr;
+        profiler.setHidden(false);
+        Renderer::GetInstance().setReportsHeld(false);
+    } else if (m_perfMapWalk.point() != point) {
+        perfMapPoseChanged();
     }
 }
 #endif
