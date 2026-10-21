@@ -461,6 +461,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 85);
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // Before any script event, so onCreate already sees Background.Current().
+    showBackgroundIndex(m_backgrounds.startIndex());
+#endif
+
     L.RegisterSceneScripts(sceneSetup.sceneLuaFileIndex);
 
     L.OnSceneCreationStart();
@@ -501,11 +506,6 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     Controls::ShieldPadPollEnd();
 
     Renderer::GetInstance().SetCamera(m_currentCamera);
-
-#if PSXSPLASH_FEATURE_BACKGROUNDS
-    // Before the scripts start, so their first Background.Current() sees it.
-    showBackgroundIndex(m_backgrounds.startIndex());
-#endif
 
     L.OnSceneCreationEnd();
 
