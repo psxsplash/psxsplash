@@ -139,6 +139,7 @@ struct SplashpackSceneSetup {
     bool fogEnabled = false;
     uint8_t fogR = 0, fogG = 0, fogB = 0;
     uint8_t fogDensity = 5;
+    bool edgeFade = false;
     uint16_t fogMaskClut4 = 0, fogMaskClut8 = 0;
 
     const RoomData* rooms = nullptr;
@@ -194,6 +195,11 @@ struct SplashpackSceneSetup {
     uint16_t pointLightCount = 0;
     /// Offset to the streamed-geometry table (SPLASHPACKStreamTable), or 0.
     uint32_t streamTableOffset = 0;
+
+    // --- v28 ---
+    /// The shadow table (shadowmath.hh: u16 count, u16 pad, ShadowRecords),
+    /// or nullptr when the scene has no shadows.
+    const uint8_t* shadowTable = nullptr;
 };
 
 class SplashPackLoader {

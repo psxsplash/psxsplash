@@ -16,6 +16,8 @@
 #include "streq.hh"
 #include "navregion.hh"
 #include "memorycardmanager.hh"
+#include "shadowmath.hh"
+#include "splashpackversion.hh"
 
 namespace psxsplash {
 
@@ -64,7 +66,9 @@ struct SPLASHPACKFileHeader {
     uint8_t fogEnabled;
     uint8_t fogR, fogG, fogB;
     uint8_t fogDensity;
-    uint8_t pad3;
+    // Bit 0: edge fade (Renderer FogConfig::edgeFade). Was padding the editor
+    // wrote 0, so older packs read as off.
+    uint8_t renderFlags;
     uint16_t roomCount;
     uint16_t portalCount;
     uint16_t roomTriRefCount;
@@ -106,23 +110,14 @@ struct SPLASHPACKFileHeader {
     // default. Every scene of a game carries the same values.
     uint32_t orderingTableSize;
     uint32_t bumpAllocatorSize;
+    // --- v28 (appended; the header grows from 156 to 160) ---
+    // Offset to the shadow table, or 0 if none. SplashEdit writes v27 for a
+    // scene without shadows, so this word only exists when it is used.
+    uint32_t shadowTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == 156, "SPLASHPACKFileHeader must be 156 bytes");
-
-// Historical header sizes. The header has only ever grown by appending, so an
-// older pack is parsed by starting the cursor at the size it had back then.
-static constexpr uint32_t kSplashpackHeaderSizeV20 = 120;
-static constexpr uint32_t kSplashpackHeaderSizeV21 = 128;
-static constexpr uint32_t kSplashpackHeaderSizeV22 = 144;
-static constexpr uint32_t kSplashpackHeaderSizeV24 = 148;
-
-static uint32_t splashpackHeaderSize(uint16_t version) {
-    if (version >= 25) return sizeof(SPLASHPACKFileHeader);
-    if (version >= 24) return kSplashpackHeaderSizeV24;
-    if (version >= 22) return kSplashpackHeaderSizeV22;
-    if (version >= 21) return kSplashpackHeaderSizeV21;
-    return kSplashpackHeaderSizeV20;
-}
+static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV28,
+              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV28 bytes");
+// Historical sizes and splashpackHeaderSize(): splashpackversion.hh.
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
 // trivial to match exactly on both the C# writer and the C++ reader. Region
@@ -373,6 +368,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.fogG = header->fogG;
     setup.fogB = header->fogB;
     setup.fogDensity = header->fogDensity;
+    setup.edgeFade = (header->renderFlags & 1) != 0;
     setup.fogMaskClut4 = header->fogMaskClut4;
     setup.fogMaskClut8 = header->fogMaskClut8;
     setup.sceneType = header->sceneType;
@@ -744,6 +740,16 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         if (count > MAX_SCENE_LIGHTS) count = MAX_SCENE_LIGHTS;
         setup.pointLights = reinterpret_cast<const SPLASHPACKPointLight*>(table + 4);
         setup.pointLightCount = count;
+    }
+
+    // Blob shadows (v28+). The word does not exist in older headers.
+    if (header->version >= 28 && header->shadowTableOffset != 0) {
+        const uint8_t* table = data + header->shadowTableOffset;
+#if PSXSPLASH_FEATURE_SHADOWS
+        setup.shadowTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "shadows", "shadows");
+#endif
     }
 
     // Streamed world geometry. This word was reserved and written as 0 since v21.
