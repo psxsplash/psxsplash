@@ -34,4 +34,20 @@ inline void clampForRasterizer(psyqo::Vertex& v) {
     else if (v.y > SAFE_MAX_Y) v.y = SAFE_MAX_Y;
 }
 
+// True if clampForRasterizer would move the vertex: one unsigned range test per axis.
+inline bool outsideRasterizerRange(const psyqo::Vertex& v) {
+    return ((uint16_t)(v.x - SAFE_MIN_X) > (uint16_t)(SAFE_MAX_X - SAFE_MIN_X)) |
+           ((uint16_t)(v.y - SAFE_MIN_Y) > (uint16_t)(SAFE_MAX_Y - SAFE_MIN_Y));
+}
+
+// Clamp a projected triangle's three vertices; true if any of them moved,
+// which bends the triangle on screen.
+inline bool clampTriangleForRasterizer(psyqo::Vertex& v0, psyqo::Vertex& v1, psyqo::Vertex& v2) {
+    if (!(outsideRasterizerRange(v0) | outsideRasterizerRange(v1) | outsideRasterizerRange(v2))) return false;
+    clampForRasterizer(v0);
+    clampForRasterizer(v1);
+    clampForRasterizer(v2);
+    return true;
+}
+
 }  // namespace psxsplash
