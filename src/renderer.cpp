@@ -6,6 +6,7 @@
 #include <psyqo/fixed-point.hh>
 #include <psyqo/gte-kernels.hh>
 #include <psyqo/gte-registers.hh>
+#include <psyqo/hardware/gpu.hh>
 #include <psyqo/kernel.hh>
 #include <psyqo/matrix.hh>
 #include <psyqo/primitives/common.hh>
@@ -36,6 +37,8 @@
 using namespace psyqo::fixed_point_literals;
 using namespace psyqo::trig_literals;
 using namespace psyqo::GTE;
+using psxsplash::currentScreen;
+using psxsplash::ScreenMode;
 
 psxsplash::Renderer* psxsplash::Renderer::instance = nullptr;
 
@@ -45,10 +48,67 @@ void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
     clear<Register::TRX, Safe>();
     clear<Register::TRY, Safe>();
     clear<Register::TRZ, Safe>();
-    write<Register::OFX, Safe>(psyqo::FixedPoint<16>(160.0).raw());
-    write<Register::OFY, Safe>(psyqo::FixedPoint<16>(120.0).raw());
-    write<Register::H, Safe>(PROJ_H);
+    const ScreenMode& screen = currentScreen();
+    write<Register::OFX, Safe>(uint32_t(screen.width / 2) << 16);
+    write<Register::OFY, Safe>(uint32_t(screen.height / 2) << 16);
+    write<Register::H, Safe>(scaledProjectionH(kReferenceScreenLines / 2, screen));
     if (!instance) { instance = new Renderer(gpuInstance); }
+}
+
+psyqo::GPU::Configuration psxsplash::Renderer::GpuConfig(uint8_t videoMode) {
+    const ScreenMode mode = screenModeFor(videoMode);
+    psyqo::GPU::Configuration config;
+    config.set(mode.interlaced ? psyqo::GPU::Resolution::W640 : psyqo::GPU::Resolution::W320)
+        .set(psyqo::GPU::VideoMode::AUTO)
+        .set(psyqo::GPU::ColorMode::C15BITS)
+        .set(mode.interlaced ? psyqo::GPU::Interlace::INTERLACED : psyqo::GPU::Interlace::PROGRESSIVE);
+    return config;
+}
+
+void psxsplash::Renderer::ClearFramebuffers(psyqo::GPU& gpu) {
+    const ScreenMode& screen = currentScreen();
+    psyqo::Prim::FastFill ff(psyqo::Color{.r = 0, .g = 0, .b = 0});
+    ff.rect = psyqo::Rect{0, 0, screen.width, screen.height};
+    gpu.sendPrimitive(ff);
+    if (!screen.interlaced) {
+        ff.rect = psyqo::Rect{0, 256, screen.width, screen.height};
+        gpu.sendPrimitive(ff);
+    }
+    gpu.pumpCallbacks();
+}
+
+void psxsplash::Renderer::SetVideoMode(uint8_t videoMode) {
+    const ScreenMode mode = screenModeFor(videoMode);
+    const ScreenMode& cur = currentScreen();
+    if (mode.width == cur.width && mode.height == cur.height && mode.interlaced == cur.interlaced) return;
+    // GP1(00h) inside reinitialize resets the GPU: nothing may be in flight.
+    m_gpu.waitChainIdle();
+    m_gpu.reinitialize(GpuConfig(videoMode));
+    setCurrentScreen(mode);
+    // The reset turned the display off (GP1(03h) = 1); initialize() is the
+    // only other place that turns it on.
+    psyqo::Hardware::GPU::Ctrl = 0x03000000;
+    m_gpu.enableScissor();
+    write<Register::OFX, Safe>(uint32_t(mode.width / 2) << 16);
+    write<Register::OFY, Safe>(uint32_t(mode.height / 2) << 16);
+    if (m_currentCamera) write<Register::H, Safe>(screenProjH());
+    ClearFramebuffers(m_gpu);
+    // This frame's chain is already queued for the next flip, drawn and
+    // cleared for the old mode. Send an empty frame instead.
+    const uint8_t parity = m_gpu.getParity();
+    if (m_ots[parity]) m_ots[parity]->clear();
+    frameClear(m_clear[parity].primitive);
+}
+
+void psxsplash::Renderer::frameClear(psyqo::Prim::FastFill& ff) {
+    if (currentScreen().interlaced)
+        m_gpu.getClear(ff, m_clearcolor);
+    else
+        m_gpu.getNextClear(ff, m_clearcolor);
+}
+
+int32_t psxsplash::Renderer::screenProjH() const {
+    return scaledProjectionH(m_currentCamera->GetProjectionH(), currentScreen());
 }
 
 void psxsplash::Renderer::Configure(uint32_t otSize, uint32_t bumpSize) {
@@ -92,7 +152,7 @@ void psxsplash::Renderer::reportPeaks() {
 void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {
     m_currentCamera = &camera;
     // Update GTE H register to match camera's projection distance
-    write<Register::H, Unsafe>(camera.GetProjectionH());
+    write<Register::H, Unsafe>(scaledProjectionH(camera.GetProjectionH(), currentScreen()));
 }
 
 void psxsplash::Renderer::SetFog(const FogConfig& fog) {
@@ -475,7 +535,7 @@ void psxsplash::Renderer::processTriangle(
 void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
+    write<Register::H, Unsafe>(screenProjH());
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
     notePeakBump(balloc);
@@ -512,7 +572,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
-    m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    frameClear(clear.primitive);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -531,7 +591,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (!bvh.isLoaded()) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
+    write<Register::H, Unsafe>(screenProjH());
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
     notePeakBump(balloc);
@@ -609,7 +669,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
-    m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    frameClear(clear.primitive);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -659,8 +719,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = (vx >> 4) * projH / vzs + 160;
-    int32_t rawY = (vy >> 4) * projH / vzs + 120;
+    int32_t rawX = (vx >> 4) * projH / vzs + currentScreen().width / 2;
+    int32_t rawY = (vy >> 4) * projH / vzs + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -846,7 +906,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    write<Register::H, Unsafe>(m_currentCamera->GetProjectionH());
+    write<Register::H, Unsafe>(screenProjH());
 
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
@@ -862,7 +922,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
     int32_t camZ = m_currentCamera->GetPosition().z.raw();
-    int32_t projH = m_currentCamera->GetProjectionH();
+    int32_t projH = screenProjH();
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
     int catchAllIdx = roomCount - 1;
 
@@ -922,7 +982,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         }
     };
 
-    ScreenRect full = {-512, -512, 832, 752};
+    const ScreenMode& screen = currentScreen();
+    ScreenRect full = {-512, -512, int16_t(screen.width + 512), int16_t(screen.height + 512)};
 
     // Render a room's geometry, optionally clipped to a portal screen rect.
     // clipRect is the accumulated portal clip rectangle for portal-reached rooms,
@@ -1211,10 +1272,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int j = (i + 1) % 4;
                 if (!vis[i] || !vis[j]) continue;
                 int16_t x0 = sx[i], y0 = sy[i], x1 = sx[j], y1 = sy[j];
-                if (x0 < 0) x0 = 0; if (x0 > 319) x0 = 319;
-                if (y0 < 0) y0 = 0; if (y0 > 239) y0 = 239;
-                if (x1 < 0) x1 = 0; if (x1 > 319) x1 = 319;
-                if (y1 < 0) y1 = 0; if (y1 > 239) y1 = 239;
+                const int16_t maxX = currentScreen().width - 1, maxY = currentScreen().height - 1;
+                if (x0 < 0) x0 = 0; if (x0 > maxX) x0 = maxX;
+                if (y0 < 0) y0 = 0; if (y0 > maxY) y0 = maxY;
+                if (x1 < 0) x1 = 0; if (x1 > maxX) x1 = maxX;
+                if (y1 < 0) y1 = 0; if (y1 > maxY) y1 = maxY;
 
                 auto& tri = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
                 tri.primitive.pointA.x = x0; tri.primitive.pointA.y = y0;
@@ -1261,10 +1323,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int a = edges[e][0], b = edges[e][1];
                 if (!cvis[a] || !cvis[b]) continue;
                 int16_t x0 = csx[a], y0 = csy[a], x1 = csx[b], y1 = csy[b];
-                if (x0 < 0) x0 = 0; if (x0 > 319) x0 = 319;
-                if (y0 < 0) y0 = 0; if (y0 > 239) y0 = 239;
-                if (x1 < 0) x1 = 0; if (x1 > 319) x1 = 319;
-                if (y1 < 0) y1 = 0; if (y1 > 239) y1 = 239;
+                const int16_t maxX = currentScreen().width - 1, maxY = currentScreen().height - 1;
+                if (x0 < 0) x0 = 0; if (x0 > maxX) x0 = maxX;
+                if (y0 < 0) y0 = 0; if (y0 > maxY) y0 = maxY;
+                if (x1 < 0) x1 = 0; if (x1 > maxX) x1 = maxX;
+                if (y1 < 0) y1 = 0; if (y1 > maxY) y1 = maxY;
 
                 auto& tri = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
                 tri.primitive.pointA.x = x0; tri.primitive.pointA.y = y0;
@@ -1314,7 +1377,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
-    m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    frameClear(clear.primitive);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);

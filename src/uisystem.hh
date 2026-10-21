@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "vram_config.h"
 #include "renderer.hh"
 #include <psyqo/font.hh>
 #include <psyqo/gpu.hh>

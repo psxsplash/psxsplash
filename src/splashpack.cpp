@@ -73,7 +73,7 @@ struct SPLASHPACKFileHeader {
     uint32_t cutsceneTableOffset;
     uint16_t uiCanvasCount;
     uint8_t  uiFontCount;
-    uint8_t  uiPad5;
+    uint8_t  videoMode;      // screenmode.hh; 0 (320x240) in packs older than the field
     uint32_t uiTableOffset;
     uint32_t pixelDataOffset;
     uint16_t animationCount;
@@ -486,6 +486,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     }
 #endif
 
+    // Version 13 added the byte, always written 0 until it meant the video mode.
+    if (header->version >= 13) setup.videoMode = header->videoMode;
 #if PSXSPLASH_FEATURE_UI
     if (header->version >= 13) {
         setup.uiCanvasCount = header->uiCanvasCount;

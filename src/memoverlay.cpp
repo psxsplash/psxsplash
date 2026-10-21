@@ -5,7 +5,7 @@
 #include <psyqo/alloc.h>
 #include <psyqo/primitives/rectangles.hh>
 
-#include "vram_config.h"
+#include "screenmode.hh"
 
 // Linker symbols
 extern "C" {
@@ -41,7 +41,7 @@ void MemOverlay::renderOT(Renderer::OT& ot,
     // Bar dimensions - top-right corner
     static constexpr int16_t BAR_W = 80;
     static constexpr int16_t BAR_H = 6;
-    static constexpr int16_t BAR_X = VRAM_RES_WIDTH - BAR_W - 4;
+    const int16_t BAR_X = currentScreen().width - BAR_W - 4;
     static constexpr int16_t BAR_Y = 4;
 
     // Need room for two rectangles
@@ -81,7 +81,7 @@ void MemOverlay::renderText(psyqo::GPU& gpu) {
     if (!m_font || m_totalAvail == 0) return;
 
     static constexpr int16_t BAR_H = 6;
-    static constexpr int16_t BAR_X = VRAM_RES_WIDTH - 80 - 4;
+    const int16_t BAR_X = currentScreen().width - 80 - 4;
     static constexpr int16_t BAR_Y = 4;
     static constexpr int16_t TEXT_Y = BAR_Y + BAR_H + 2;
 

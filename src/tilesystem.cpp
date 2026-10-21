@@ -2,6 +2,7 @@
 
 #include <psyqo/kernel.hh>
 
+#include "screenmode.hh"
 #include "spritesystem.hh"
 
 namespace psxsplash {
@@ -33,10 +34,6 @@ static_assert(sizeof(SPLASHPACKTilemap) == 20, "SPLASHPACKTilemap must be 20 byt
 // of copying a potentially large grid into its own RAM.
 static_assert(sizeof(TileCell) == 2, "TileCell must be 2 bytes to alias the file");
 static_assert(sizeof(TileObject) == 6, "TileObject must be 6 bytes to alias the file");
-
-// Screen the map is culled against. The engine renders at 320x240.
-constexpr int32_t kScreenW = 320;
-constexpr int32_t kScreenH = 240;
 
 }  // namespace
 
@@ -147,8 +144,8 @@ void TileSystem::renderOT(Renderer::OT& ot,
     // cells; the screen holds at most ~21x16 of them. Cull to that window.
     int32_t x0 = tilemath::pixelToTile(viewX, m_tileW);
     int32_t y0 = tilemath::pixelToTile(viewY, m_tileH);
-    int32_t x1 = tilemath::pixelToTile(viewX + kScreenW - 1, m_tileW);
-    int32_t y1 = tilemath::pixelToTile(viewY + kScreenH - 1, m_tileH);
+    int32_t x1 = tilemath::pixelToTile(viewX + currentScreen().width - 1, m_tileW);
+    int32_t y1 = tilemath::pixelToTile(viewY + currentScreen().height - 1, m_tileH);
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > (int32_t)m_width - 1) x1 = (int32_t)m_width - 1;
