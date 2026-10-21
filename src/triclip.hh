@@ -34,4 +34,29 @@ inline void clampForRasterizer(psyqo::Vertex& v) {
     else if (v.y > SAFE_MAX_Y) v.y = SAFE_MAX_Y;
 }
 
+// True if clampForRasterizer would move the vertex: one unsigned range test per axis.
+__attribute__((always_inline)) inline bool outsideRasterizerRange(const psyqo::Vertex& v) {
+    return ((uint16_t)(v.x - SAFE_MIN_X) > (uint16_t)(SAFE_MAX_X - SAFE_MIN_X)) |
+           ((uint16_t)(v.y - SAFE_MIN_Y) > (uint16_t)(SAFE_MAX_Y - SAFE_MIN_Y));
+}
+
+// True if the GTE may have saturated a vertex's projection (SX and SY are
+// limited to -1024..1023), which can flip the triangle's winding on screen.
+__attribute__((always_inline)) inline bool gteSaturated(const psyqo::Vertex& v) {
+    return ((uint16_t)(v.x + 1023) > 2045) | ((uint16_t)(v.y + 1023) > 2045);
+}
+inline bool gteSaturated(const psyqo::Vertex& v0, const psyqo::Vertex& v1, const psyqo::Vertex& v2) {
+    return gteSaturated(v0) | gteSaturated(v1) | gteSaturated(v2);
+}
+
+// Clamp a projected triangle's three vertices; true if any of them moved,
+// which bends the triangle on screen.
+inline bool clampTriangleForRasterizer(psyqo::Vertex& v0, psyqo::Vertex& v1, psyqo::Vertex& v2) {
+    if (!(outsideRasterizerRange(v0) | outsideRasterizerRange(v1) | outsideRasterizerRange(v2))) return false;
+    clampForRasterizer(v0);
+    clampForRasterizer(v1);
+    clampForRasterizer(v2);
+    return true;
+}
+
 }  // namespace psxsplash

@@ -398,11 +398,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_controls[1].setSprintSpeed(sceneSetup.sprintSpeed);
     m_playerRadius = (int32_t)sceneSetup.playerRadius.value;
     if (m_playerRadius == 0) m_playerRadius = PLAYER_RADIUS;
-    m_jumpVelocityRaw = (int32_t)sceneSetup.jumpVelocity.value;
-    int32_t gravityRaw = (int32_t)sceneSetup.gravity.value;
-    m_gravityPerFrame = gravityRaw / 30;
-    if (m_gravityPerFrame == 0 && gravityRaw > 0) m_gravityPerFrame = 1;
-    m_velocityY = 0;
+    // Both exporters write the jump velocity per second and gravity per second^2.
+    m_jumpVelocityPerSec = (int32_t)sceneSetup.jumpVelocity.value;
+    m_gravityPerSec2 = (int32_t)sceneSetup.gravity.value;
+    m_terminalVelocity = jumpmath::terminalVelocity(m_gravityPerSec2, m_jumpVelocityPerSec);
+    jumpmath::stop(m_vertical);
     m_isGrounded = true;
     m_lastFrameTime = 0;
     m_dt12 = 4096;  // Default: 1.0 frame
@@ -768,7 +768,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
             // Jump input: Cross button triggers jump when grounded
             if (m_isGrounded && m_controls[0].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
-                m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
+                jumpmath::launch(m_vertical, m_jumpVelocityPerSec);  // Negative = upward (PSX Y-down)
                 m_isGrounded = false;
             }
         } else {
@@ -782,7 +782,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
             // Jump input: Cross button triggers jump when grounded
             if (m_isGrounded && m_controls[1].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
-                m_velocityY = -m_jumpVelocityRaw;  // Negative = upward (PSX Y-down)
+                jumpmath::launch(m_vertical, m_jumpVelocityPerSec);  // Negative = upward (PSX Y-down)
                 m_isGrounded = false;
             }
         } else {
@@ -800,19 +800,8 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     uint32_t navmeshStart = gpu.now();
 
     if (!freecam && m_navRegions.isLoaded()) {
-        // Apply gravity scaled by dt12 (4096 = 1 frame)
-        int32_t gravityDelta = (int32_t)(((int64_t)m_gravityPerFrame * m_dt12) >> 12);
-        m_velocityY += gravityDelta;
-
-        // Downward velocity cap
-        if (m_velocityY >= m_downwardVelocityCap)
-        {
-            m_velocityY = m_downwardVelocityCap;
-        }
-
-        // Apply vertical velocity to position, scaled by dt12
-        int32_t posYDelta = (int32_t)(((int64_t)m_velocityY * m_dt12) >> 12);
-        m_playerPosition.y.value += posYDelta;
+        // Gravity, terminal velocity and the Y move over dt12, in per-second units.
+        m_playerPosition.y.value += jumpmath::step(m_vertical, m_gravityPerSec2, m_terminalVelocity, m_dt12);
 
         int32_t px = m_playerPosition.x.value;
         int32_t py = m_playerPosition.y.value;
@@ -850,7 +839,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
             if (m_isGrounded) {
                 if (m_playerPosition.y.value > cameraAtFloor) {
                     m_playerPosition.y.value = cameraAtFloor;
-                    m_velocityY = 0;
+                    jumpmath::stop(m_vertical);
                 }
             }
             // Handles falling / jumping on to a region
@@ -1325,7 +1314,7 @@ void psxsplash::SceneManager::tickAgents() {
         }
 
         if (actorId == PLAYER_ACTOR_ID) {
-            m_velocityY = 0;
+            jumpmath::stop(m_vertical);
             m_isGrounded = true;
         }
     }
