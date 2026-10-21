@@ -66,7 +66,9 @@ struct SPLASHPACKFileHeader {
     uint8_t fogEnabled;
     uint8_t fogR, fogG, fogB;
     uint8_t fogDensity;
-    uint8_t pad3;
+    // Bit 0: edge fade (Renderer FogConfig::edgeFade). Was padding the editor
+    // wrote 0, so older packs read as off.
+    uint8_t renderFlags;
     uint16_t roomCount;
     uint16_t portalCount;
     uint16_t roomTriRefCount;
@@ -366,6 +368,7 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.fogG = header->fogG;
     setup.fogB = header->fogB;
     setup.fogDensity = header->fogDensity;
+    setup.edgeFade = (header->renderFlags & 1) != 0;
     setup.fogMaskClut4 = header->fogMaskClut4;
     setup.fogMaskClut8 = header->fogMaskClut8;
     setup.sceneType = header->sceneType;
