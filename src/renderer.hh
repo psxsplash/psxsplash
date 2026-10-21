@@ -19,6 +19,7 @@
 #include "features.hh"
 #include "lightmath.hh"
 #include "screenmode.hh"
+#include "shadowmath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
 
@@ -27,6 +28,7 @@ namespace psxsplash {
 class UISystem; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
+class NavRegionSystem;
 #ifdef PSXSPLASH_MEMOVERLAY
 class MemOverlay; // Forward declaration
 #endif
@@ -36,6 +38,10 @@ struct FogConfig {
     psyqo::Color color = {.r = 0, .g = 0, .b = 0};
     uint8_t density = 5;
     int32_t fogFarSZ = 0;
+    // Fade everything to the background colour just before the edge where it
+    // stops being drawn (fade.hh edgeDepth), fog on or off: the pack's
+    // render flags bit 0.
+    bool edgeFade = false;
     // Fog mask CLUTs (CLUT attribute words, 0 = none) for 4bpp and 8bpp
     // textures: entry 0 transparent, every other entry white with STP set.
     uint16_t maskClut4 = 0;
@@ -155,6 +161,16 @@ class Renderer final {
     }
 #endif
 
+#if PSXSPLASH_FEATURE_SHADOWS
+    /// The scene's blob shadows (shadowmath.hh). nullptr / 0 draws none.
+    void SetShadows(const ShadowRecord* shadows, int count) {
+        m_shadows = shadows; m_shadowCount = count;
+    }
+    /// The floor shadows land on. nullptr (or nav not loaded) puts each blob
+    /// flat under its object's bounds.
+    void SetShadowFloor(const NavRegionSystem* nav) { m_shadowNav = nav; }
+#endif
+
     static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr,
                               "Access to renderer was tried without prior initialization");
@@ -187,12 +203,36 @@ class Renderer final {
     int32_t m_peakZ = 0;
     int32_t m_reportedZ = 0;
     uint32_t m_reportedBump = 0;
+#ifdef PCDRV_SUPPORT
+    // Triangles the renderer lost or bent since the last report, by cause:
+    // dropped past the ordering table, `skinNear` skinned ones whose view-space
+    // edges do not fit the 16 bits the clipper takes them in (they went
+    // through the static path's clipper otherwise, and so count in `clip` and
+    // `split` too), `leaf` (no longer counted: kept for the report's format),
+    // and `clamp` (no longer counted either: nothing clamps). Out of `tris` considered;
+    // `clip` counts the ones that went through clipTriangle (not a loss),
+    // `split` the ones split against affine warp (not a loss either), `eqLo`
+    // and `eqHi` the lowest and highest split threshold the frames used, in
+    // quarter pixels, and `refused` the splits refused to keep the bump
+    // allocator from running out (drawn warped; may leave a T-junction).
+    struct LostCounts {
+        uint32_t ot = 0, skinNear = 0, leaf = 0, clamp = 0, tris = 0, clip = 0, split = 0, refused = 0;
+        uint32_t eqLo = 0xffffffff, eqHi = 0;
+    };
+    LostCounts m_lost;
+#endif
     void reportPeaks();
     void notePeakBump(const Balloc& balloc) {
         if (balloc.used() > m_peakBump) m_peakBump = balloc.used();
     }
 
     FogConfig m_fog;
+    // This frame's fade edge in SZ units (fade.hh edgeDepth), 0 = edge fade off.
+    int32_t m_edgeSZ = 0;
+    // This frame's depth below which nothing fades (fade.hh fadeStart).
+    int32_t m_fadeStartSZ = 0x7fffffff;
+    void beginFade(int32_t fogFarSZ);
+    static void fadeTriangle(int32_t sz0, int32_t sz1, int32_t sz2, int32_t fogFarSZ, int32_t edge, int32_t fogIR[3]);
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
     UISystem* m_uiSystem = nullptr;
@@ -228,6 +268,14 @@ class Renderer final {
     void prepareObjectLights(const GameObject* obj);
 #endif
 
+#if PSXSPLASH_FEATURE_SHADOWS
+    const ShadowRecord* m_shadows = nullptr;
+    int m_shadowCount = 0;
+    const NavRegionSystem* m_shadowNav = nullptr;
+    void renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
+                       int32_t fogFarSZ, OT& ot, Balloc& balloc);
+#endif
+
     TriangleRef* m_visibleRefs = nullptr;
     uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
@@ -243,8 +291,68 @@ class Renderer final {
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          OT& ot,
                          Balloc& balloc,
-                         int depth = 0,
-                         psyqo::PrimPieces::UVCoords uvOffset = { 0 });
+                         psyqo::PrimPieces::UVCoords uvOffset = { 0 }, int depth = 0);
+    // Splits tri at the midpoints of the edges in `edges` (bit i: corner i to
+    // corner i + 1) into 2, 3 or 4 children and draws them through
+    // processTriangle at depth + 1; or returns false, leaving tri to the
+    // caller, when the bump allocator is nearly full.
+    bool splitTriangle(const Tri& tri, unsigned edges, int32_t fogFarSZ, OT& ot, Balloc& balloc,
+                       psyqo::PrimPieces::UVCoords uvOffset, int depth);
+    // Fog, lights and the primitives of one projected triangle (both paths;
+    // inlined into both, so the per-triangle path pays no call for it).
+    __attribute__((always_inline)) inline void emitTriangle(const Tri& tri, const psyqo::Vertex& p0, const psyqo::Vertex& p1, const psyqo::Vertex& p2,
+                      const int32_t sz[3], int32_t zIndex, int32_t fogFarSZ, OT& ot, Balloc& balloc,
+                      psyqo::PrimPieces::UVCoords uvOffset);
+    // Clips tri, whose vertices are loaded in V0-V2 and projected by the GTE
+    // into `projected`, to the near plane and the rasterizer's safe box, and
+    // draws the pieces, projected in software where the GTE could not.
+    void clipTriangle(const Tri& tri, const psyqo::Vertex projected[3], int32_t fogFarSZ, OT& ot,
+                      Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset);
+    // The GTE projects a vertex exactly only from SZ = (H >> 1) + 1: at
+    // SZ <= H/2 its H/SZ division overflows and SXY comes out as if H/SZ were
+    // 2. Triangles with a vertex nearer than that are clipped and projected
+    // in software. No margin is needed: SZ is the GTE's own integer.
+    int32_t m_nearSZ = ((kReferenceScreenLines / 2) >> 1) + 1;
+    // The clipper's near plane, in SZ units; and the inset of its box from the
+    // rasterizer's safe box, in pixels, for the rounding of the projection.
+    static constexpr int32_t CLIP_NEAR_Z = 8;
+    static constexpr int32_t CLIP_BOX_MARGIN = 4;
+    void setProjectionH(int32_t h);
+    // Affine-warp split. The GPU interpolates texture coordinates linearly on
+    // screen; along an edge of screen length L between view depths z0 and z1
+    // the texel the 3D midpoint carries lands L*|z1 - z0| / (2*(z0 + z1))
+    // pixels from the screen midpoint where it belongs. An edge further off
+    // than m_splitQ quarter pixels is split at its model-space midpoint,
+    // decided from its two endpoints alone, so both triangles sharing it agree;
+    // down to SPLIT_DEPTH levels. Measured on the courtyard, lamplighter and
+    // the walk worlds: 8 pixels (SPLIT_ERR_Q) and 3 levels clear the near
+    // chevrons; 4 pixels or a fourth level cost frames without a visible
+    // difference near the camera.
+    static constexpr int32_t SPLIT_ERR_Q = 32;
+    static constexpr int SPLIT_DEPTH = 3;
+    // Only edges with an end nearer than SPLIT_NEAR halves of H are split:
+    // the corners the GTE cannot project, the warp the old near-plane
+    // subdivision hid. Each child there is a clipped triangle, and 2H or 4H
+    // cost the lamplighter 3 to 8 ms a frame. Farther geometry keeps the GPU's
+    // affine mapping and pays a single compare.
+    static constexpr int32_t SPLIT_NEAR = 1;
+    int32_t m_splitZ = 0;
+    // The threshold is one value for a whole frame, so no split is refused
+    // halfway through one (which would open a T-junction against a neighbour
+    // split earlier). Between frames beginSplitFrame moves it: a frame that
+    // made more than SPLIT_BUDGET children raises it by a quarter, up to
+    // SPLIT_ERR_Q_MAX; one under half the budget lowers it by an eighth, down
+    // to SPLIT_ERR_Q; in between it holds. 1024 keeps it at the base in the
+    // courtyard, lamplighter and walk worlds. At 512 it rose to 10 pixels in
+    // the courtyard, and at the walk worlds' end it sat at the ceiling while
+    // their children fell only a tenth: there most splits are of edges
+    // crossing the near plane, which qualify at any threshold.
+    static constexpr int32_t SPLIT_BUDGET = 1024;
+    static constexpr int32_t SPLIT_ERR_Q_MAX = 8 * SPLIT_ERR_Q;
+    int32_t m_splitQ = SPLIT_ERR_Q;
+    int32_t m_splitKids = 0;
+    void beginSplitFrame();
+    int32_t m_projH = 0;
 
 #if PSXSPLASH_FEATURE_SKIN
     void renderSkinnedObjects(eastl::vector<GameObject*>& objects,

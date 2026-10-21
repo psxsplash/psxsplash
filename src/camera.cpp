@@ -1,6 +1,8 @@
 #include "camera.hh"
 #include "screenmode.hh"
 
+#include "fade.hh"
+
 #include <psyqo/fixed-point.hh>
 #include <psyqo/matrix.hh>
 #include <psyqo/gte-math.hh>
@@ -74,7 +76,7 @@ void psxsplash::Camera::ExtractFrustum(Frustum& frustum) const {
     frustum.planes[1].nx = -fwdX;
     frustum.planes[1].ny = -fwdY;
     frustum.planes[1].nz = -fwdZ;
-    frustum.planes[1].d = fwdDotCam + (4096 * 2000);
+    frustum.planes[1].d = fwdDotCam + fade::kFarPlaneSZ;
     
     frustum.planes[2].nx = ((int64_t)rightX * H + (int64_t)fwdX * SCREEN_HALF_WIDTH) >> 12;
     frustum.planes[2].ny = ((int64_t)rightY * H + (int64_t)fwdY * SCREEN_HALF_WIDTH) >> 12;

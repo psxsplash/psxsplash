@@ -185,6 +185,75 @@ uint16_t NavRegionSystem::findRegionClosest(int32_t x, int32_t y, int32_t z) con
     return best;
 }
 
+uint16_t NavRegionSystem::findFloorUnder(int32_t x, int32_t z, int32_t yTop, int32_t yBottom, int32_t maxDrop,
+                                         int32_t& floorY) const {
+    uint16_t best = NAV_NO_REGION;
+    int32_t bestDist = 0x7FFFFFFF;
+    for (uint16_t i = 0; i < m_header.regionCount; i++) {
+        if (!pointInRegion(x, z, i)) continue;
+        int32_t fy = getFloorY(x, z, i);
+        if (fy < yTop || fy > yBottom + maxDrop) continue;
+        int32_t d = fy - yBottom;
+        if (d < 0) d = -d;
+        if (d < bestDist) {
+            bestDist = d;
+            best = i;
+            floorY = fy;
+        }
+    }
+    return best;
+}
+
+// Squared XZ distance from p to the segment ab, in 64 bits: closestPointOnSegment
+// works in 4.12 products, which lose a short edge entirely at small GTE scales.
+static int64_t segmentDistSq(int32_t px, int32_t pz, int32_t ax, int32_t az, int32_t bx, int32_t bz) {
+    int64_t abx = (int64_t)bx - ax, abz = (int64_t)bz - az;
+    int64_t apx = (int64_t)px - ax, apz = (int64_t)pz - az;
+    int64_t lenSq = abx * abx + abz * abz;
+    int64_t dot = apx * abx + apz * abz;
+    int64_t dx, dz;
+    if (lenSq == 0 || dot <= 0) {
+        dx = apx; dz = apz;
+    } else if (dot >= lenSq) {
+        dx = (int64_t)px - bx; dz = (int64_t)pz - bz;
+    } else {
+        // t = dot / lenSq in 4.12, in 32-bit division (the engine links no
+        // 64-bit one): scale both down until dot << 12 fits.
+        while (lenSq > (1 << 18)) {
+            lenSq >>= 1;
+            dot >>= 1;
+        }
+        int32_t t = ((int32_t)dot << 12) / (int32_t)lenSq;
+        dx = apx - ((abx * t) >> 12);
+        dz = apz - ((abz * t) >> 12);
+    }
+    return dx * dx + dz * dz;
+}
+
+int32_t NavRegionSystem::distanceToWalkoffEdge(int32_t x, int32_t z, uint16_t regionIndex) const {
+    if (regionIndex >= m_header.regionCount) return 0x7FFFFFFF;
+    const auto& reg = m_regions[regionIndex];
+    int64_t best = -1;
+    for (int i = 0; i < reg.vertCount; i++) {
+        if (!(reg.walkoffEdgeMask & (1u << i))) continue;
+        int next = (i + 1) % reg.vertCount;
+        int64_t d = segmentDistSq(x, z, reg.vertsX[i], reg.vertsZ[i], reg.vertsX[next], reg.vertsZ[next]);
+        if (best < 0 || d < best) best = d;
+    }
+    if (best < 0) return 0x7FFFFFFF;
+    int64_t r = 0;
+    // floor(sqrt(best)), at most 2^31.
+    for (int64_t bit = (int64_t)1 << 62; bit; bit >>= 2) {
+        if (best >= r + bit) {
+            best -= r + bit;
+            r = (r >> 1) + bit;
+        } else {
+            r >>= 1;
+        }
+    }
+    return r > 0x7FFFFFFF ? 0x7FFFFFFF : (int32_t)r;
+}
+
 uint16_t NavRegionSystem::findRegionNearest(int32_t x, int32_t y, int32_t z) const {
     uint16_t closest = findRegionClosest(x, y, z);
     if (closest != NAV_NO_REGION) return closest;
