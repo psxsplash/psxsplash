@@ -16,6 +16,7 @@
 #include "streq.hh"
 #include "navregion.hh"
 #include "memorycardmanager.hh"
+#include "backgroundmath.hh"
 
 namespace psxsplash {
 
@@ -106,8 +107,11 @@ struct SPLASHPACKFileHeader {
     // default. Every scene of a game carries the same values.
     uint32_t orderingTableSize;
     uint32_t bumpAllocatorSize;
+    // --- v28 (appended; the header grows from 156 to 160) ---
+    // Offset to the baked background table (BackgroundTableHeader), or 0 if none.
+    uint32_t backgroundTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == 156, "SPLASHPACKFileHeader must be 156 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == 160, "SPLASHPACKFileHeader must be 160 bytes");
 
 // Historical header sizes. The header has only ever grown by appending, so an
 // older pack is parsed by starting the cursor at the size it had back then.
@@ -115,9 +119,11 @@ static constexpr uint32_t kSplashpackHeaderSizeV20 = 120;
 static constexpr uint32_t kSplashpackHeaderSizeV21 = 128;
 static constexpr uint32_t kSplashpackHeaderSizeV22 = 144;
 static constexpr uint32_t kSplashpackHeaderSizeV24 = 148;
+static constexpr uint32_t kSplashpackHeaderSizeV25 = 156;
 
 static uint32_t splashpackHeaderSize(uint16_t version) {
-    if (version >= 25) return sizeof(SPLASHPACKFileHeader);
+    if (version >= 28) return sizeof(SPLASHPACKFileHeader);
+    if (version >= 25) return kSplashpackHeaderSizeV25;
     if (version >= 24) return kSplashpackHeaderSizeV24;
     if (version >= 22) return kSplashpackHeaderSizeV22;
     if (version >= 21) return kSplashpackHeaderSizeV21;
@@ -744,6 +750,17 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         if (count > MAX_SCENE_LIGHTS) count = MAX_SCENE_LIGHTS;
         setup.pointLights = reinterpret_cast<const SPLASHPACKPointLight*>(table + 4);
         setup.pointLightCount = count;
+    }
+
+    // Baked backgrounds (v28+). The pixels ride the .vram atlases like every
+    // other texture; only the table is read here.
+    if (header->version >= 28 && header->backgroundTableOffset != 0) {
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        setup.backgroundTableOffset = header->backgroundTableOffset;
+#else
+        skipCompiledOut(reinterpret_cast<const BackgroundTableHeader*>(data + header->backgroundTableOffset)->count,
+                        "baked backgrounds", "backgrounds");
+#endif
     }
 
     // Streamed world geometry. This word was reserved and written as 0 since v21.

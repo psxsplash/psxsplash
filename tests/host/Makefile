@@ -25,12 +25,14 @@ SPRITE_SRCS := $(SRC_DIR)/spritemath.cpp
 TILE_SRCS   := $(SRC_DIR)/tilemath.cpp
 LIGHT_SRCS  := $(SRC_DIR)/lightmath.cpp
 STREAM_SRCS := $(SRC_DIR)/streamplanner.cpp
+BG_SRCS     := $(SRC_DIR)/backgroundmath.cpp
 
 TEST_BIN   := $(BUILD)/netlink_tests
 SPRITE_BIN := $(BUILD)/sprite_tests
 TILE_BIN   := $(BUILD)/tile_tests
 LIGHT_BIN  := $(BUILD)/light_tests
 STREAM_BIN := $(BUILD)/stream_tests
+BG_BIN     := $(BUILD)/background_tests
 GEN_BIN    := $(BUILD)/gen_vectors
 
 .PHONY: all test vectors clean
@@ -55,10 +57,13 @@ $(LIGHT_BIN): test_light.cpp testing.hh compat.hh $(LIGHT_SRCS) $(SRC_DIR)/light
 $(STREAM_BIN): test_stream.cpp testing.hh compat.hh $(STREAM_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_stream.cpp $(STREAM_SRCS)
 
+$(BG_BIN): test_background.cpp testing.hh compat.hh $(BG_SRCS) $(SRC_DIR)/backgroundmath.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_background.cpp $(BG_SRCS)
+
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(BG_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -69,6 +74,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN)
 	@$(LIGHT_BIN)
 	@echo "== stream =="
 	@$(STREAM_BIN)
+	@echo "== background =="
+	@$(BG_BIN)
 
 vectors: $(GEN_BIN)
 	@mkdir -p $(VEC_DIR)
