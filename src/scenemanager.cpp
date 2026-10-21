@@ -2233,7 +2233,8 @@ void psxsplash::SceneManager::perfMapPoseChanged() {
 // Every frame, so gravity, collision push-back, nav clamping, pad input and
 // Lua cannot move the player or turn the follow camera off the pose. The
 // camera is forced to follow the player: the map is about the player's view,
-// even in a scene whose script turns follow off or follows another actor.
+// even in a scene whose script turns follow off or follows another actor, or
+// whose cutscene drives the camera.
 void psxsplash::SceneManager::perfMapPin() {
     if (!m_perfMapWalk.walking()) return;
     perfmap::Point p = perfmap::pointAt(m_perfMapData, m_perfMapWalk.point());
@@ -2248,6 +2249,11 @@ void psxsplash::SceneManager::perfMapPin() {
     playerRotationZ.value = 0;
     m_cameraFollowsPlayer = true;
     m_cameraFollowActor = PLAYER_ACTOR_ID;
+#if PSXSPLASH_FEATURE_CUTSCENE
+    // A cutscene with camera tracks (an intro, one a trigger starts) would
+    // put its own camera in the readings; end it as if it had finished.
+    if (cutsceneDrivesCamera()) m_cutscenePlayer.stop();
+#endif
 }
 
 static_assert(psxsplash::perfmap::SECTIONS == psxsplash::debug::PROFILER_SECTION_COUNT, "perfmap section count");

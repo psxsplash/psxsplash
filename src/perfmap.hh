@@ -18,6 +18,8 @@
 // S how many sampled frames had streaming I/O queued or in flight. Instead of
 // begin: "perf noplayer" (no nav regions, so no player) or "perf badfile <size>";
 // "perf abort I" when a script changes scene mid-walk.
+// During the walk the camera follows the player: follow is forced on and a
+// cutscene with camera tracks is stopped (its onComplete runs).
 //
 // perfmap.pos, little-endian, 16-byte header then the points:
 //   char[4] "PMAP"
