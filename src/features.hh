@@ -45,6 +45,9 @@
 #ifndef PSXSPLASH_FEATURE_COLLISION
 #define PSXSPLASH_FEATURE_COLLISION 1  // object colliders and trigger boxes
 #endif
+#ifndef PSXSPLASH_FEATURE_SHADOWS
+#define PSXSPLASH_FEATURE_SHADOWS 1    // blob shadows under objects
+#endif
 
 #if PSXSPLASH_FEATURE_AGENTS && !PSXSPLASH_FEATURE_NAV
 #error "PSXSPLASH_FEATURE_AGENTS needs PSXSPLASH_FEATURE_NAV: agents path along nav regions"

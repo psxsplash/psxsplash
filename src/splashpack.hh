@@ -194,6 +194,11 @@ struct SplashpackSceneSetup {
     uint16_t pointLightCount = 0;
     /// Offset to the streamed-geometry table (SPLASHPACKStreamTable), or 0.
     uint32_t streamTableOffset = 0;
+
+    // --- v28 ---
+    /// The shadow table (shadowmath.hh: u16 count, u16 pad, ShadowRecords),
+    /// or nullptr when the scene has no shadows.
+    const uint8_t* shadowTable = nullptr;
 };
 
 class SplashPackLoader {

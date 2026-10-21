@@ -620,6 +620,10 @@ namespace psxsplash {
         const char* m_pointLightNames[MAX_SCENE_LIGHTS];
         int m_pointLightCount = 0;
 #endif
+#if PSXSPLASH_FEATURE_SHADOWS
+        ShadowRecord m_shadows[MAX_SCENE_SHADOWS];
+        int m_shadowCount = 0;
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
 #endif
