@@ -10,7 +10,7 @@ namespace psxsplash {
 
 class Camera;
 
-// Baked backgrounds of a scene (splashpack v28). At most one shows at a time:
+// Baked backgrounds of a scene (splashpack v29). At most one shows at a time:
 // its image fills the screen behind the world, its layers cut in front of
 // whatever is drawn behind their depth, and the objects baked into it are
 // not drawn (they still collide, trigger and carry nav).

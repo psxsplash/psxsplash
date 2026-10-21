@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-// Baked backgrounds (splashpack v28): the records as stored, and the reads
+// Baked backgrounds (splashpack v29): the records as stored, and the reads
 // over them, free of psyqo so tests/host/test_background.cpp can run this exact
 // code natively. Drawing them lives in backgroundsystem.cpp.
 //
