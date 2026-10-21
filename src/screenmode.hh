@@ -32,7 +32,29 @@ constexpr int32_t scaledProjectionH(int32_t authoredH, const ScreenMode& m) {
     return authoredH * m.height / kReferenceScreenLines;
 }
 
+// The GPU drops a triangle spanning more than 1023x511 pixels and takes
+// vertex coordinates -1024..1023. The rasterizer's safe box is that span
+// centred on the screen (on OFX/OFY), so it covers the whole screen in either
+// mode: -351..672 x -135..376 at 320x240, -191..832 x -15..496 at 640x480.
+// Vertices are clamped or clipped to it (triclip.hh, Renderer::clipTriangle).
+constexpr int16_t kSafeSpanX = 1023;
+constexpr int16_t kSafeSpanY = 511;
+struct SafeBox {
+    int16_t minX, maxX, minY, maxY;
+};
+constexpr SafeBox safeBoxFor(const ScreenMode& m) {
+    return {int16_t(m.width / 2 - kSafeSpanX / 2), int16_t(m.width / 2 - kSafeSpanX / 2 + kSafeSpanX),
+            int16_t(m.height / 2 - kSafeSpanY / 2), int16_t(m.height / 2 - kSafeSpanY / 2 + kSafeSpanY)};
+}
+
 const ScreenMode& currentScreen();
 void setCurrentScreen(const ScreenMode& m);
+
+// The current screen's safe box: read on every triangle, so a plain global
+// that setCurrentScreen keeps in step rather than a call.
+namespace detail {
+extern SafeBox g_safeBox;
+}
+inline const SafeBox& safeBox() { return detail::g_safeBox; }
 
 }  // namespace psxsplash

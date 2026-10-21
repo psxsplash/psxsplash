@@ -473,10 +473,11 @@ void psxsplash::Renderer::processTriangle(
         // away, on the same side; elsewhere it is within a pixel. Either way
         // the corner is beyond that side by more than a pixel, as the
         // clipper's own test would find.
-        auto outcode = [](const psyqo::Vertex& p, int32_t sz) {
+        const int32_t farX = currentScreen().width + 3, farY = currentScreen().height + 3;
+        auto outcode = [farX, farY](const psyqo::Vertex& p, int32_t sz) {
             unsigned c = sz < CLIP_NEAR_Z ? 1u : 0u;
             if (sz > 0 && sz < 0xffff)  // at 0xffff SZ may have saturated, below the true z
-                c |= (p.x < -3 ? 2u : 0u) | (p.x > 323 ? 4u : 0u) | (p.y < -3 ? 8u : 0u) | (p.y > 243 ? 16u : 0u);
+                c |= (p.x < -3 ? 2u : 0u) | (p.x > farX ? 4u : 0u) | (p.y < -3 ? 8u : 0u) | (p.y > farY ? 16u : 0u);
             return c;
         };
         if (outcode(projected[0], sz0) & outcode(projected[1], sz1) & outcode(projected[2], sz2)) return;
@@ -500,7 +501,7 @@ void psxsplash::Renderer::processTriangle(
     if (depth < SPLIT_DEPTH && minZ < zSplit) {
         const int32_t zLo = nearPlane ? eastl::max(minZ, CLIP_NEAR_Z) : minZ;
         const int32_t zHi = nearPlane ? eastl::max(maxZ, CLIP_NEAR_Z) : maxZ;
-        if (3 * (SAFE_MAX_X - SAFE_MIN_X) * (zHi - zLo) > 2 * q * zLo) {
+        if (3 * kSafeSpanX * (zHi - zLo) > 2 * q * zLo) {
             const int32_t szs[3] = {sz0, sz1, sz2};
             int32_t px[3], py[3], pz[3];
             bool test = true;
@@ -550,8 +551,9 @@ void psxsplash::Renderer::processTriangle(
                         y = ofy + clampTo(clampTo(vy[i], (1 << 21) - 1) * h / z, 4096);
                         pz[i] = z;
                     }
-                    px[i] = x < SAFE_MIN_X ? SAFE_MIN_X : x > SAFE_MAX_X ? SAFE_MAX_X : x;
-                    py[i] = y < SAFE_MIN_Y ? SAFE_MIN_Y : y > SAFE_MAX_Y ? SAFE_MAX_Y : y;
+                    const SafeBox& box = safeBox();
+                    px[i] = x < box.minX ? box.minX : x > box.maxX ? box.maxX : x;
+                    py[i] = y < box.minY ? box.minY : y > box.maxY ? box.maxY : y;
                 }
             }
             if (test) {
@@ -813,8 +815,10 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
     // Plane distances, >= 0 inside: z - CLIP_NEAR_Z for the near plane, then
     // k*(x or y) + c*z for the box sides, k = +-H.
     const int32_t sideK[4] = {h, -h, h, -h};
-    const int32_t sideC[4] = {ofx - (SAFE_MIN_X + CLIP_BOX_MARGIN), (SAFE_MAX_X - CLIP_BOX_MARGIN) - ofx,
-                              ofy - (SAFE_MIN_Y + CLIP_BOX_MARGIN), (SAFE_MAX_Y - CLIP_BOX_MARGIN) - ofy};
+    const SafeBox& box = safeBox();
+    const int32_t X0 = box.minX + CLIP_BOX_MARGIN, X1 = box.maxX - CLIP_BOX_MARGIN;
+    const int32_t Y0 = box.minY + CLIP_BOX_MARGIN, Y1 = box.maxY - CLIP_BOX_MARGIN;
+    const int32_t sideC[4] = {ofx - X0, X1 - ofx, ofy - Y0, Y1 - ofy};
 
     // A triangle cut by five planes has at most 3 + 5 corners.
     ClipVert bufA[8], bufB[8];
@@ -880,8 +884,6 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
     // distance would: floor(v) >= X0 iff v >= X0, and floor(v) < X1 implies
     // v < X1 (a corner landing on X1 itself takes the slow path). The GTE's
     // own SXY is within a pixel or two of floor(v), so it must be 3 pixels in.
-    constexpr int32_t X0 = SAFE_MIN_X + CLIP_BOX_MARGIN, X1 = SAFE_MAX_X - CLIP_BOX_MARGIN;
-    constexpr int32_t Y0 = SAFE_MIN_Y + CLIP_BOX_MARGIN, Y1 = SAFE_MAX_Y - CLIP_BOX_MARGIN;
     bool fast = h < 512;
     for (int i = 0; i < 3 && fast; i++) {
         const ClipVert& c = poly[i];
