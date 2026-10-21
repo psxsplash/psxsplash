@@ -10,6 +10,7 @@
 #include "features.hh"
 #include "random.hh"
 #include "gtemath.hh"
+#include "jumpmath.hh"
 #include "bvh.hh"
 #include "camera.hh"
 #include "collision.hh"
@@ -637,9 +638,11 @@ namespace psxsplash {
         psyqo::FixedPoint<12, uint16_t> m_playerHeight;
 
         int32_t m_playerRadius;
-        int32_t m_velocityY;
-        int32_t m_gravityPerFrame;
-        int32_t m_jumpVelocityRaw;
+        // Splashpack units: velocities per second, gravity per second^2 (see jumpmath.hh).
+        jumpmath::VerticalMotion m_vertical;
+        int32_t m_gravityPerSec2;
+        int32_t m_jumpVelocityPerSec;
+        int32_t m_terminalVelocity;
         bool m_isGrounded;
 
         // Frame timing
@@ -767,7 +770,6 @@ namespace psxsplash {
         void clearScene();  // Deallocate current scene objects
 
         const uint16_t m_coyoteTimeDistance = 24; // How far you can fall and still jump
-        const uint16_t m_downwardVelocityCap = 32; // Limit downward velocity
 
         // VRAM/SPU upload from separate data files (v20+)
         void uploadVramData(uint8_t* vramData, int vramSize);
