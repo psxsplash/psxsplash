@@ -554,6 +554,10 @@ namespace psxsplash {
         uint8_t* m_perfMapData = nullptr;
         perfmap::Walk m_perfMapWalk;
         uint16_t m_perfMapRegion = NAV_NO_REGION;
+        // The scene's camera follow state at the start of the walk, which
+        // forces it to the player; put back after "perf done".
+        bool m_perfMapSavedFollows = true;
+        uint16_t m_perfMapSavedFollowActor = PLAYER_ACTOR_ID;
 #endif
 
         static Random m_random;

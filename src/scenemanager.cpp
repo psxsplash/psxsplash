@@ -2216,6 +2216,8 @@ void psxsplash::SceneManager::perfMapSceneStart(bool isFirstScene) {
         return;
     }
     m_perfMapData = data;
+    m_perfMapSavedFollows = m_cameraFollowsPlayer;
+    m_perfMapSavedFollowActor = m_cameraFollowActor;
     m_perfMapWalk.begin(h);
     ramsyscall_printf("psxsplash: perf begin %d %d\n", (int)h.count, (int)h.yawCount);
     profiler.setHidden(true);
@@ -2229,7 +2231,9 @@ void psxsplash::SceneManager::perfMapPoseChanged() {
 }
 
 // Every frame, so gravity, collision push-back, nav clamping, pad input and
-// Lua cannot move the player or turn the follow camera off the pose.
+// Lua cannot move the player or turn the follow camera off the pose. The
+// camera is forced to follow the player: the map is about the player's view,
+// even in a scene whose script turns follow off or follows another actor.
 void psxsplash::SceneManager::perfMapPin() {
     if (!m_perfMapWalk.walking()) return;
     perfmap::Point p = perfmap::pointAt(m_perfMapData, m_perfMapWalk.point());
@@ -2242,6 +2246,8 @@ void psxsplash::SceneManager::perfMapPin() {
     playerRotationX.value = 0;
     playerRotationY.value = perfmap::yawRaw(m_perfMapWalk.yaw(), m_perfMapWalk.header().yawCount);
     playerRotationZ.value = 0;
+    m_cameraFollowsPlayer = true;
+    m_cameraFollowActor = PLAYER_ACTOR_ID;
 }
 
 static_assert(psxsplash::perfmap::SECTIONS == psxsplash::debug::PROFILER_SECTION_COUNT, "perfmap section count");
@@ -2269,6 +2275,8 @@ void psxsplash::SceneManager::perfMapFrameEnded() {
         m_perfMapData = nullptr;
         profiler.setHidden(false);
         Renderer::GetInstance().setReportsHeld(false);
+        m_cameraFollowsPlayer = m_perfMapSavedFollows;
+        m_cameraFollowActor = m_perfMapSavedFollowActor;
     } else if (m_perfMapWalk.point() != point) {
         perfMapPoseChanged();
     }

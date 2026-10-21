@@ -238,8 +238,6 @@ class Renderer final {
                               const Frustum* frustum = nullptr);
 #endif
 
-    // Kept last in the class so release builds keep every line number above
-    // (assert source locations are in the binary).
 #if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
   public:
     // While the perf map walks, reportPeaks prints nothing: its printf runs
