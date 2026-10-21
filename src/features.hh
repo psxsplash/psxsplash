@@ -42,6 +42,9 @@
 #ifndef PSXSPLASH_FEATURE_AGENTS
 #define PSXSPLASH_FEATURE_AGENTS 1     // native AI agents: Agent.*
 #endif
+#ifndef PSXSPLASH_FEATURE_BACKGROUNDS
+#define PSXSPLASH_FEATURE_BACKGROUNDS 1 // baked fixed-camera backgrounds: Background.*
+#endif
 #ifndef PSXSPLASH_FEATURE_COLLISION
 #define PSXSPLASH_FEATURE_COLLISION 1  // object colliders and trigger boxes
 #endif

@@ -1,4 +1,4 @@
-// Host tests for blob shadows: the v28 header size mapping
+// Host tests for blob shadows: the v28/v29 header size mapping
 // (src/splashpackversion.hh) and the shadow table and fade math
 // (src/shadowmath.hh), compiled natively.
 
@@ -22,9 +22,12 @@ TEST(header_size_per_version) {
     CHECK_EQ(splashpackHeaderSize(26), 156);
     CHECK_EQ(splashpackHeaderSize(27), 156);
     CHECK_EQ(splashpackHeaderSize(28), 160);
-    CHECK_EQ(splashpackHeaderSize(29), 160);
-    // v28 appends exactly one u32, the shadow table offset.
+    CHECK_EQ(splashpackHeaderSize(29), 164);
+    CHECK_EQ(splashpackHeaderSize(30), 164);
+    // v28 appends exactly one u32, the shadow table offset; v29 one more, the
+    // background table offset.
     CHECK_EQ(kSplashpackHeaderSizeV28 - kSplashpackHeaderSizeV25, 4);
+    CHECK_EQ(kSplashpackHeaderSizeV29 - kSplashpackHeaderSizeV28, 4);
 }
 
 namespace {

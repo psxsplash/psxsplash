@@ -16,8 +16,10 @@ static constexpr uint32_t kSplashpackHeaderSizeV22 = 144;
 static constexpr uint32_t kSplashpackHeaderSizeV24 = 148;
 static constexpr uint32_t kSplashpackHeaderSizeV25 = 156;  // v25..v27
 static constexpr uint32_t kSplashpackHeaderSizeV28 = 160;  // + shadowTableOffset
+static constexpr uint32_t kSplashpackHeaderSizeV29 = 164;  // + backgroundTableOffset
 
 inline uint32_t splashpackHeaderSize(uint16_t version) {
+    if (version >= 29) return kSplashpackHeaderSizeV29;
     if (version >= 28) return kSplashpackHeaderSizeV28;
     if (version >= 25) return kSplashpackHeaderSizeV25;
     if (version >= 24) return kSplashpackHeaderSizeV24;
