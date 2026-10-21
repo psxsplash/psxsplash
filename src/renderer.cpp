@@ -271,6 +271,20 @@ void psxsplash::Renderer::insertFogPass(const Tri& tri, const psyqo::Vertex& a, 
 }
 
 
+void psxsplash::Renderer::beginFade(int32_t fogFarSZ) {
+    m_edgeSZ = m_fog.edgeFade ? fade::edgeDepth(m_otSize, fogFarSZ) : 0;
+    m_fadeStartSZ = fade::fadeStart(fogFarSZ, m_edgeSZ);
+}
+
+// Out of line: only triangles reaching past the fade start come here, and the
+// per-triangle path stays small for the instruction cache.
+__attribute__((noinline)) void psxsplash::Renderer::fadeTriangle(int32_t sz0, int32_t sz1, int32_t sz2, int32_t fogFarSZ,
+                                                                 int32_t edge, int32_t fogIR[3]) {
+    fogIR[0] = fade::vertexIR(sz0, fogFarSZ, edge);
+    fogIR[1] = fade::vertexIR(sz1, fogFarSZ, edge);
+    fogIR[2] = fade::vertexIR(sz2, fogFarSZ, edge);
+}
+
 void psxsplash::Renderer::processTriangle(
     Tri& tri, int32_t fogFarSZ,
     OT& ot,
@@ -395,12 +409,9 @@ void psxsplash::Renderer::processTriangle(
     clampForRasterizer(projected[2]);
 
     // Per-vertex fog and edge fade (deferred to leaf to avoid wasted divisions during subdivision).
+    // zIndex is at least the largest SZ: a triangle wholly before the fade start pays one compare.
     int32_t fogIR[3] = {0, 0, 0};
-    if (fogFarSZ > 0 || m_edgeSZ > 0) {
-        fogIR[0] = fade::vertexIR(sz0, fogFarSZ, m_edgeSZ);
-        fogIR[1] = fade::vertexIR(sz1, fogFarSZ, m_edgeSZ);
-        fogIR[2] = fade::vertexIR(sz2, fogFarSZ, m_edgeSZ);
-    }
+    if (zIndex > m_fadeStartSZ) fadeTriangle(sz0, sz1, sz2, fogFarSZ, m_edgeSZ, fogIR);
 
     psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
 #if PSXSPLASH_FEATURE_LIGHTS
@@ -477,7 +488,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
-    m_edgeSZ = m_fog.edgeFade ? fade::edgeDepth(m_otSize, fogFarSZ) : 0;
+    beginFade(fogFarSZ);
     for (auto& obj : objects) {
         if (!obj->isActive()) continue;
         if (obj->isSkinned()) continue;
@@ -536,7 +547,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     int visibleCount = bvh.cullFrustum(frustum, m_visibleRefs, m_visibleCapacity);
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
-    m_edgeSZ = m_fog.edgeFade ? fade::edgeDepth(m_otSize, fogFarSZ) : 0;
+    beginFade(fogFarSZ);
     int16_t lastObjectIndex = -1;
     bool lastObjCulled = false;
     for (int i = 0; i < visibleCount; i++) {
@@ -851,7 +862,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
-    m_edgeSZ = m_fog.edgeFade ? fade::edgeDepth(m_otSize, fogFarSZ) : 0;
+    beginFade(fogFarSZ);
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
     int32_t camZ = m_currentCamera->GetPosition().z.raw();
@@ -1501,10 +1512,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
             psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
             bool hasFog = false;
             int32_t fogIR[3] = {0, 0, 0};
-            if (fogFarSZ > 0 || m_edgeSZ > 0) {
-                fogIR[0] = fade::vertexIR(sz0, fogFarSZ, m_edgeSZ);
-                fogIR[1] = fade::vertexIR(sz1, fogFarSZ, m_edgeSZ);
-                fogIR[2] = fade::vertexIR(sz2, fogFarSZ, m_edgeSZ);
+            if (zIndex > m_fadeStartSZ) {
+                fadeTriangle(sz0, sz1, sz2, fogFarSZ, m_edgeSZ, fogIR);
                 hasFog = (fogIR[0] > 0 || fogIR[1] > 0 || fogIR[2] > 0);
             }
 

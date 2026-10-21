@@ -182,6 +182,10 @@ class Renderer final {
     FogConfig m_fog;
     // This frame's fade edge in SZ units (fade.hh edgeDepth), 0 = edge fade off.
     int32_t m_edgeSZ = 0;
+    // This frame's depth below which nothing fades (fade.hh fadeStart).
+    int32_t m_fadeStartSZ = 0x7fffffff;
+    void beginFade(int32_t fogFarSZ);
+    static void fadeTriangle(int32_t sz0, int32_t sz1, int32_t sz2, int32_t fogFarSZ, int32_t edge, int32_t fogIR[3]);
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
     UISystem* m_uiSystem = nullptr;

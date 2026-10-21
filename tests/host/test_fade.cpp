@@ -52,6 +52,25 @@ TEST(fade_is_monotonic_and_reaches_background_at_every_cull) {
         }
 }
 
+// The renderer skips the per-vertex work for a triangle whose largest SZ is at
+// or below fadeStart: every vertex there must be 0.
+TEST(nothing_fades_at_or_before_fade_start) {
+    const uint32_t ots[] = {256, 1030, 2048, 65536};
+    const int32_t fogs[] = {0, 2000, 4000, 20000};
+    for (uint32_t ot : ots)
+        for (int32_t fog : fogs)
+            for (int k = 0; k < 2; k++) {
+                const int32_t edge = k ? edgeDepth(ot, fog) : 0;
+                const int32_t s = fadeStart(fog, edge);
+                if (fog == 0 && edge == 0) {
+                    CHECK_EQ(s, 0x7fffffff);
+                    continue;
+                }
+                CHECK_EQ(vertexIR(s, fog, edge), 0);
+                CHECK(vertexIR(s + 1, fog, edge) > 0 || vertexIR(s + 64, fog, edge) > 0);
+            }
+}
+
 TEST(fog_only_matches_old_ramp) {
     const int32_t f = 4000;
     for (int32_t sz = 0; sz < 5000; sz += 7) {

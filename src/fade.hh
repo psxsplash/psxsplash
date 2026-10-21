@@ -49,6 +49,15 @@ inline int32_t edgeIR(int32_t sz, int32_t edge) {
     return ((sz - start) * 4096) / range;
 }
 
+// The depth at or below which vertexIR is 0 for every vertex: the fog ramp's
+// start or the edge band's, whichever is nearer. Nothing fades: INT32_MAX.
+inline int32_t fadeStart(int32_t fogFarSZ, int32_t edge) {
+    int32_t s = 0x7fffffff;
+    if (fogFarSZ > 0) s = fogFarSZ >> 3;
+    if (edge > 0 && edge - (edge >> 3) < s) s = edge - (edge >> 3);
+    return s;
+}
+
 // What a vertex at depth sz fades by: the larger of the fog and the edge.
 inline int32_t vertexIR(int32_t sz, int32_t fogFarSZ, int32_t edge) {
     int32_t f = fogIR(sz, fogFarSZ);
