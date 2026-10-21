@@ -35,8 +35,7 @@ class BackgroundSystem {
 
   private:
     void setHidden(int i, bool hidden);
-    void insertTiles(const BackgroundTile* tiles, int count, int32_t bucket, Renderer::OT& ot,
-                     Renderer::Balloc& balloc);
+    void insertTile(const BackgroundTile& t, int32_t bucket, Renderer::OT& ot, Renderer::Balloc& balloc);
 
     const uint8_t* m_pack = nullptr;
     uint32_t m_table = 0;

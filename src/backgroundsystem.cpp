@@ -63,14 +63,12 @@ void BackgroundSystem::hide() {
     m_current = BACKGROUND_NONE;
 }
 
-// Each tile is a sprite after its own TPage (sprites take the page from the
+// A tile is a sprite after its own TPage (sprites take the page from the
 // GPU state). Within a bucket the last insert draws first, so the TPage goes
 // in after its sprite. Dithering stays on as the frame's first TPage set it:
 // untextured triangles drawn later read it from the same state.
-void BackgroundSystem::insertTiles(const BackgroundTile* tiles, int count, int32_t bucket, Renderer::OT& ot,
-                                   Renderer::Balloc& balloc) {
-    for (int i = 0; i < count; i++) {
-        const BackgroundTile& t = tiles[i];
+void BackgroundSystem::insertTile(const BackgroundTile& t, int32_t bucket, Renderer::OT& ot, Renderer::Balloc& balloc) {
+    {
         auto& s = balloc.allocateFragment<psyqo::Prim::Sprite>();
         s.primitive.position = {.x = t.x, .y = t.y};
         s.primitive.size = {.x = (int16_t)t.w, .y = (int16_t)t.h};
@@ -97,14 +95,14 @@ void BackgroundSystem::insertTiles(const BackgroundTile* tiles, int count, int32
 void BackgroundSystem::renderOT(Renderer::OT& ot, Renderer::Balloc& balloc, uint32_t otSize) {
     const BackgroundRecord* r = backgroundmath::record(m_pack, m_table, m_current);
     if (!r) return;
-    // Layers first: a layer clamped onto the image bucket must still draw
+    // Layer tiles first: one clamped onto the image bucket must still draw
     // after the image, and the image, inserted last, draws first.
-    const BackgroundLayer* layers = reinterpret_cast<const BackgroundLayer*>(m_pack + r->layersOffset);
-    for (uint16_t l = 0; l < r->layerCount; l++)
-        insertTiles(reinterpret_cast<const BackgroundTile*>(m_pack + layers[l].tilesOffset), layers[l].tileCount,
-                    backgroundmath::layerBucket(layers[l].nearSZ, otSize, Renderer::WORLD_DEPTH_MIN), ot, balloc);
-    insertTiles(reinterpret_cast<const BackgroundTile*>(m_pack + r->tilesOffset), r->tileCount,
-                backgroundmath::imageBucket(otSize), ot, balloc);
+    const BackgroundTile* layer = reinterpret_cast<const BackgroundTile*>(m_pack + r->layerTilesOffset);
+    for (uint16_t i = 0; i < r->layerTileCount; i++)
+        insertTile(layer[i], backgroundmath::layerBucket(layer[i].nearSZ, otSize, Renderer::WORLD_DEPTH_MIN), ot, balloc);
+    const BackgroundTile* image = reinterpret_cast<const BackgroundTile*>(m_pack + r->tilesOffset);
+    const int32_t back = backgroundmath::imageBucket(otSize);
+    for (uint16_t i = 0; i < r->tileCount; i++) insertTile(image[i], back, ot, balloc);
 }
 
 }  // namespace psxsplash

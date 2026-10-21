@@ -42,8 +42,10 @@ uint32_t buildTable(Pack& pk) {
     tiles[1].w = 64;
     tiles[1].h = 240;
     const uint32_t tilesAt = pk.put(tiles, sizeof(tiles));
-    BackgroundLayer layer = {tilesAt + sizeof(BackgroundTile), 1, 300};
-    const uint32_t layerAt = pk.put(&layer, sizeof(layer));
+    BackgroundTile layer[2] = {};
+    layer[0].x = 32, layer[0].w = layer[0].h = 16, layer[0].nearSZ = 300;
+    layer[1].x = 48, layer[1].w = layer[1].h = 16, layer[1].nearSZ = 420;
+    const uint32_t layerAt = pk.put(layer, sizeof(layer));
     const uint16_t hidden[3] = {0, 4, 7};
     const uint32_t hiddenAt = pk.put(hidden, sizeof(hidden));
 
@@ -55,8 +57,8 @@ uint32_t buildTable(Pack& pk) {
     recs[1].flags = BACKGROUND_FLAG_SHOW_AT_START;
     recs[1].tileCount = 2;
     recs[1].tilesOffset = tilesAt;
-    recs[1].layerCount = 1;
-    recs[1].layersOffset = layerAt;
+    recs[1].layerTileCount = 2;
+    recs[1].layerTilesOffset = layerAt;
     recs[1].hiddenCount = 3;
     recs[1].hiddenOffset = hiddenAt;
     const uint32_t table = pk.put(&th, sizeof(th));
@@ -72,18 +74,18 @@ TEST(record_layout_is_the_contract) {
     CHECK_EQ(offsetof(BackgroundRecord, angleX), 34);
     CHECK_EQ(offsetof(BackgroundRecord, h), 40);
     CHECK_EQ(offsetof(BackgroundRecord, tileCount), 42);
-    CHECK_EQ(offsetof(BackgroundRecord, layerCount), 44);
+    CHECK_EQ(offsetof(BackgroundRecord, layerTileCount), 44);
     CHECK_EQ(offsetof(BackgroundRecord, hiddenCount), 46);
     CHECK_EQ(offsetof(BackgroundRecord, flags), 48);
     CHECK_EQ(offsetof(BackgroundRecord, tilesOffset), 52);
-    CHECK_EQ(offsetof(BackgroundRecord, layersOffset), 56);
+    CHECK_EQ(offsetof(BackgroundRecord, layerTilesOffset), 56);
     CHECK_EQ(offsetof(BackgroundRecord, hiddenOffset), 60);
     CHECK_EQ(offsetof(BackgroundTile, w), 4);
     CHECK_EQ(offsetof(BackgroundTile, clutX), 8);
     CHECK_EQ(offsetof(BackgroundTile, texpageX), 12);
     CHECK_EQ(offsetof(BackgroundTile, u), 14);
     CHECK_EQ(offsetof(BackgroundTile, bitDepth), 16);
-    CHECK_EQ(offsetof(BackgroundLayer, nearSZ), 6);
+    CHECK_EQ(offsetof(BackgroundTile, nearSZ), 18);
 }
 
 TEST(no_table_reads_as_none) {
@@ -116,7 +118,7 @@ TEST(start_flag_picks_the_first_flagged) {
     CHECK_EQ(backgroundmath::startIndex(pk.bytes.data(), table), 1);
 }
 
-TEST(tiles_layers_and_hidden_list_follow_their_offsets) {
+TEST(tiles_layer_tiles_and_hidden_list_follow_their_offsets) {
     Pack pk;
     const uint32_t table = buildTable(pk);
     const uint8_t* p = pk.bytes.data();
@@ -124,9 +126,10 @@ TEST(tiles_layers_and_hidden_list_follow_their_offsets) {
     const BackgroundTile* t = reinterpret_cast<const BackgroundTile*>(p + r->tilesOffset);
     CHECK_EQ(t[0].w + t[1].w, 320);
     CHECK_EQ(t[1].x, 256);
-    const BackgroundLayer* l = reinterpret_cast<const BackgroundLayer*>(p + r->layersOffset);
+    const BackgroundTile* l = reinterpret_cast<const BackgroundTile*>(p + r->layerTilesOffset);
     CHECK_EQ(l[0].nearSZ, 300);
-    CHECK_EQ(reinterpret_cast<const BackgroundTile*>(p + l[0].tilesOffset)->x, 256);
+    CHECK_EQ(l[1].nearSZ, 420);
+    CHECK_EQ(l[1].x, 48);
     const uint16_t* h = reinterpret_cast<const uint16_t*>(p + r->hiddenOffset);
     CHECK_EQ(h[0] + h[1] + h[2], 11);
 }
@@ -137,7 +140,7 @@ TEST(image_bucket_is_in_front_of_the_dither_page) {
     CHECK_EQ(backgroundmath::imageBucket(1), 0);
 }
 
-TEST(layer_bucket_is_the_near_depth_clamped_to_the_world_band) {
+TEST(layer_tile_bucket_is_its_near_depth_clamped_to_the_world_band) {
     CHECK_EQ(backgroundmath::layerBucket(300, 2048, 14), 300);
     CHECK_EQ(backgroundmath::layerBucket(3, 2048, 14), 14);
     CHECK_EQ(backgroundmath::layerBucket(5000, 2048, 14), 2046);
