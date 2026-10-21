@@ -83,6 +83,12 @@ void psxsplash::Renderer::SetVideoMode(uint8_t videoMode) {
     if (mode.width == cur.width && mode.height == cur.height && mode.interlaced == cur.interlaced) return;
     // GP1(00h) inside reinitialize resets the GPU: nothing may be in flight.
     m_gpu.waitChainIdle();
+    // Show from y 0 before the mode changes. reinitialize sets the new mode
+    // (GP1(08h)) before it moves the display start, and PCSX-Redux sizes the
+    // display from the start the mode finds: 480 lines from y 256 wrap past
+    // VRAM, and it keeps a 32-line display from then on. The screen is about
+    // to be cleared anyway.
+    psyqo::Hardware::GPU::Ctrl = 0x05000000;
     m_gpu.reinitialize(GpuConfig(videoMode));
     setCurrentScreen(mode);
     // The reset turned the display off (GP1(03h) = 1); initialize() is the
