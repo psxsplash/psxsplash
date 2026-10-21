@@ -258,6 +258,17 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
                                            m_pointLightCount);
 #endif
 
+#if PSXSPLASH_FEATURE_SHADOWS
+    // Blob shadows (v28+), copied out of splashpack data. They land on the nav
+    // floor when the scene has one.
+    m_shadowCount = sceneSetup.shadowTable
+                        ? shadowmath::parseTable(sceneSetup.shadowTable, uint16_t(m_gameObjects.size()), m_shadows,
+                                                 MAX_SCENE_SHADOWS)
+                        : 0;
+    Renderer::GetInstance().SetShadows(m_shadowCount > 0 ? m_shadows : nullptr, m_shadowCount);
+    Renderer::GetInstance().SetShadowFloor(&m_navRegions);
+#endif
+
 #if PSXSPLASH_FEATURE_SPRITES
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
     // images and 3D textures, so there is nothing to upload here - only the
@@ -1787,6 +1798,10 @@ void psxsplash::SceneManager::clearScene() {
 #if PSXSPLASH_FEATURE_LIGHTS
     m_pointLightCount = 0;
     Renderer::GetInstance().SetPointLights(nullptr, 0);
+#endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    m_shadowCount = 0;
+    Renderer::GetInstance().SetShadows(nullptr, 0);
 #endif
     // BVH and NavRegions will be overwritten by next load
 

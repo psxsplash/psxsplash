@@ -156,6 +156,21 @@ public:
     /// findRegionClosest returning NAV_NO_REGION to walk off an edge.
     uint16_t findRegionNearest(int32_t x, int32_t y, int32_t z) const;
 
+    /// The floor under an object spanning yTop..yBottom (Y down, so yTop <
+    /// yBottom): of the regions containing XZ whose floor at XZ is no higher
+    /// than yTop and no more than maxDrop below yBottom, the one whose floor is
+    /// nearest yBottom. Its floor Y goes in floorY. NAV_NO_REGION when none.
+    /// Unlike findRegionClosest this reaches far below the point, for shadows
+    /// of objects in the air.
+    uint16_t findFloorUnder(int32_t x, int32_t z, int32_t yTop, int32_t yBottom, int32_t maxDrop,
+                            int32_t& floorY) const;
+
+    /// XZ distance from a point to the nearest walk-off edge of a region
+    /// (walkoffEdgeMask: a platform's or walk-off zone's boundary, where the
+    /// floor really ends; other boundary edges sit a player radius inside a
+    /// wall or a drop). 0x7FFFFFFF when the region has none.
+    int32_t distanceToWalkoffEdge(int32_t x, int32_t z, uint16_t regionIndex) const;
+
     /// Compute a simple centroid/floor point for a region.
     bool getRegionCenter(uint16_t regionIndex, int32_t& outX, int32_t& outY, int32_t& outZ) const;
 
