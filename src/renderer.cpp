@@ -25,6 +25,9 @@
 #include "skinmesh.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+#include "backgroundsystem.hh"
+#endif
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -488,7 +491,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     for (auto& obj : objects) {
-        if (!obj->isActive()) continue;
+        if (!obj->isDrawn()) continue;
         if (obj->isSkinned()) continue;
         setupObjectTransform(obj, cameraPosition);
         for (int i = 0; i < obj->polyCount; i++)
@@ -496,6 +499,11 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     }
 #if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
+#endif
+    // After the world: in a shared bucket the last insert draws first, so a
+    // triangle at a layer's own depth stays in front of it.
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    if (m_backgroundSystem) m_backgroundSystem->renderOT(ot, balloc, m_otSize);
 #endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
@@ -551,7 +559,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         const TriangleRef& ref = m_visibleRefs[i];
         if (ref.objectIndex >= objects.size()) continue;
         GameObject* obj = objects[ref.objectIndex];
-        if (!obj->isActive()) continue;
+        if (!obj->isDrawn()) continue;
         if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass - rendered below
         if (obj->isSkinned()) continue;  // Skip skinned objects - rendered in skinned pass
         if (ref.triangleIndex >= obj->polyCount) continue;
@@ -578,7 +586,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     // Uses per-object AABB frustum test then renders all triangles - like the non-BVH path.
     for (size_t oi = 0; oi < objects.size(); oi++) {
         GameObject* obj = objects[oi];
-        if (!obj->isActive() || !obj->isDynamicMoved()) continue;
+        if (!obj->isDrawn() || !obj->isDynamicMoved()) continue;
         if (obj->isSkinned()) continue;
         BVHNode objBox;
         objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
@@ -594,6 +602,11 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 #endif
 
+    // After the world: in a shared bucket the last insert draws first, so a
+    // triangle at a layer's own depth stays in front of it.
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    if (m_backgroundSystem) m_backgroundSystem->renderOT(ot, balloc, m_otSize);
+#endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
 #if PSXSPLASH_FEATURE_SPRITES
@@ -900,7 +913,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
             const TriangleRef& ref = refs[ti];
             if (ref.objectIndex >= objects.size()) continue;
             GameObject* obj = objects[ref.objectIndex];
-            if (!obj->isActive()) continue;
+            if (!obj->isDrawn()) continue;
             if (obj->isDynamicMoved()) continue;  // Rendered in dynamic pass below
             if (obj->isSkinned()) continue;  // Rendered in skinned pass
             if (ref.triangleIndex >= obj->polyCount) continue;
@@ -1283,7 +1296,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     // Render dynamically-moved objects that bypass room/portal culling
     for (size_t oi = 0; oi < objects.size(); oi++) {
         GameObject* obj = objects[oi];
-        if (!obj->isActive() || !obj->isDynamicMoved()) continue;
+        if (!obj->isDrawn() || !obj->isDynamicMoved()) continue;
         if (obj->isSkinned()) continue;
         BVHNode objBox;
         objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
@@ -1299,6 +1312,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 #endif
 
+    // After the world: in a shared bucket the last insert draws first, so a
+    // triangle at a layer's own depth stays in front of it.
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    if (m_backgroundSystem) m_backgroundSystem->renderOT(ot, balloc, m_otSize);
+#endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
 #if PSXSPLASH_FEATURE_SPRITES
@@ -1354,7 +1372,7 @@ void psxsplash::Renderer::renderSkinnedObjects(
 
         if (animSet.gameObjectIndex >= objects.size()) continue;
         GameObject* obj = objects[animSet.gameObjectIndex];
-        if (!obj->isActive()) continue;
+        if (!obj->isDrawn()) continue;
         if (animSet.clipCount == 0) continue;
 
         // Frustum cull using object AABB

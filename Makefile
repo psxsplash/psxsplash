@@ -50,7 +50,7 @@ FEATURE_SRCS_lights = src/lightmath.cpp
 FEATURE_SRCS_streaming = src/streamreader.cpp src/streamselftest.cpp src/worldstreamer.cpp src/streamplanner.cpp
 FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
-FEATURE_SRCS_backgrounds = src/backgroundmath.cpp
+FEATURE_SRCS_backgrounds = src/backgroundsystem.cpp src/backgroundmath.cpp
 
 SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 

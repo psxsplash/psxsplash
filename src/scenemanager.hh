@@ -29,6 +29,7 @@
 #include "skinmesh.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
+#include "backgroundsystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -496,6 +497,15 @@ namespace psxsplash {
         }
         uint16_t getCameraFollowActor() const { return m_cameraFollowActor; }
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        // Baked backgrounds (Background.* in Lua). Showing one puts the camera
+        // at its pose and stops the camera following; hiding it restores the
+        // follow and H as they were before the first Show.
+        bool showBackground(const char* name);
+        void hideBackground();
+        const char* currentBackground() const { return m_backgrounds.name(m_backgrounds.current()); }
+#endif
+
         // Interactable access (for Lua API)
         Interactable* getInteractable(uint16_t index) {
             if (index < m_interactables.size()) return m_interactables[index];
@@ -611,6 +621,12 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_SPRITES
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        BackgroundSystem m_backgrounds;
+        bool m_bgFollowWas = false;
+        int32_t m_bgHWas = 0;
+        bool showBackgroundIndex(int i);
 #endif
         uint32_t m_authoredSceneHash = 0;
 

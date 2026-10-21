@@ -26,6 +26,7 @@ namespace psxsplash {
 class UISystem; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
+class BackgroundSystem;
 #ifdef PSXSPLASH_MEMOVERLAY
 class MemOverlay; // Forward declaration
 #endif
@@ -126,6 +127,7 @@ class Renderer final {
     void SetUISystem(UISystem* ui) { m_uiSystem = ui; }
     void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
     void SetTileSystem(TileSystem* tiles) { m_tileSystem = tiles; }
+    void SetBackgroundSystem(BackgroundSystem* bg) { m_backgroundSystem = bg; }
 #ifdef PSXSPLASH_MEMOVERLAY
     void SetMemOverlay(MemOverlay* overlay) { m_memOverlay = overlay; }
 #endif
@@ -181,6 +183,7 @@ class Renderer final {
     UISystem* m_uiSystem = nullptr;
     SpriteSystem* m_spriteSystem = nullptr;
     TileSystem* m_tileSystem = nullptr;
+    BackgroundSystem* m_backgroundSystem = nullptr;
 #ifdef PSXSPLASH_MEMOVERLAY
     MemOverlay* m_memOverlay = nullptr;
 #endif

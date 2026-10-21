@@ -284,6 +284,12 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     }
 #endif
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    m_backgrounds.init();
+    m_backgrounds.load(splashpackData, sceneSetup.backgroundTableOffset, &m_gameObjects);
+    Renderer::GetInstance().SetBackgroundSystem(sceneSetup.backgroundTableOffset ? &m_backgrounds : nullptr);
+#endif
+
 #if PSXSPLASH_FEATURE_STREAMING
     // Streamed world geometry. Before Lua runs: the initial region loads are
     // blocking CD reads, and a scene script may start CD-DA.
@@ -496,6 +502,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     Renderer::GetInstance().SetCamera(m_currentCamera);
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // Before the scripts start, so their first Background.Current() sees it.
+    showBackgroundIndex(m_backgrounds.startIndex());
+#endif
+
     L.OnSceneCreationEnd();
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 95);
@@ -505,6 +516,31 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
 }
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+bool psxsplash::SceneManager::showBackgroundIndex(int i) {
+    const bool wasShowing = m_backgrounds.current() != BACKGROUND_NONE;
+    const int32_t h = m_currentCamera.GetProjectionH();
+    if (!m_backgrounds.show(i, m_currentCamera)) return false;
+    if (!wasShowing) {
+        m_bgFollowWas = m_cameraFollowsPlayer;
+        m_bgHWas = h;
+    }
+    m_cameraFollowsPlayer = false;
+    return true;
+}
+
+bool psxsplash::SceneManager::showBackground(const char* name) {
+    return showBackgroundIndex(m_backgrounds.find(name));
+}
+
+void psxsplash::SceneManager::hideBackground() {
+    if (m_backgrounds.current() == BACKGROUND_NONE) return;
+    m_backgrounds.hide();
+    m_cameraFollowsPlayer = m_bgFollowWas;
+    m_currentCamera.SetProjectionH(m_bgHWas);
+}
+#endif
 
 void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint16_t actorId) {
     if (!isValidActor(actorId)) return;
@@ -1815,6 +1851,11 @@ void psxsplash::SceneManager::clearScene() {
     // data, which is about to be freed and reloaded.
     Renderer::GetInstance().SetTileSystem(nullptr);
     m_tileSystem.init();
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // The records and the object list are about to go away.
+    Renderer::GetInstance().SetBackgroundSystem(nullptr);
+    m_backgrounds.init();
 #endif
 
     // Reset room/portal pointers (they point into splashpack data which is being freed)
