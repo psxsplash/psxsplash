@@ -6,7 +6,7 @@
 #include <psyqo/primitives/rectangles.hh>
 #include <psyqo/primitives/triangles.hh>
 
-#include "vram_config.h"
+#include "screenmode.hh"
 
 using namespace psxsplash::debug;
 
@@ -34,19 +34,20 @@ constexpr uint32_t kSmoothPieSegments = 64;
 
 constexpr int16_t PANEL_W = 152;
 constexpr int16_t PANEL_H = 126;
-constexpr int16_t PANEL_X = VRAM_RES_WIDTH - PANEL_W - 4;
-constexpr int16_t PANEL_Y = VRAM_RES_HEIGHT - PANEL_H - 4;
-constexpr int16_t PIE_CENTER_X = PANEL_X + 26;
-constexpr int16_t PIE_CENTER_Y = PANEL_Y + 52;
+// The panel sits in the bottom-right corner of whatever screen the scene uses.
+int16_t PANEL_X() { return psxsplash::currentScreen().width - PANEL_W - 4; }
+int16_t PANEL_Y() { return psxsplash::currentScreen().height - PANEL_H - 4; }
+int16_t PIE_CENTER_X() { return PANEL_X() + 26; }
+int16_t PIE_CENTER_Y() { return PANEL_Y() + 52; }
 constexpr int16_t PIE_RADIUS = 20;
-constexpr int16_t LEGEND_X = PANEL_X + 62;
-constexpr int16_t LEGEND_Y = PANEL_Y + 26;
-constexpr int16_t SWATCH_X = LEGEND_X - 8;
-constexpr int16_t TEXT_X = LEGEND_X;
-constexpr int16_t TEXT_Y = LEGEND_Y - 1;
+int16_t LEGEND_X() { return PANEL_X() + 62; }
+int16_t LEGEND_Y() { return PANEL_Y() + 26; }
+int16_t SWATCH_X() { return LEGEND_X() - 8; }
+int16_t TEXT_X() { return LEGEND_X(); }
+int16_t TEXT_Y() { return LEGEND_Y() - 1; }
 constexpr int16_t LINE_HEIGHT = 14;
-constexpr int16_t TOTAL_TEXT_X = PANEL_X + 6;
-constexpr int16_t TOTAL_TEXT_Y = PANEL_Y + 6;
+int16_t TOTAL_TEXT_X() { return PANEL_X() + 6; }
+int16_t TOTAL_TEXT_Y() { return PANEL_Y() + 6; }
 
 psyqo::Trig<> s_profilerTrig;
 
@@ -63,8 +64,8 @@ static PiePoint calculatePiePoint(uint32_t angleRaw) {
   psyqo::FixedPoint<12> cosTheta = s_profilerTrig.cos(angle);
 
   return {
-    static_cast<int16_t>(PIE_CENTER_X + ((sinTheta.value * PIE_RADIUS) >> 12)),
-    static_cast<int16_t>(PIE_CENTER_Y - ((cosTheta.value * PIE_RADIUS) >> 12)),
+    static_cast<int16_t>(PIE_CENTER_X() + ((sinTheta.value * PIE_RADIUS) >> 12)),
+    static_cast<int16_t>(PIE_CENTER_Y() - ((cosTheta.value * PIE_RADIUS) >> 12)),
   };
 }
 
@@ -142,7 +143,7 @@ void Profiler::renderOT(Renderer::OT& ot,
 
     auto& swatch = balloc.allocateFragment<psyqo::Prim::Rectangle>();
     swatch.primitive.setColor(color);
-    swatch.primitive.position = {.x = SWATCH_X, .y = static_cast<int16_t>(LEGEND_Y + bucket * LINE_HEIGHT)};
+    swatch.primitive.position = {.x = SWATCH_X(), .y = static_cast<int16_t>(LEGEND_Y() + bucket * LINE_HEIGHT)};
     swatch.primitive.size = {.x = 5, .y = 5};
     swatch.primitive.setOpaque();
     ot.insert(swatch, 0);
@@ -178,8 +179,8 @@ void Profiler::renderOT(Renderer::OT& ot,
       PiePoint nextPoint = calculatePiePoint(nextAngle);
 
       auto& tri = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
-      tri.primitive.pointA.x = PIE_CENTER_X;
-      tri.primitive.pointA.y = PIE_CENTER_Y;
+      tri.primitive.pointA.x = PIE_CENTER_X();
+      tri.primitive.pointA.y = PIE_CENTER_Y();
       tri.primitive.pointB.x = prevPoint.x;
       tri.primitive.pointB.y = prevPoint.y;
       tri.primitive.pointC.x = nextPoint.x;
@@ -199,8 +200,8 @@ void Profiler::renderOT(Renderer::OT& ot,
 
   auto& pieBackdrop = balloc.allocateFragment<psyqo::Prim::Rectangle>();
   pieBackdrop.primitive.setColor(psyqo::Color{.r = 18, .g = 18, .b = 22});
-  pieBackdrop.primitive.position = {.x = static_cast<int16_t>(PIE_CENTER_X - PIE_RADIUS - 2),
-                                    .y = static_cast<int16_t>(PIE_CENTER_Y - PIE_RADIUS - 2)};
+  pieBackdrop.primitive.position = {.x = static_cast<int16_t>(PIE_CENTER_X() - PIE_RADIUS - 2),
+                                    .y = static_cast<int16_t>(PIE_CENTER_Y() - PIE_RADIUS - 2)};
   pieBackdrop.primitive.size = {.x = static_cast<int16_t>(PIE_RADIUS * 2 + 4),
                                 .y = static_cast<int16_t>(PIE_RADIUS * 2 + 4)};
   pieBackdrop.primitive.setOpaque();
@@ -208,7 +209,7 @@ void Profiler::renderOT(Renderer::OT& ot,
 
   auto& panel = balloc.allocateFragment<psyqo::Prim::Rectangle>();
   panel.primitive.setColor(psyqo::Color{.r = 10, .g = 10, .b = 10});
-  panel.primitive.position = {.x = PANEL_X, .y = PANEL_Y};
+  panel.primitive.position = {.x = PANEL_X(), .y = PANEL_Y()};
   panel.primitive.size = {.x = PANEL_W, .y = PANEL_H};
   panel.primitive.setOpaque();
   ot.insert(panel, 0);
@@ -221,7 +222,7 @@ void Profiler::renderText(psyqo::GPU& gpu) {
   uint32_t totalMsFrac = (m_totalFrameTime % 1000) / 100;
 
   m_font->chainprintf(gpu,
-                      {{.x = TOTAL_TEXT_X, .y = TOTAL_TEXT_Y}},
+                      {{.x = TOTAL_TEXT_X(), .y = TOTAL_TEXT_Y()}},
                       {{.r = 255, .g = 255, .b = 255}},
                       "PF %lu.%01lu ms", totalMs, totalMsFrac);
 
@@ -229,7 +230,7 @@ void Profiler::renderText(psyqo::GPU& gpu) {
     uint32_t time = m_sectionTimes[i];
     uint32_t pct = (time * 100u) / m_totalFrameTime;
     m_font->chainprintf(gpu,
-                        {{.x = TEXT_X, .y = static_cast<int16_t>(TEXT_Y + i * LINE_HEIGHT)}},
+                        {{.x = TEXT_X(), .y = static_cast<int16_t>(TEXT_Y() + i * LINE_HEIGHT)}},
                         kSectionInfo[i].color,
                         "%s %2lu.%01lu %2lu%%",
                         kSectionInfo[i].shortLabel,
@@ -240,7 +241,7 @@ void Profiler::renderText(psyqo::GPU& gpu) {
 
   uint32_t otherPct = (m_otherTime * 100u) / m_totalFrameTime;
   m_font->chainprintf(gpu,
-                      {{.x = TEXT_X, .y = static_cast<int16_t>(TEXT_Y + PROFILER_SECTION_COUNT * LINE_HEIGHT)}},
+                      {{.x = TEXT_X(), .y = static_cast<int16_t>(TEXT_Y() + PROFILER_SECTION_COUNT * LINE_HEIGHT)}},
                       {{.r = 180, .g = 180, .b = 180}},
                       "OT %2lu.%01lu %2lu%%",
                       m_otherTime / 1000,

@@ -8,6 +8,7 @@
 #include <psyqo/fixed-point.hh>
 #include <psyqo/gte-kernels.hh>
 #include <psyqo/gte-registers.hh>
+#include <psyqo/hardware/gpu.hh>
 #include <psyqo/kernel.hh>
 #include <psyqo/matrix.hh>
 #include <psyqo/primitives/common.hh>
@@ -38,6 +39,8 @@
 using namespace psyqo::fixed_point_literals;
 using namespace psyqo::trig_literals;
 using namespace psyqo::GTE;
+using psxsplash::currentScreen;
+using psxsplash::ScreenMode;
 
 // Development builds count the triangles the renderer loses or bends
 // (m_lost, printed by reportPeaks); other builds compile the counting out.
@@ -55,10 +58,73 @@ void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
     clear<Register::TRX, Safe>();
     clear<Register::TRY, Safe>();
     clear<Register::TRZ, Safe>();
-    write<Register::OFX, Safe>(psyqo::FixedPoint<16>(160.0).raw());
-    write<Register::OFY, Safe>(psyqo::FixedPoint<16>(120.0).raw());
-    write<Register::H, Safe>(PROJ_H);
+    const ScreenMode& screen = currentScreen();
+    write<Register::OFX, Safe>(uint32_t(screen.width / 2) << 16);
+    write<Register::OFY, Safe>(uint32_t(screen.height / 2) << 16);
+    write<Register::H, Safe>(scaledProjectionH(kReferenceScreenLines / 2, screen));
     if (!instance) { instance = new Renderer(gpuInstance); }
+}
+
+psyqo::GPU::Configuration psxsplash::Renderer::GpuConfig(uint8_t videoMode) {
+    const ScreenMode mode = screenModeFor(videoMode);
+    psyqo::GPU::Configuration config;
+    config.set(mode.interlaced ? psyqo::GPU::Resolution::W640 : psyqo::GPU::Resolution::W320)
+        .set(psyqo::GPU::VideoMode::AUTO)
+        .set(psyqo::GPU::ColorMode::C15BITS)
+        .set(mode.interlaced ? psyqo::GPU::Interlace::INTERLACED : psyqo::GPU::Interlace::PROGRESSIVE);
+    return config;
+}
+
+void psxsplash::Renderer::ClearFramebuffers(psyqo::GPU& gpu) {
+    const ScreenMode& screen = currentScreen();
+    psyqo::Prim::FastFill ff(psyqo::Color{.r = 0, .g = 0, .b = 0});
+    ff.rect = psyqo::Rect{0, 0, screen.width, screen.height};
+    gpu.sendPrimitive(ff);
+    if (!screen.interlaced) {
+        ff.rect = psyqo::Rect{0, 256, screen.width, screen.height};
+        gpu.sendPrimitive(ff);
+    }
+    gpu.pumpCallbacks();
+}
+
+void psxsplash::Renderer::SetVideoMode(uint8_t videoMode) {
+    const ScreenMode mode = screenModeFor(videoMode);
+    const ScreenMode& cur = currentScreen();
+    if (mode.width == cur.width && mode.height == cur.height && mode.interlaced == cur.interlaced) return;
+    // GP1(00h) inside reinitialize resets the GPU: nothing may be in flight.
+    m_gpu.waitChainIdle();
+    // Show from y 0 before the mode changes. reinitialize sets the new mode
+    // (GP1(08h)) before it moves the display start, and PCSX-Redux sizes the
+    // display from the start the mode finds: 480 lines from y 256 wrap past
+    // VRAM, and it keeps a 32-line display from then on. The screen is about
+    // to be cleared anyway.
+    psyqo::Hardware::GPU::Ctrl = 0x05000000;
+    m_gpu.reinitialize(GpuConfig(videoMode));
+    setCurrentScreen(mode);
+    // The reset turned the display off (GP1(03h) = 1); initialize() is the
+    // only other place that turns it on.
+    psyqo::Hardware::GPU::Ctrl = 0x03000000;
+    m_gpu.enableScissor();
+    write<Register::OFX, Safe>(uint32_t(mode.width / 2) << 16);
+    write<Register::OFY, Safe>(uint32_t(mode.height / 2) << 16);
+    if (m_currentCamera) setProjectionH(screenProjH());
+    ClearFramebuffers(m_gpu);
+    // This frame's chain is already queued for the next flip, drawn and
+    // cleared for the old mode. Send an empty frame instead.
+    const uint8_t parity = m_gpu.getParity();
+    if (m_ots[parity]) m_ots[parity]->clear();
+    frameClear(m_clear[parity].primitive);
+}
+
+void psxsplash::Renderer::frameClear(psyqo::Prim::FastFill& ff) {
+    if (currentScreen().interlaced)
+        m_gpu.getClear(ff, m_clearcolor);
+    else
+        m_gpu.getNextClear(ff, m_clearcolor);
+}
+
+int32_t psxsplash::Renderer::screenProjH() const {
+    return scaledProjectionH(m_currentCamera->GetProjectionH(), currentScreen());
 }
 
 void psxsplash::Renderer::Configure(uint32_t otSize, uint32_t bumpSize) {
@@ -110,7 +176,7 @@ void psxsplash::Renderer::reportPeaks() {
 void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {
     m_currentCamera = &camera;
     // Update GTE H register to match camera's projection distance
-    setProjectionH(camera.GetProjectionH());
+    setProjectionH(scaledProjectionH(camera.GetProjectionH(), currentScreen()));
 }
 
 void psxsplash::Renderer::setProjectionH(int32_t h) {
@@ -407,10 +473,11 @@ void psxsplash::Renderer::processTriangle(
         // away, on the same side; elsewhere it is within a pixel. Either way
         // the corner is beyond that side by more than a pixel, as the
         // clipper's own test would find.
-        auto outcode = [](const psyqo::Vertex& p, int32_t sz) {
+        const int32_t farX = currentScreen().width + 3, farY = currentScreen().height + 3;
+        auto outcode = [farX, farY](const psyqo::Vertex& p, int32_t sz) {
             unsigned c = sz < CLIP_NEAR_Z ? 1u : 0u;
             if (sz > 0 && sz < 0xffff)  // at 0xffff SZ may have saturated, below the true z
-                c |= (p.x < -3 ? 2u : 0u) | (p.x > 323 ? 4u : 0u) | (p.y < -3 ? 8u : 0u) | (p.y > 243 ? 16u : 0u);
+                c |= (p.x < -3 ? 2u : 0u) | (p.x > farX ? 4u : 0u) | (p.y < -3 ? 8u : 0u) | (p.y > farY ? 16u : 0u);
             return c;
         };
         if (outcode(projected[0], sz0) & outcode(projected[1], sz1) & outcode(projected[2], sz2)) return;
@@ -434,7 +501,7 @@ void psxsplash::Renderer::processTriangle(
     if (depth < SPLIT_DEPTH && minZ < zSplit) {
         const int32_t zLo = nearPlane ? eastl::max(minZ, CLIP_NEAR_Z) : minZ;
         const int32_t zHi = nearPlane ? eastl::max(maxZ, CLIP_NEAR_Z) : maxZ;
-        if (3 * (SAFE_MAX_X - SAFE_MIN_X) * (zHi - zLo) > 2 * q * zLo) {
+        if (3 * kSafeSpanX * (zHi - zLo) > 2 * q * zLo) {
             const int32_t szs[3] = {sz0, sz1, sz2};
             int32_t px[3], py[3], pz[3];
             bool test = true;
@@ -484,8 +551,9 @@ void psxsplash::Renderer::processTriangle(
                         y = ofy + clampTo(clampTo(vy[i], (1 << 21) - 1) * h / z, 4096);
                         pz[i] = z;
                     }
-                    px[i] = x < SAFE_MIN_X ? SAFE_MIN_X : x > SAFE_MAX_X ? SAFE_MAX_X : x;
-                    py[i] = y < SAFE_MIN_Y ? SAFE_MIN_Y : y > SAFE_MAX_Y ? SAFE_MAX_Y : y;
+                    const SafeBox& box = safeBox();
+                    px[i] = x < box.minX ? box.minX : x > box.maxX ? box.maxX : x;
+                    py[i] = y < box.minY ? box.minY : y > box.maxY ? box.maxY : y;
                 }
             }
             if (test) {
@@ -747,8 +815,10 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
     // Plane distances, >= 0 inside: z - CLIP_NEAR_Z for the near plane, then
     // k*(x or y) + c*z for the box sides, k = +-H.
     const int32_t sideK[4] = {h, -h, h, -h};
-    const int32_t sideC[4] = {ofx - (SAFE_MIN_X + CLIP_BOX_MARGIN), (SAFE_MAX_X - CLIP_BOX_MARGIN) - ofx,
-                              ofy - (SAFE_MIN_Y + CLIP_BOX_MARGIN), (SAFE_MAX_Y - CLIP_BOX_MARGIN) - ofy};
+    const SafeBox& box = safeBox();
+    const int32_t X0 = box.minX + CLIP_BOX_MARGIN, X1 = box.maxX - CLIP_BOX_MARGIN;
+    const int32_t Y0 = box.minY + CLIP_BOX_MARGIN, Y1 = box.maxY - CLIP_BOX_MARGIN;
+    const int32_t sideC[4] = {ofx - X0, X1 - ofx, ofy - Y0, Y1 - ofy};
 
     // A triangle cut by five planes has at most 3 + 5 corners.
     ClipVert bufA[8], bufB[8];
@@ -783,9 +853,12 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
     // would drop it.
     {
         // In 32 bits when |x|, |y|, |z| < 2^21 and H < 512 (each product under
-        // 2^30, each sum under 2^31, for an OFX/OFY inside the screen), else 64.
+        // 2^30, each sum under 2^31, for an OFX/OFY no more than 320 pixels
+        // from either edge of the screen), else 64.
+        const int32_t sw = currentScreen().width, sh = currentScreen().height;
         auto small = [](int32_t v) { return (uint32_t)(v + (1 << 21)) < (2u << 21); };
-        bool narrow = h < 512 && (uint32_t)ofx <= 320 && (uint32_t)ofy <= 240;
+        bool narrow = h < 512 && (uint32_t)ofx <= 320 && (uint32_t)(sw - ofx) <= 320 && (uint32_t)ofy <= 320 &&
+                      (uint32_t)(sh - ofy) <= 320;
         for (int i = 0; i < 3; i++) narrow &= small(poly[i].x) & small(poly[i].y) & small(poly[i].z);
         unsigned all = 0x1f;
         for (int i = 0; i < 3; i++) {
@@ -793,12 +866,12 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
             unsigned oc = c.z < CLIP_NEAR_Z ? 1u : 0u;
             if (narrow) {
                 const int32_t hx = h * c.x, hy = h * c.y;
-                oc |= (hx + (ofx + 1) * c.z < 0 ? 2u : 0u) | (hx - (321 - ofx) * c.z > 0 ? 4u : 0u) |
-                      (hy + (ofy + 1) * c.z < 0 ? 8u : 0u) | (hy - (241 - ofy) * c.z > 0 ? 16u : 0u);
+                oc |= (hx + (ofx + 1) * c.z < 0 ? 2u : 0u) | (hx - (sw + 1 - ofx) * c.z > 0 ? 4u : 0u) |
+                      (hy + (ofy + 1) * c.z < 0 ? 8u : 0u) | (hy - (sh + 1 - ofy) * c.z > 0 ? 16u : 0u);
             } else {
                 const int64_t hx = (int64_t)h * c.x, hy = (int64_t)h * c.y;
-                oc |= (hx + (int64_t)(ofx + 1) * c.z < 0 ? 2u : 0u) | (hx - (int64_t)(321 - ofx) * c.z > 0 ? 4u : 0u) |
-                      (hy + (int64_t)(ofy + 1) * c.z < 0 ? 8u : 0u) | (hy - (int64_t)(241 - ofy) * c.z > 0 ? 16u : 0u);
+                oc |= (hx + (int64_t)(ofx + 1) * c.z < 0 ? 2u : 0u) | (hx - (int64_t)(sw + 1 - ofx) * c.z > 0 ? 4u : 0u) |
+                      (hy + (int64_t)(ofy + 1) * c.z < 0 ? 8u : 0u) | (hy - (int64_t)(sh + 1 - ofy) * c.z > 0 ? 16u : 0u);
             }
             all &= oc;
         }
@@ -811,8 +884,6 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
     // distance would: floor(v) >= X0 iff v >= X0, and floor(v) < X1 implies
     // v < X1 (a corner landing on X1 itself takes the slow path). The GTE's
     // own SXY is within a pixel or two of floor(v), so it must be 3 pixels in.
-    constexpr int32_t X0 = SAFE_MIN_X + CLIP_BOX_MARGIN, X1 = SAFE_MAX_X - CLIP_BOX_MARGIN;
-    constexpr int32_t Y0 = SAFE_MIN_Y + CLIP_BOX_MARGIN, Y1 = SAFE_MAX_Y - CLIP_BOX_MARGIN;
     bool fast = h < 512;
     for (int i = 0; i < 3 && fast; i++) {
         const ClipVert& c = poly[i];
@@ -912,14 +983,15 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
         }
     }
 
+    const int16_t screenW = currentScreen().width, screenH = currentScreen().height;
     for (int i = 1; i + 1 < n; i++) {
         const psyqo::Vertex& a = sxy[0];
         const psyqo::Vertex& b = sxy[i];
         const psyqo::Vertex& c = sxy[i + 1];
         // Off-screen reject against the visible screen, then the backface
         // test: the signed area nclip would give, from the software SXY.
-        if ((a.x < 0 && b.x < 0 && c.x < 0) || (a.x >= 320 && b.x >= 320 && c.x >= 320) ||
-            (a.y < 0 && b.y < 0 && c.y < 0) || (a.y >= 240 && b.y >= 240 && c.y >= 240))
+        if ((a.x < 0 && b.x < 0 && c.x < 0) || (a.x >= screenW && b.x >= screenW && c.x >= screenW) ||
+            (a.y < 0 && b.y < 0 && c.y < 0) || (a.y >= screenH && b.y >= screenH && c.y >= screenH))
             continue;
         int32_t area = (int32_t)a.x * b.y + (int32_t)b.x * c.y + (int32_t)c.x * a.y - (int32_t)a.x * c.y -
                        (int32_t)b.x * a.y - (int32_t)c.x * b.y;
@@ -943,7 +1015,7 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
 void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    setProjectionH(m_currentCamera->GetProjectionH());
+    setProjectionH(screenProjH());
     beginSplitFrame();
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
@@ -986,7 +1058,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
-    m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    frameClear(clear.primitive);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -1005,7 +1077,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (!bvh.isLoaded()) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    setProjectionH(m_currentCamera->GetProjectionH());
+    setProjectionH(screenProjH());
     beginSplitFrame();
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
@@ -1092,7 +1164,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
-    m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    frameClear(clear.primitive);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -1142,8 +1214,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = (vx >> 4) * projH / vzs + 160;
-    int32_t rawY = (vy >> 4) * projH / vzs + 120;
+    int32_t rawX = (vx >> 4) * projH / vzs + currentScreen().width / 2;
+    int32_t rawY = (vy >> 4) * projH / vzs + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -1329,7 +1401,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
-    setProjectionH(m_currentCamera->GetProjectionH());
+    setProjectionH(screenProjH());
     beginSplitFrame();
 
     uint8_t parity = m_gpu.getParity();
@@ -1347,7 +1419,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
     int32_t camZ = m_currentCamera->GetPosition().z.raw();
-    int32_t projH = m_currentCamera->GetProjectionH();
+    int32_t projH = screenProjH();
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
     int catchAllIdx = roomCount - 1;
 
@@ -1410,7 +1482,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         RENDER_LOST(m_lost.tris += submitted);
     };
 
-    ScreenRect full = {-512, -512, 832, 752};
+    const ScreenMode& screen = currentScreen();
+    ScreenRect full = {-512, -512, int16_t(screen.width + 512), int16_t(screen.height + 512)};
 
     // Render a room's geometry, optionally clipped to a portal screen rect.
     // clipRect is the accumulated portal clip rectangle for portal-reached rooms,
@@ -1699,10 +1772,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int j = (i + 1) % 4;
                 if (!vis[i] || !vis[j]) continue;
                 int16_t x0 = sx[i], y0 = sy[i], x1 = sx[j], y1 = sy[j];
-                if (x0 < 0) x0 = 0; if (x0 > 319) x0 = 319;
-                if (y0 < 0) y0 = 0; if (y0 > 239) y0 = 239;
-                if (x1 < 0) x1 = 0; if (x1 > 319) x1 = 319;
-                if (y1 < 0) y1 = 0; if (y1 > 239) y1 = 239;
+                const int16_t maxX = currentScreen().width - 1, maxY = currentScreen().height - 1;
+                if (x0 < 0) x0 = 0; if (x0 > maxX) x0 = maxX;
+                if (y0 < 0) y0 = 0; if (y0 > maxY) y0 = maxY;
+                if (x1 < 0) x1 = 0; if (x1 > maxX) x1 = maxX;
+                if (y1 < 0) y1 = 0; if (y1 > maxY) y1 = maxY;
 
                 auto& tri = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
                 tri.primitive.pointA.x = x0; tri.primitive.pointA.y = y0;
@@ -1749,10 +1823,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 int a = edges[e][0], b = edges[e][1];
                 if (!cvis[a] || !cvis[b]) continue;
                 int16_t x0 = csx[a], y0 = csy[a], x1 = csx[b], y1 = csy[b];
-                if (x0 < 0) x0 = 0; if (x0 > 319) x0 = 319;
-                if (y0 < 0) y0 = 0; if (y0 > 239) y0 = 239;
-                if (x1 < 0) x1 = 0; if (x1 > 319) x1 = 319;
-                if (y1 < 0) y1 = 0; if (y1 > 239) y1 = 239;
+                const int16_t maxX = currentScreen().width - 1, maxY = currentScreen().height - 1;
+                if (x0 < 0) x0 = 0; if (x0 > maxX) x0 = maxX;
+                if (y0 < 0) y0 = 0; if (y0 > maxY) y0 = maxY;
+                if (x1 < 0) x1 = 0; if (x1 > maxX) x1 = maxX;
+                if (y1 < 0) y1 = 0; if (y1 > maxY) y1 = maxY;
 
                 auto& tri = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
                 tri.primitive.pointA.x = x0; tri.primitive.pointA.y = y0;
@@ -1806,7 +1881,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
-    m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    frameClear(clear.primitive);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);

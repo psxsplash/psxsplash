@@ -3777,8 +3777,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = ((vx * projH) / vz) + 160;
-    int32_t rawY = ((vy * projH) / vz) + 120;
+    int32_t rawX = ((vx * projH) / vz) + currentScreen().width / 2;
+    int32_t rawY = ((vy * projH) / vz) + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -3822,7 +3822,7 @@ int LuaAPI::Math_Convert3DTo2D(lua_State* L)
     auto& cam = s_sceneManager->getCamera();
     psyqo::Vec3 camPos = cam.GetPosition();
     psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
-    int32_t projH = cam.GetProjectionH();
+    int32_t projH = scaledProjectionH(cam.GetProjectionH(), currentScreen());
 
     int16_t screenX = 0;
     int16_t screenY = 0;

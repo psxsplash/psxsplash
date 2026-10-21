@@ -116,7 +116,7 @@ void psxsplash::Renderer::renderShadows(eastl::vector<GameObject*>& objects, con
         if (nearPlane) continue;
         if (fogFarSZ > 0 && sz[0] >= fogFarSZ) continue;
         if (sz[0] >= (int32_t)m_otSize) continue;
-        if (maxX < 0 || minX >= 320 || maxY < 0 || minY >= 240) continue;
+        if (maxX < 0 || minX >= currentScreen().width || maxY < 0 || minY >= currentScreen().height) continue;
 
         int32_t fogKeep = 4096;
         if (m_fog.enabled) fogKeep = 4096 - shadowmath::fogAmount(sz[0], fogFarSZ);

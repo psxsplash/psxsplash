@@ -1,4 +1,5 @@
 #include "camera.hh"
+#include "screenmode.hh"
 
 #include "fade.hh"
 
@@ -43,9 +44,12 @@ psyqo::Matrix33& psxsplash::Camera::GetRotation() { return m_rotationMatrix; }
 
 void psxsplash::Camera::ExtractFrustum(Frustum& frustum) const {
 
-    constexpr int32_t SCREEN_HALF_WIDTH = 160;  
-    constexpr int32_t SCREEN_HALF_HEIGHT = 120;  
-    const int32_t H = m_projH;                  
+    // In screen pixels: the planes only depend on H against the half sizes,
+    // which scale together, but this keeps them the same numbers the GTE uses.
+    const ScreenMode& screen = currentScreen();
+    const int32_t SCREEN_HALF_WIDTH = screen.width / 2;
+    const int32_t SCREEN_HALF_HEIGHT = screen.height / 2;
+    const int32_t H = scaledProjectionH(m_projH, screen);
     
     int32_t rightX = m_rotationMatrix.vs[0].x.raw();
     int32_t rightY = m_rotationMatrix.vs[0].y.raw();

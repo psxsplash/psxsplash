@@ -467,6 +467,12 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 85);
 
+    // The scene's video mode, before its scripts run so that onCreate already
+    // sees the screen it draws on. Loading screens are 320x240, so a scene in
+    // another mode stops drawing its progress here.
+    Renderer::GetInstance().SetVideoMode(sceneSetup.videoMode);
+    if (sceneSetup.videoMode != VIDEO_MODE_320x240) loading = nullptr;
+
     L.RegisterSceneScripts(sceneSetup.sceneLuaFileIndex);
 
     L.OnSceneCreationStart();
@@ -1466,12 +1472,11 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     }
 #endif
 
-    psyqo::Prim::FastFill ff(psyqo::Color{ .r = 0, .g = 0, .b = 0 });
-    ff.rect = psyqo::Rect{ 0, 0, 320, 240 };
-    gpu.sendPrimitive(ff);
-    ff.rect = psyqo::Rect{ 0, 256, 320, 240 };
-    gpu.sendPrimitive(ff);
-    gpu.pumpCallbacks();
+    // Loading runs at 320x240: the loading screen draws into the two 320x240
+    // buffers, and a 320x240 scene's textures are uploaded where a 640x480
+    // buffer would be shown. InitializeScene switches to the scene's own mode.
+    if (!isFirstScene) Renderer::GetInstance().SetVideoMode(VIDEO_MODE_320x240);
+    Renderer::ClearFramebuffers(gpu);
 
     LoadingScreen loading;
     if (s_font) {

@@ -25,12 +25,14 @@ SPRITE_SRCS := $(SRC_DIR)/spritemath.cpp
 TILE_SRCS   := $(SRC_DIR)/tilemath.cpp
 LIGHT_SRCS  := $(SRC_DIR)/lightmath.cpp
 STREAM_SRCS := $(SRC_DIR)/streamplanner.cpp
+SCREEN_SRCS := $(SRC_DIR)/screenmode.cpp
 
 TEST_BIN   := $(BUILD)/netlink_tests
 SPRITE_BIN := $(BUILD)/sprite_tests
 TILE_BIN   := $(BUILD)/tile_tests
 LIGHT_BIN  := $(BUILD)/light_tests
 STREAM_BIN := $(BUILD)/stream_tests
+SCREEN_BIN := $(BUILD)/screenmode_tests
 FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 JUMP_BIN   := $(BUILD)/jump_tests
@@ -58,6 +60,8 @@ $(LIGHT_BIN): test_light.cpp testing.hh compat.hh $(LIGHT_SRCS) $(SRC_DIR)/light
 $(STREAM_BIN): test_stream.cpp testing.hh compat.hh $(STREAM_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_stream.cpp $(STREAM_SRCS)
 
+$(SCREEN_BIN): test_screenmode.cpp testing.hh compat.hh $(SCREEN_SRCS) $(SRC_DIR)/screenmode.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_screenmode.cpp $(SCREEN_SRCS)
 $(FADE_BIN): test_fade.cpp testing.hh compat.hh $(SRC_DIR)/fade.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_fade.cpp
 $(SHADOW_BIN): test_shadow.cpp testing.hh compat.hh $(SRC_DIR)/shadowmath.hh $(SRC_DIR)/splashpackversion.hh | $(BUILD)
@@ -69,7 +73,7 @@ $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -80,6 +84,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BI
 	@$(LIGHT_BIN)
 	@echo "== stream =="
 	@$(STREAM_BIN)
+	@echo "== screenmode =="
+	@$(SCREEN_BIN)
 	@echo "== fade =="
 	@$(FADE_BIN)
 	@echo "== shadow =="

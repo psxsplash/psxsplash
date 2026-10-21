@@ -69,7 +69,7 @@ end
 
 target("psxsplash", function()
     add_rules("psyqo-lua.app")
-    add_files("src/main.cpp", "src/renderer.cpp", "src/splashpack.cpp", "src/camera.cpp",
+    add_files("src/main.cpp", "src/renderer.cpp", "src/splashpack.cpp", "src/camera.cpp", "src/screenmode.cpp",
               "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
               "src/lua.cpp", "src/luaapi.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
               "src/audiomanager.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",

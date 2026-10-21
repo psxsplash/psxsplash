@@ -18,6 +18,7 @@
 #include "gameobject.hh"
 #include "features.hh"
 #include "lightmath.hh"
+#include "screenmode.hh"
 #include "shadowmath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
@@ -93,11 +94,20 @@ class Renderer final {
     static constexpr int SPRITE_LAYERS = 12;
     static constexpr int WORLD_DEPTH_MIN = SPRITE_DEPTH_BASE + SPRITE_LAYERS;
 
-    static constexpr int32_t PROJ_H = 120;
-    static constexpr int32_t SCREEN_CX = 160;
-    static constexpr int32_t SCREEN_CY = 120;
+    /// The GPU display configuration of a video mode (screenmode.hh). main.cpp
+    /// boots with VIDEO_MODE_320x240; SetVideoMode switches between scenes.
+    static psyqo::GPU::Configuration GpuConfig(uint8_t videoMode);
+    /// Black-fills every framebuffer of the current mode: both 320x240 buffers,
+    /// or the one 640x480 interlaced buffer.
+    static void ClearFramebuffers(psyqo::GPU& gpu);
 
     static void Init(psyqo::GPU& gpuInstance);
+    /// Switches the display to `videoMode` when it differs from the current
+    /// one: resets the GPU display mode, re-enables the display, recentres the
+    /// GTE, clears the framebuffers and empties the frame still waiting to be
+    /// sent, which was drawn for the old mode. Call between frames only (a
+    /// scene load); the previous frame's DMA chain is waited for first.
+    void SetVideoMode(uint8_t videoMode);
     /// Allocates the ordering tables and bump allocators. Only the first call
     /// allocates: a scene load happens while the GPU still owes the previous
     /// frame's chain and an ordering-table clear on these buffers, so they are
@@ -176,6 +186,13 @@ class Renderer final {
     Camera* m_currentCamera = nullptr;
     psyqo::GPU& m_gpu;
     psyqo::Trig<> m_trig;
+
+    // The clear of the frame being built. Progressive: the buffer the next
+    // flip draws to. Interlaced: the single buffer (getNextClear would name y
+    // 256, which is not a buffer in that mode).
+    void frameClear(psyqo::Prim::FastFill& ff);
+    // Camera H for the GTE and the CPU projections, scaled to the screen height.
+    int32_t screenProjH() const;
 
     OT* m_ots[2] = {nullptr, nullptr};
     psyqo::Fragments::SimpleFragment<psyqo::Prim::FastFill> m_clear[2];
@@ -295,7 +312,7 @@ class Renderer final {
     // SZ <= H/2 its H/SZ division overflows and SXY comes out as if H/SZ were
     // 2. Triangles with a vertex nearer than that are clipped and projected
     // in software. No margin is needed: SZ is the GTE's own integer.
-    int32_t m_nearSZ = (PROJ_H >> 1) + 1;
+    int32_t m_nearSZ = ((kReferenceScreenLines / 2) >> 1) + 1;
     // The clipper's near plane, in SZ units; and the inset of its box from the
     // rasterizer's safe box, in pixels, for the rounding of the projection.
     static constexpr int32_t CLIP_NEAR_Z = 8;

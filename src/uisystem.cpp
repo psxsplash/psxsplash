@@ -7,6 +7,7 @@
 #include <psyqo/primitives/sprites.hh>
 #include <psyqo/primitives/triangles.hh>
 #include <psyqo/primitives/lines.hh>
+#include "screenmode.hh"
 #include "streq.hh"
 
 namespace psxsplash {
@@ -242,20 +243,21 @@ void UISystem::resolveLayout(const UIElement& el,
                               int16_t& outX, int16_t& outY,
                               int16_t& outW, int16_t& outH) const {
     // Anchor gives the origin point in screen space (8.8 fixed -> pixel)
-    int ax = ((int)el.anchorMinX * VRAM_RES_WIDTH)  >> 8;
-    int ay = ((int)el.anchorMinY * VRAM_RES_HEIGHT) >> 8;
+    const int screenW = currentScreen().width, screenH = currentScreen().height;
+    int ax = ((int)el.anchorMinX * screenW) >> 8;
+    int ay = ((int)el.anchorMinY * screenH) >> 8;
     outX = (int16_t)(ax + el.x);
     outY = (int16_t)(ay + el.y);
 
     // Stretch: anchorMax != anchorMin means width/height is determined by span + offset
     if (el.anchorMaxX != el.anchorMinX) {
-        int bx = ((int)el.anchorMaxX * VRAM_RES_WIDTH) >> 8;
+        int bx = ((int)el.anchorMaxX * screenW) >> 8;
         outW = (int16_t)(bx - ax + el.w);
     } else {
         outW = el.w;
     }
     if (el.anchorMaxY != el.anchorMinY) {
-        int by = ((int)el.anchorMaxY * VRAM_RES_HEIGHT) >> 8;
+        int by = ((int)el.anchorMaxY * screenH) >> 8;
         outH = (int16_t)(by - ay + el.h);
     } else {
         outH = el.h;
@@ -266,8 +268,8 @@ void UISystem::resolveLayout(const UIElement& el,
     if (outY < 0) { outH += outY; outY = 0; }
     if (outW <= 0) outW = 1;
     if (outH <= 0) outH = 1;
-    if (outX + outW > VRAM_RES_WIDTH)  outW = (int16_t)(VRAM_RES_WIDTH  - outX);
-    if (outY + outH > VRAM_RES_HEIGHT) outH = (int16_t)(VRAM_RES_HEIGHT - outY);
+    if (outX + outW > screenW) outW = (int16_t)(screenW - outX);
+    if (outY + outH > screenH) outH = (int16_t)(screenH - outY);
 }
 
 // ============================================================================
