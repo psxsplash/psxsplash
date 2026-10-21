@@ -35,6 +35,10 @@ struct FogConfig {
     psyqo::Color color = {.r = 0, .g = 0, .b = 0};
     uint8_t density = 5;
     int32_t fogFarSZ = 0;
+    // Fade everything to the background colour just before the edge where it
+    // stops being drawn (fade.hh edgeDepth), fog on or off: the pack's
+    // render flags bit 0.
+    bool edgeFade = false;
     // Fog mask CLUTs (CLUT attribute words, 0 = none) for 4bpp and 8bpp
     // textures: entry 0 transparent, every other entry white with STP set.
     uint16_t maskClut4 = 0;
@@ -176,6 +180,8 @@ class Renderer final {
     }
 
     FogConfig m_fog;
+    // This frame's fade edge in SZ units (fade.hh edgeDepth), 0 = edge fade off.
+    int32_t m_edgeSZ = 0;
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
     UISystem* m_uiSystem = nullptr;

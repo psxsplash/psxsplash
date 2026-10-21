@@ -153,6 +153,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         fogCfg.enabled = sceneSetup.fogEnabled;
         fogCfg.color = { .r = sceneSetup.fogR, .g = sceneSetup.fogG, .b = sceneSetup.fogB };
         fogCfg.density = sceneSetup.fogDensity;
+        fogCfg.edgeFade = sceneSetup.edgeFade;
         fogCfg.maskClut4 = sceneSetup.fogMaskClut4;
         fogCfg.maskClut8 = sceneSetup.fogMaskClut8;
         Renderer::GetInstance().SetFog(fogCfg);
