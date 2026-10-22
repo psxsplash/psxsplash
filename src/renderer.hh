@@ -287,14 +287,22 @@ class Renderer final {
     // its polygons (a top-level triangle's index is its offset from them).
     const ShineRecord* m_objShine = nullptr;
     const Tri* m_objPolys = nullptr;
+    // Its overlay's constant pieces: texture page with the blend, CLUT, grey.
+    psyqo::PrimPieces::TPageAttr m_shineTPage;
+    psyqo::PrimPieces::ClutIndex m_shineClut;
+    uint32_t m_shineGrey = 0;
+    bool m_shineHalf = false;
     // The reflection UVs of tri's corners, from its vertex normals; false
     // when tri is not one of the object's own triangles. Clobbers IR1-3 and
     // MAC1-3, not V0-V2.
     bool computeEnvUV(const Tri& tri, EnvUV& out);
     // The reflection overlay over a projected triangle, drawn after the
-    // triangle at zIndex and before its fog pass.
+    // triangle at zIndex and before its fog pass (fogPass: one follows).
     void insertShinePass(const psyqo::Vertex& a, const psyqo::Vertex& b, const psyqo::Vertex& c, const EnvUV& env,
-                         const int32_t fogIR[3], OT& ot, Balloc& balloc, int32_t zIndex);
+                         const int32_t fogIR[3], bool fogPass, OT& ot, Balloc& balloc, int32_t zIndex);
+    // A texture page setting the additive blend back, at zIndex.
+    void insertBlendRestore(OT& ot, Balloc& balloc, int32_t zIndex);
+    void beginShineFrame(OT& ot, Balloc& balloc);
 #endif
 
     TriangleRef* m_visibleRefs = nullptr;

@@ -175,6 +175,15 @@ void psxsplash::Renderer::setupObjectTransform(
         const uint32_t i = uint32_t(obj - m_shineFirstObject);
         if (i < m_shineObjectCount) m_objShine = m_shineByObject[i];
         m_objPolys = obj->polygons;
+        if (m_objShine) {
+            const ShineRecord* r = m_objShine;
+            m_shineHalf = r->blend == SHINE_HALF;
+            __builtin_memcpy(&m_shineTPage, &r->tpage, sizeof(uint16_t));
+            m_shineTPage.set(m_shineHalf ? psyqo::Prim::TPageAttr::HalfBackAndHalfFront
+                                         : psyqo::Prim::TPageAttr::FullBackAndFullFront);
+            m_shineClut = psyqo::PrimPieces::ClutIndex(r->clutX, r->clutY);
+            m_shineGrey = r->strength * 0x010101u;
+        }
     }
 #endif
 }
@@ -202,38 +211,49 @@ __attribute__((noinline)) bool psxsplash::Renderer::computeEnvUV(const Tri& tri,
 }
 
 // Inserted before the triangle itself, so drawn just after it: the overlay
-// through the reflection texture, then (half blend only) a texture page
-// putting the GPU's blend back to the additive one every untextured
-// semi-transparent primitive (the fog pass after this one) expects.
+// through the reflection texture. A half-blend overlay leaves the GPU's
+// blend at 50/50, and the untextured fog pass drawn right after it expects
+// the additive one: with fogPass, a texture page putting it back goes
+// between them. (Every textured primitive sets its own blend, shadows set
+// theirs, and beginShineFrame puts it back once after the world.) The
+// primitive's constant words were made once per object by setupObjectTransform.
 __attribute__((noinline)) void psxsplash::Renderer::insertShinePass(const psyqo::Vertex& a, const psyqo::Vertex& b,
                                                                     const psyqo::Vertex& c, const EnvUV& env,
-                                                                    const int32_t fogIR[3], OT& ot, Balloc& balloc,
-                                                                    int32_t zIndex) {
-    const ShineRecord* r = m_objShine;
-    const bool half = r->blend == SHINE_HALF;
-    if (half) {
-        auto& restore = balloc.allocateFragment<psyqo::Prim::TPage>();
-        restore.primitive.attr.setDithering(true);
-        restore.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
-        ot.insert(restore, zIndex);
-    }
+                                                                    const int32_t fogIR[3], bool fogPass, OT& ot,
+                                                                    Balloc& balloc, int32_t zIndex) {
+    if (fogPass && m_shineHalf) insertBlendRestore(ot, balloc, zIndex);
     auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
     p.primitive.pointA = a; p.primitive.pointB = b; p.primitive.pointC = c;
     p.primitive.uvA.u = env.u[0]; p.primitive.uvA.v = env.v[0];
     p.primitive.uvB.u = env.u[1]; p.primitive.uvB.v = env.v[1];
     p.primitive.uvC.u = env.u[2]; p.primitive.uvC.v = env.v[2];
-    __builtin_memcpy(&p.primitive.tpage, &r->tpage, sizeof(uint16_t));
-    p.primitive.tpage.set(half ? psyqo::Prim::TPageAttr::HalfBackAndHalfFront
-                               : psyqo::Prim::TPageAttr::FullBackAndFullFront);
-    p.primitive.clutIndex = psyqo::PrimPieces::ClutIndex(r->clutX, r->clutY);
-    const uint8_t g0 = shinemath::overlayGrey(r->strength, fogIR[0]);
-    const uint8_t g1 = shinemath::overlayGrey(r->strength, fogIR[1]);
-    const uint8_t g2 = shinemath::overlayGrey(r->strength, fogIR[2]);
-    p.primitive.setColorA({.r = g0, .g = g0, .b = g0});
-    p.primitive.setColorB({.r = g1, .g = g1, .b = g1});
-    p.primitive.setColorC({.r = g2, .g = g2, .b = g2});
-    p.primitive.setSemiTrans();
+    p.primitive.tpage = m_shineTPage;
+    p.primitive.clutIndex = m_shineClut;
+    if ((fogIR[0] | fogIR[1] | fogIR[2]) == 0) {
+        p.primitive.setColorAPacked(0x36000000 | m_shineGrey);
+        p.primitive.colorB.packed = m_shineGrey;
+        p.primitive.colorC.packed = m_shineGrey;
+    } else {
+        const uint8_t s = m_objShine->strength;
+        const uint32_t g0 = shinemath::overlayGrey(s, fogIR[0]) * 0x010101u;
+        p.primitive.setColorAPacked(0x36000000 | g0);
+        p.primitive.colorB.packed = shinemath::overlayGrey(s, fogIR[1]) * 0x010101u;
+        p.primitive.colorC.packed = shinemath::overlayGrey(s, fogIR[2]) * 0x010101u;
+    }
     ot.insert(p, zIndex);
+}
+
+__attribute__((noinline)) void psxsplash::Renderer::insertBlendRestore(OT& ot, Balloc& balloc, int32_t zIndex) {
+    auto& restore = balloc.allocateFragment<psyqo::Prim::TPage>();
+    restore.primitive.attr.setDithering(true);
+    restore.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
+    ot.insert(restore, zIndex);
+}
+
+// Once a frame, in a scene where something shines: the additive blend back
+// after the last world bucket, for whatever 2D draws after a half overlay.
+void psxsplash::Renderer::beginShineFrame(OT& ot, Balloc& balloc) {
+    if (m_shineByObject) insertBlendRestore(ot, balloc, WORLD_DEPTH_MIN - 1);
 }
 #endif
 
@@ -716,7 +736,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
         p.primitive.setOpaque();
 #if PSXSPLASH_FEATURE_SHINE
-        if (env) insertShinePass(p0, p1, p2, *env, fogIR, ot, balloc, zIndex);
+        if (env) insertShinePass(p0, p1, p2, *env, fogIR, false, ot, balloc, zIndex);
 #endif
         ot.insert(p, zIndex);
     } else if (hasFog) {
@@ -738,7 +758,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         texP.primitive.setColorA(texA); texP.primitive.setColorB(texB); texP.primitive.setColorC(texC);
         texP.primitive.setOpaque();
 #if PSXSPLASH_FEATURE_SHINE
-        if (env) insertShinePass(p0, p1, p2, *env, fogIR, ot, balloc, zIndex);
+        if (env) insertShinePass(p0, p1, p2, *env, fogIR, true, ot, balloc, zIndex);
 #endif
         ot.insert(texP, zIndex);
     } else {
@@ -755,7 +775,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
         p.primitive.setOpaque();
 #if PSXSPLASH_FEATURE_SHINE
-        if (env) insertShinePass(p0, p1, p2, *env, fogIR, ot, balloc, zIndex);
+        if (env) insertShinePass(p0, p1, p2, *env, fogIR, false, ot, balloc, zIndex);
 #endif
         ot.insert(p, zIndex);
     }
@@ -1062,6 +1082,9 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
+#if PSXSPLASH_FEATURE_SHINE
+    beginShineFrame(ot, balloc);
+#endif
     for (auto& obj : objects) {
         if (!obj->isDrawn()) continue;
         if (obj->isSkinned()) continue;
@@ -1131,6 +1154,9 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
+#if PSXSPLASH_FEATURE_SHINE
+    beginShineFrame(ot, balloc);
+#endif
     int16_t lastObjectIndex = -1;
     bool lastObjCulled = false;
     RENDER_LOST(uint32_t submitted = 0);
@@ -1459,6 +1485,9 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
+#if PSXSPLASH_FEATURE_SHINE
+    beginShineFrame(ot, balloc);
+#endif
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
     int32_t camZ = m_currentCamera->GetPosition().z.raw();
