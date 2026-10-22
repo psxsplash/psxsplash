@@ -15,6 +15,7 @@ src/luaapi.cpp \
 src/scenemanager.cpp \
 src/fileloader.cpp \
 src/audiomanager.cpp \
+src/reverb.cpp \
 src/controls.cpp \
 src/profiler.cpp \
 src/bvh.cpp \

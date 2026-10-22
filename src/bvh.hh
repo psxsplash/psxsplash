@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include <psyqo/fixed-point.hh>
 #include <psyqo/vector.hh>
@@ -142,9 +143,11 @@ struct RoomData {
     uint8_t  cellCount;                     // 1 byte  - typically 8 (2x2x2)
     uint8_t  portalRefCount;                // 1 byte  - number of portal refs for this room
     uint16_t firstPortalRef;                // 2 bytes - index into room-portal-ref array
-    uint16_t pad;                           // 2 bytes - alignment
+    uint8_t  reverbPreset;                  // 1 byte  - reverb.hh preset id, 0 = scene default (was padding)
+    uint8_t  pad;                           // 1 byte  - alignment
 };
 static_assert(sizeof(RoomData) == 36, "RoomData must be 36 bytes");
+static_assert(offsetof(RoomData, reverbPreset) == 34, "RoomData::reverbPreset is the low byte of the old pad word");
 
 /// Per-room portal reference - maps a room to its adjacent portals.
 /// Stored in a flat array indexed by RoomData::firstPortalRef + i.

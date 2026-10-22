@@ -20,6 +20,7 @@
 #include "splashpack.hh"
 #include "navregion.hh"
 #include "audiomanager.hh"
+#include "reverb.hh"
 #include "musicmanager.hh"
 #include "worldstreamer.hh"
 #include "interactable.hh"
@@ -584,6 +585,12 @@ namespace psxsplash {
 
         // Audio system
         AudioManager m_audio;
+        ReverbSystem m_reverb;
+        // The room the player starts in, as GameTick would pick it on the first
+        // frame (nav region's room, else the smallest room around the player).
+        int startRoom() const;
+        // The player's body box: what collisions, triggers and reverb zones test.
+        AABB playerBox() const;
         MusicManager m_music;
 #if PSXSPLASH_FEATURE_STREAMING
         WorldStreamer m_worldStreamer;

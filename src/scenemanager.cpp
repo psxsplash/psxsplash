@@ -158,6 +158,15 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         fogCfg.maskClut8 = sceneSetup.fogMaskClut8;
         Renderer::GetInstance().SetFog(fogCfg);
     }
+
+    // Reverb: zones from the trigger boxes that carry a preset, the scene
+    // default, and how far up the clips reach (uploaded before this).
+    m_reverb.reset();
+    for (size_t i = 0; i < sceneSetup.triggerBoxes.size(); i++) {
+        const SPLASHPACKTriggerBox* tb = sceneSetup.triggerBoxes[i];
+        if (tb) m_reverb.addZone(tb->minX, tb->minY, tb->minZ, tb->maxX, tb->maxY, tb->maxZ, tb->reverbPreset);
+    }
+    m_reverb.begin(sceneSetup.reverbDefault, sceneSetup.cdReverb, m_audio.getClipsEnd());
     // Copy component arrays
     m_interactables = std::move(sceneSetup.interactables);
     m_legacyInteractables = std::move(sceneSetup.legacyInteractables);
@@ -508,6 +517,18 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     Renderer::GetInstance().SetCamera(m_currentCamera);
 
+    // The starting reverb, before any Lua keys a voice.
+    {
+        uint8_t zone = 0;
+#if PSXSPLASH_FEATURE_COLLISION
+        AABB box = playerBox();
+        zone = m_reverb.zoneAt(box.min.x.value, box.min.y.value, box.min.z.value,
+                               box.max.x.value, box.max.y.value, box.max.z.value);
+#endif
+        int room = startRoom();
+        m_reverb.start(zone, room >= 0 ? m_rooms[room].reverbPreset : 0);
+    }
+
     L.OnSceneCreationEnd();
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 95);
@@ -637,23 +658,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     uint32_t collisionStart = gpu.now();
 
 #if PSXSPLASH_FEATURE_COLLISION
-    AABB playerAABB;
-    {
-        psyqo::FixedPoint<12> r;
-        r.value = m_playerRadius;
-        psyqo::FixedPoint<12> px = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.x);
-        psyqo::FixedPoint<12> py = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y);
-        psyqo::FixedPoint<12> pz = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z);
-        psyqo::FixedPoint<12> h = static_cast<psyqo::FixedPoint<12>>(m_playerHeight);
-        // Y is inverted on PS1: negative = up, positive = down.
-        // m_playerPosition.y is the camera (head), feet are at py + h.
-        // Leave a small gap at the bottom so the floor geometry doesn't
-        // trigger constant collisions (floor contact is handled by nav).
-        psyqo::FixedPoint<12> bodyBottom;
-        bodyBottom.value = h.value * 3 / 4;  // 75% of height below camera
-        playerAABB.min = psyqo::Vec3{ px - r, py, pz - r };
-        playerAABB.max = psyqo::Vec3{ px + r, py + bodyBottom, pz + r };
-    }
+    AABB playerAABB = playerBox();
 
     psyqo::Vec3 pushBack;
     int collisionCount = m_collisionSystem.detectCollisions(playerAABB, pushBack, *this);
@@ -678,7 +683,18 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
     // Process trigger boxes (enter/exit)
     m_collisionSystem.detectTriggers(playerAABB, *this);
+    uint8_t reverbZone = m_reverb.zoneAt(playerAABB.min.x.value, playerAABB.min.y.value, playerAABB.min.z.value,
+                                         playerAABB.max.x.value, playerAABB.max.y.value, playerAABB.max.z.value);
+#else
+    uint8_t reverbZone = 0;
 #endif
+    {
+        // Innermost reverb zone, else the camera's room, else the scene default.
+        uint8_t roomPreset = 0;
+        int room = (m_roomCount > 0 && m_rooms) ? renderer.lastCameraRoom() : -1;
+        if (room >= 0 && room < m_roomCount) roomPreset = m_rooms[room].reverbPreset;
+        m_reverb.update(reverbZone, roomPreset);
+    }
 
     gpu.pumpCallbacks();
     uint32_t collisionEnd = gpu.now();
@@ -1714,6 +1730,51 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
 // ============================================================================
 // Format: 'S' 'A' clipCount(u16)
 //         Per-clip: sizeBytes(u32) sampleRate(u16) loop(u8) pad(u8) + ADPCM data + align4
+// pad bit 0: the clip's voices feed the reverb; bits 4-7: the largest reverb
+// preset the scene uses, whose work area is kept free at the top of sound RAM
+// (reverb.hh). Older packs wrote 0: no reverb, no reservation.
+
+psxsplash::AABB psxsplash::SceneManager::playerBox() const {
+    AABB box;
+    psyqo::FixedPoint<12> r;
+    r.value = m_playerRadius;
+    psyqo::FixedPoint<12> px = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.x);
+    psyqo::FixedPoint<12> py = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y);
+    psyqo::FixedPoint<12> pz = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z);
+    psyqo::FixedPoint<12> h = static_cast<psyqo::FixedPoint<12>>(m_playerHeight);
+    // Y is inverted on PS1: negative = up, positive = down.
+    // m_playerPosition.y is the camera (head), feet are at py + h.
+    // Leave a small gap at the bottom so the floor geometry doesn't
+    // trigger constant collisions (floor contact is handled by nav).
+    psyqo::FixedPoint<12> bodyBottom;
+    bodyBottom.value = h.value * 3 / 4;  // 75% of height below camera
+    box.min = psyqo::Vec3{ px - r, py, pz - r };
+    box.max = psyqo::Vec3{ px + r, py + bodyBottom, pz + r };
+    return box;
+}
+
+int psxsplash::SceneManager::startRoom() const {
+    if (m_roomCount == 0 || m_rooms == nullptr) return -1;
+    int catchAll = m_roomCount - 1;
+    if (m_navRegions.isLoaded() && m_playerNavRegion != NAV_NO_REGION) {
+        uint8_t ri = m_navRegions.getRoomIndex(m_playerNavRegion);
+        if (ri != 0xFF && ri < catchAll) return ri;
+    }
+    // Renderer::RenderWithRooms' fallback, at the player: the smallest room
+    // whose box (with its margin) holds the point.
+    constexpr int32_t ROOM_MARGIN = 2048;
+    int32_t x = m_playerPosition.x.raw(), y = m_playerPosition.y.raw(), z = m_playerPosition.z.raw();
+    int best = -1;
+    uint32_t bestSize = 0xFFFFFFFFu;
+    for (int r = 0; r < catchAll; r++) {
+        const RoomData& rd = m_rooms[r];
+        if (x < rd.aabbMinX - ROOM_MARGIN || x > rd.aabbMaxX + ROOM_MARGIN || y < rd.aabbMinY - ROOM_MARGIN ||
+            y > rd.aabbMaxY + ROOM_MARGIN || z < rd.aabbMinZ - ROOM_MARGIN || z > rd.aabbMaxZ + ROOM_MARGIN) continue;
+        uint32_t size = reverb::zoneSize(rd.aabbMinX, rd.aabbMinY, rd.aabbMinZ, rd.aabbMaxX, rd.aabbMaxY, rd.aabbMaxZ);
+        if (size < bestSize) { bestSize = size; best = r; }
+    }
+    return best;
+}
 
 void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
     if (!spuData || spuSize < 4) return;
@@ -1725,14 +1786,28 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
     ptr += 2;
     uint16_t clipCount = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
 
+    // The reservation has to be in place before the first clip is placed.
+    {
+        uint8_t reserve = 0;
+        const uint8_t* p = ptr;
+        for (uint16_t i = 0; i < clipCount; i++) {
+            uint32_t sizeBytes = *reinterpret_cast<const uint32_t*>(p);
+            uint8_t r = reverb::clipReserve(p[7]);
+            if (reverb::workAreaBytes(r) > reverb::workAreaBytes(reserve)) reserve = r;
+            p += 8 + sizeBytes;
+            p = reinterpret_cast<const uint8_t*>((reinterpret_cast<uintptr_t>(p) + 3) & ~uintptr_t(3));
+        }
+        m_audio.reserveTop(reverb::workAreaBytes(reserve));
+    }
+
     for (uint16_t i = 0; i < clipCount; i++) {
         uint32_t sizeBytes = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
         uint16_t sampleRate = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
         uint8_t  loop = *ptr++;
-        ptr++; // pad
+        uint8_t  pad = *ptr++;
 
         if (sizeBytes > 0) {
-            m_audio.loadClip((int)i, ptr, sizeBytes, sampleRate, loop != 0);
+            m_audio.loadClip((int)i, ptr, sizeBytes, sampleRate, loop != 0, reverb::clipSend(pad));
             ptr += sizeBytes;
         }
 
@@ -1781,6 +1856,7 @@ void psxsplash::SceneManager::clearScene() {
 
     // 3. Reset hardware / subsystems
     m_audio.reset();           // Free SPU RAM and stop all voices
+    m_reverb.reset();          // Reverb off, its zones dropped
 #if PSXSPLASH_FEATURE_COLLISION
     m_collisionSystem.init();  // Re-init collision system
 #endif
