@@ -81,6 +81,28 @@ inline void shakeOffset(uint32_t step, int32_t amp, int32_t& dx, int32_t& dy) {
     dy = (h & 0x100) ? my : -my;
 }
 
+// Ordered dither for the first half of a fade: level L (1..16) of the 4x4
+// Bayer matrix turns on the texels whose rank is below L. 16 = every texel.
+static constexpr uint8_t kBayer4[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+static constexpr int kDitherLevels = 16;
+inline bool ditherOn(int level, int x, int y) { return kBayer4[y & 3][x & 3] < level; }
+
+// The dither masks as a 4bpp texture: 16 tiles of 8x8 texels side by side
+// (each the 4x4 pattern twice over, as the GPU texture window works in 8s),
+// tile L-1 holding level L. Texel 1 is on, 0 is transparent: 32x8 halfwords.
+static constexpr int kMaskTexW = kDitherLevels * 8, kMaskTexH = 8;
+inline void buildDitherMasks(uint16_t out[kMaskTexW / 4 * kMaskTexH]) {
+    for (int y = 0; y < kMaskTexH; y++)
+        for (int hw = 0; hw < kMaskTexW / 4; hw++) {
+            uint16_t v = 0;
+            for (int n = 0; n < 4; n++) {
+                const int u = hw * 4 + n;
+                if (ditherOn(u / 8 + 1, u, y)) v |= (uint16_t)(1u << (n * 4));
+            }
+            out[y * (kMaskTexW / 4) + hw] = v;
+        }
+}
+
 // c * a / 255, exact at a = 0 and a = 255.
 inline uint8_t scale255(uint8_t c, int32_t a) {
     if (a <= 0) return 0;
@@ -186,30 +208,27 @@ struct State {
     // ----- What the renderer draws -----
     void shakeOffsets(int32_t& dx, int32_t& dy) const { shakeOffset(shakeStep, shake.value, dx, dy); }
     // Fade to colour, as GPU passes over the whole screen. The GPU cannot
-    // scale what is on screen by an arbitrary factor: it can halve it (50/50
-    // blend), subtract a constant and add one. So below half way the fade
-    // subtracts a grey of half the amount and adds the colour scaled by it;
-    // from half way it first blends the colour in 50/50, then subtracts and
-    // adds what is left, reaching exactly the colour at 255. Crossing 128 the
-    // picture steps by |p/2 - 64| per channel (p the pixel), about 12 on
-    // average over a lit scene; a single subtract all the way is continuous
-    // but turns everything but the colour's own channel black by half way.
+    // scale what is on screen by an arbitrary factor: it can blend 50/50,
+    // subtract a constant and add one. Up to half way the fade blends the
+    // colour in 50/50 on an ordered-dither share of the pixels (level/16 of
+    // them, on average a (level/32) mix); at 128 every pixel is blended. From
+    // there it subtracts and adds what is left, reaching exactly the colour at
+    // 255. Each step is the same size, so nothing jumps.
     struct FadePasses {
-        bool half = false;  // 50/50 blend with the colour first
-        uint8_t sub = 0;    // then subtract this grey
+        uint8_t dither = 0;  // 1..16: 50/50 blend through that dither level; 16 = all pixels
+        uint8_t sub = 0;     // then subtract this grey
         uint8_t addR = 0, addG = 0, addB = 0;  // then add this colour
     };
     FadePasses fadePasses() const {
         FadePasses p;
         int32_t a = fade.value < 0 ? 0 : fade.value > 255 ? 255 : fade.value;
-        if (a == 0) return p;
-        if (a >= 128) {
-            p.half = true;
-            a = (a - 128) * 255 / 127;
-            p.sub = (uint8_t)a;
-        } else {
-            p.sub = (uint8_t)(a >> 1);
+        if (a < 128) {
+            p.dither = (uint8_t)((a * kDitherLevels + 64) >> 7);
+            return p;
         }
+        p.dither = kDitherLevels;
+        a = (a - 128) * 255 / 127;
+        p.sub = (uint8_t)a;
         p.addR = scale255(fadeR, a);
         p.addG = scale255(fadeG, a);
         p.addB = scale255(fadeB, a);

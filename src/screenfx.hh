@@ -26,6 +26,8 @@ class ScreenFx {
     // displayed buffer, so it needs double buffering (off in single-buffer
     // modes such as 640x480 interlaced).
     void setScreen(int16_t width, int16_t height, bool doubleBuffered);
+    // Engine init, once: the fade's dither masks into VRAM (960, 456).
+    void uploadMasks(psyqo::GPU& gpu);
     int16_t width() const { return m_width; }
     int16_t height() const { return m_height; }
 
@@ -56,7 +58,7 @@ class ScreenFx {
     bool m_trailWarned = false;
     bool m_offsetSet = false;   // GTE OFX/OFY hold a shake offset
 #ifdef PSXSPLASH_PROFILER
-    uint32_t m_costTicks = 0, m_costFrames = 0, m_costPeak = 0, m_costFrame = 0;
+    uint32_t m_costTicks = 0, m_costFrames = 0, m_costPeak = 0, m_costFrame = 0, m_ctrlTicks = 0;
     uint16_t m_costStart = 0;
   public:
     // Root counter 2 at system clock / 8 around the effects' CPU work.

@@ -16,6 +16,21 @@ namespace psxsplash {
 ScreenFx ScreenFx::s_instance;
 
 namespace {
+// The fade's dither masks (screenfxmath.hh) and their CLUT, engine-owned VRAM
+// in the font column the exporter keeps free, just above the system font
+// (960, 464): rows 456-463. The editor's font packer stops at row 456.
+constexpr int16_t kMaskX = 960, kMaskY = 456, kMaskClutX = 992;
+
+// GP0(E2h) texture window: u = (u & ~(mask * 8)) | (offset & mask) * 8. A
+// mask of 31 repeats one 8x8 tile, at (offsetX, offsetY) * 8 in the page.
+struct TexWindow {
+    uint32_t command;
+    static constexpr uint32_t kOff = 0xe2000000;
+    static uint32_t window(uint32_t offsetX, uint32_t offsetY) {
+        return 0xe2000000 | 31 | (31 << 5) | ((offsetX & 31) << 10) | ((offsetY & 31) << 15);
+    }
+};
+
 // The trail samples the previous frame in 64-pixel strips: one 15-bit texture
 // page is 64 VRAM pixels wide per page step and a sprite's u stays in 0..63.
 constexpr int16_t kStrip = 64;
@@ -41,6 +56,17 @@ void ScreenFx::setScreen(int16_t width, int16_t height, bool doubleBuffered) {
 }
 
 void ScreenFx::reset() { m_state.reset(); }
+
+void ScreenFx::uploadMasks(psyqo::GPU& gpu) {
+    static uint16_t masks[screenfx::kMaskTexW / 4 * screenfx::kMaskTexH];
+    screenfx::buildDitherMasks(masks);
+    gpu.uploadToVRAM(masks, psyqo::Rect{.a = {.x = kMaskX, .y = kMaskY},
+                                        .b = {screenfx::kMaskTexW / 4, screenfx::kMaskTexH}});
+    // Entry 1: grey 16 of 31 with the mask bit, so (16 * colour) >> 7 is the
+    // colour's own 5-bit value. Entry 0 stays 0: transparent.
+    static uint16_t clut[16] = {0, 0x8000 | 16 | (16 << 5) | (16 << 10)};
+    gpu.uploadToVRAM(clut, psyqo::Rect{.a = {.x = kMaskClutX, .y = kMaskY}, .b = {16, 1}});
+}
 
 void ScreenFx::tick(int32_t dt12) {
     SCREENFX_COST();
@@ -130,15 +156,23 @@ void ScreenFx::drawOverlay(psyqo::GPU& gpu, Renderer::Balloc& balloc) {
     m_costTicks += m_costFrame;
     if (m_costFrame > m_costPeak) m_costPeak = m_costFrame;
     m_costFrame = 0;
+    // Control: four empty sections timed the same way, the instrument's own cost.
+    for (int i = 0; i < 4; i++) {
+        Cost c;
+    }
+    m_ctrlTicks += m_costFrame;
+    m_costFrame = 0;
     // Twice a second, outside the timed part: the effects' CPU time per frame
     // (counter 2 ticks are 8 system clocks, 0.236 us). The print itself takes
     // about a frame.
     if (++m_costFrames == 30) {
         const uint32_t avg = m_costTicks / 30;
-        ramsyscall_printf("screenfx: cpu avg %u peak %u ticks (avg %u.%u us) fade %d flash %d shake %d box %d trail %d\n",
-                          avg, m_costPeak, avg * 236 / 1000, (avg * 236 / 100) % 10, m_state.fade.value,
-                          m_state.flash.value, m_state.shake.value, m_state.letterbox.value, m_state.trail);
-        m_costTicks = m_costFrames = m_costPeak = 0;
+        const uint32_t ctrl = m_ctrlTicks / 30;
+        ramsyscall_printf("screenfx: cpu avg %u peak %u ticks (avg %u.%u us) ctrl %u ticks (%u.%u us) fade %d flash %d shake %d box %d trail %d\n",
+                          avg, m_costPeak, avg * 236 / 1000, (avg * 236 / 100) % 10, ctrl, ctrl * 236 / 1000,
+                          (ctrl * 236 / 100) % 10, m_state.fade.value, m_state.flash.value, m_state.shake.value,
+                          m_state.letterbox.value, m_state.trail);
+        m_costTicks = m_costFrames = m_costPeak = m_ctrlTicks = 0;
     }
 #endif
 }
@@ -160,7 +194,36 @@ void ScreenFx::drawOverlayPasses(psyqo::GPU& gpu, Renderer::Balloc& balloc) {
     };
     // Fade to a colour (see State::fadePasses): at 255 exactly the colour.
     const screenfx::State::FadePasses f = m_state.fadePasses();
-    if (f.half) pass(psyqo::Prim::TPageAttr::HalfBackAndHalfFront, m_state.fadeR, m_state.fadeG, m_state.fadeB);
+    if (f.dither == screenfx::kDitherLevels) {
+        pass(psyqo::Prim::TPageAttr::HalfBackAndHalfFront, m_state.fadeR, m_state.fadeG, m_state.fadeB);
+    } else if (f.dither > 0) {
+        // One full-screen sprite through dither tile f.dither - 1, repeated by
+        // the texture window. Its on texels are mid grey with the mask bit
+        // set, so the sprite colour gives the fade colour, blended 50/50; the
+        // off texels are 0, which the GPU skips.
+        auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
+        tp.primitive.attr.setPageX(kMaskX >> 6)
+            .setPageY(kMaskY >> 8)
+            .set(psyqo::Prim::TPageAttr::Tex4Bits)
+            .set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront)
+            .setDithering(true);
+        gpu.chain(tp);
+        auto& win = balloc.allocateFragment<TexWindow>();
+        win.primitive.command = TexWindow::window(f.dither - 1, (kMaskY & 255) >> 3);
+        gpu.chain(win);
+        auto& sp = balloc.allocateFragment<psyqo::Prim::Sprite>();
+        sp.primitive.setColor(psyqo::Color{.r = m_state.fadeR, .g = m_state.fadeG, .b = m_state.fadeB});
+        sp.primitive.setSemiTrans();
+        sp.primitive.position = {{.x = 0, .y = 0}};
+        sp.primitive.texInfo.u = 0;
+        sp.primitive.texInfo.v = 0;
+        sp.primitive.texInfo.clut = psyqo::PrimPieces::ClutIndex(kMaskClutX >> 4, kMaskY);
+        sp.primitive.size = {{.x = m_width, .y = m_height}};
+        gpu.chain(sp);
+        auto& off = balloc.allocateFragment<TexWindow>();
+        off.primitive.command = TexWindow::kOff;
+        gpu.chain(off);
+    }
     pass(psyqo::Prim::TPageAttr::FullBackSubFullFront, f.sub, f.sub, f.sub);
     pass(psyqo::Prim::TPageAttr::FullBackAndFullFront, f.addR, f.addG, f.addB);
     if (m_state.flash.value > 0) {

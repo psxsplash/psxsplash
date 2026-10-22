@@ -121,6 +121,7 @@ void PSXSplash::prepare() {
 
 void PSXSplash::createScene() {
     m_font.uploadSystemFont(gpu());
+    psxsplash::ScreenFx::get().uploadMasks(gpu());
     psxsplash::SceneManager::SetFont(&m_font);
     pushScene(&mainScene);
 }
