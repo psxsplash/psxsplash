@@ -128,7 +128,7 @@ void Profiler::endFrame(uint32_t frameTime) {
 
 void Profiler::renderOT(Renderer::OT& ot,
                         Renderer::Balloc& balloc) {
-  if (m_font == nullptr || m_totalFrameTime == 0) return;
+  if (m_hidden || m_font == nullptr || m_totalFrameTime == 0) return;
 
   size_t needed =
       sizeof(psyqo::Fragments::SimpleFragment<psyqo::Prim::Rectangle>) * (2 + kTotalBuckets) +
@@ -215,7 +215,7 @@ void Profiler::renderOT(Renderer::OT& ot,
 }
 
 void Profiler::renderText(psyqo::GPU& gpu) {
-  if (m_font == nullptr || m_totalFrameTime == 0) return;
+  if (m_hidden || m_font == nullptr || m_totalFrameTime == 0) return;
 
   uint32_t totalMs = m_totalFrameTime / 1000;
   uint32_t totalMsFrac = (m_totalFrameTime % 1000) / 100;
