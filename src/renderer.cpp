@@ -23,8 +23,8 @@
 #include "gtemath.hh"
 #if PSXSPLASH_FEATURE_LIGHTS
 #include "lightgte.hh"
-#include "screenfx.hh"
 #endif
+#include "screenfx.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
