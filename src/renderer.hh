@@ -19,6 +19,7 @@
 #include "features.hh"
 #include "lightmath.hh"
 #include "shadowmath.hh"
+#include "shinemath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
 
@@ -46,6 +47,12 @@ struct FogConfig {
     // textures: entry 0 transparent, every other entry white with STP set.
     uint16_t maskClut4 = 0;
     uint16_t maskClut8 = 0;
+};
+
+// A shiny triangle's reflection texture coordinates at its three corners
+// (shinemath.hh), carried through the split and the clipper with its UVs.
+struct EnvUV {
+    uint8_t u[3], v[3];
 };
 
 class Renderer final {
@@ -163,6 +170,16 @@ class Renderer final {
     void SetShadowFloor(const NavRegionSystem* nav) { m_shadowNav = nav; }
 #endif
 
+#if PSXSPLASH_FEATURE_SHINE
+    /// Shine records by object index (byObject[i] for the object at
+    /// firstObject + i, all of a scene's objects being one array in
+    /// splashpack data), or nullptr when nothing shines.
+    void SetShine(const ShineRecord* const* byObject, const GameObject* firstObject, uint16_t count) {
+        m_shineByObject = byObject; m_shineFirstObject = firstObject; m_shineObjectCount = count;
+        m_objShine = nullptr;
+    }
+#endif
+
     static Renderer& GetInstance() {
         psyqo::Kernel::assert(instance != nullptr,
                               "Access to renderer was tried without prior initialization");
@@ -262,6 +279,24 @@ class Renderer final {
                        int32_t fogFarSZ, OT& ot, Balloc& balloc);
 #endif
 
+#if PSXSPLASH_FEATURE_SHINE
+    const ShineRecord* const* m_shineByObject = nullptr;
+    const GameObject* m_shineFirstObject = nullptr;
+    uint16_t m_shineObjectCount = 0;
+    // The shine record of the object setupObjectTransform last loaded, and
+    // its polygons (a top-level triangle's index is its offset from them).
+    const ShineRecord* m_objShine = nullptr;
+    const Tri* m_objPolys = nullptr;
+    // The reflection UVs of tri's corners, from its vertex normals; false
+    // when tri is not one of the object's own triangles. Clobbers IR1-3 and
+    // MAC1-3, not V0-V2.
+    bool computeEnvUV(const Tri& tri, EnvUV& out);
+    // The reflection overlay over a projected triangle, drawn after the
+    // triangle at zIndex and before its fog pass.
+    void insertShinePass(const psyqo::Vertex& a, const psyqo::Vertex& b, const psyqo::Vertex& c, const EnvUV& env,
+                         const int32_t fogIR[3], OT& ot, Balloc& balloc, int32_t zIndex);
+#endif
+
     TriangleRef* m_visibleRefs = nullptr;
     uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
@@ -277,23 +312,23 @@ class Renderer final {
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          OT& ot,
                          Balloc& balloc,
-                         psyqo::PrimPieces::UVCoords uvOffset = { 0 }, int depth = 0);
+                         psyqo::PrimPieces::UVCoords uvOffset = { 0 }, int depth = 0, const EnvUV* env = nullptr);
     // Splits tri at the midpoints of the edges in `edges` (bit i: corner i to
     // corner i + 1) into 2, 3 or 4 children and draws them through
     // processTriangle at depth + 1; or returns false, leaving tri to the
     // caller, when the bump allocator is nearly full.
     bool splitTriangle(const Tri& tri, unsigned edges, int32_t fogFarSZ, OT& ot, Balloc& balloc,
-                       psyqo::PrimPieces::UVCoords uvOffset, int depth);
+                       psyqo::PrimPieces::UVCoords uvOffset, int depth, const EnvUV* env);
     // Fog, lights and the primitives of one projected triangle (both paths;
     // inlined into both, so the per-triangle path pays no call for it).
     __attribute__((always_inline)) inline void emitTriangle(const Tri& tri, const psyqo::Vertex& p0, const psyqo::Vertex& p1, const psyqo::Vertex& p2,
                       const int32_t sz[3], int32_t zIndex, int32_t fogFarSZ, OT& ot, Balloc& balloc,
-                      psyqo::PrimPieces::UVCoords uvOffset);
+                      psyqo::PrimPieces::UVCoords uvOffset, const EnvUV* env = nullptr);
     // Clips tri, whose vertices are loaded in V0-V2 and projected by the GTE
     // into `projected`, to the near plane and the rasterizer's safe box, and
     // draws the pieces, projected in software where the GTE could not.
     void clipTriangle(const Tri& tri, const psyqo::Vertex projected[3], int32_t fogFarSZ, OT& ot,
-                      Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset);
+                      Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset, const EnvUV* env);
     // The GTE projects a vertex exactly only from SZ = (H >> 1) + 1: at
     // SZ <= H/2 its H/SZ division overflows and SXY comes out as if H/SZ were
     // 2. Triangles with a vertex nearer than that are clipped and projected

@@ -204,6 +204,10 @@ struct SplashpackSceneSetup {
     // --- v29 ---
     /// Offset to the baked background table (backgroundmath.hh), or 0.
     uint32_t backgroundTableOffset = 0;
+
+    // --- v30 ---
+    /// The shine table (shinemath.hh), or nullptr when nothing shines.
+    const uint8_t* shineTable = nullptr;
 };
 
 class SplashPackLoader {

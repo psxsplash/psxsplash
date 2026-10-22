@@ -118,9 +118,12 @@ struct SPLASHPACKFileHeader {
     // --- v29 (appended; the header grows from 160 to 164) ---
     // Offset to the baked background table (BackgroundTableHeader), or 0 if none.
     uint32_t backgroundTableOffset;
+    // --- v30 (appended; the header grows from 164 to 168) ---
+    // Offset to the shine table (shinemath.hh), or 0 if none.
+    uint32_t shineTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV29,
-              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV29 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV30,
+              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV30 bytes");
 // Historical sizes and splashpackHeaderSize(): splashpackversion.hh.
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
@@ -764,6 +767,16 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 #else
         skipCompiledOut(reinterpret_cast<const BackgroundTableHeader*>(data + header->backgroundTableOffset)->count,
                         "baked backgrounds", "backgrounds");
+#endif
+    }
+
+    // Shine (v30+): reflection overlays on shiny triangles.
+    if (header->version >= 30 && header->shineTableOffset != 0) {
+        const uint8_t* table = data + header->shineTableOffset;
+#if PSXSPLASH_FEATURE_SHINE
+        setup.shineTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "shiny objects", "shine");
 #endif
     }
 
