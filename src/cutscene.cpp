@@ -11,6 +11,7 @@
 #include "scenemanager.hh"
 #include "skinmesh.hh"
 #include "controls.hh"
+#include "screenfx.hh"
 
 namespace psxsplash {
 
@@ -135,8 +136,17 @@ bool CutscenePlayer::play(const char* name, bool loop) {
                     case TrackType::LightEnabled:
                         if (m_sceneMgr) captureLightTrack(track, m_sceneMgr->getPointLight(track.uiHandle));
                         break;
+                    case TrackType::ScreenFade:
+                    case TrackType::ScreenFadeColor:
+                    case TrackType::Letterbox:
+                    case TrackType::Shake:
+                    case TrackType::Trail:
+                        captureScreenTrack(track, ScreenFx::get().state());
+                        break;
                 }
             }
+            // Only what this cutscene drives is put back when it is stopped.
+            ScreenFx::get().state().driven = 0;
 
             return true;
         }
@@ -150,6 +160,8 @@ void CutscenePlayer::stop() {
     if (m_controls) {
         m_controls->stopMotors();
     }
+    // And take off the screen effects it drove: no fade, bars, shake or trail.
+    ScreenFx::get().state().resetDriven();
     m_active = nullptr;
     fireOnComplete();
 }
@@ -192,6 +204,9 @@ void CutscenePlayer::tick(int32_t dt12) {
             if (m_controls) {
                 m_controls->stopMotors();
             }
+            // Screen effects keep their last value (a cutscene that ends faded
+            // out stays faded until a FadeIn); nothing is put back later.
+            ScreenFx::get().state().driven = 0;
             m_active = nullptr;
             fireOnComplete();
         }
@@ -450,6 +465,70 @@ void CutscenePlayer::applyTrack(CutsceneTrack& track) {
         case TrackType::LightRadius:
         case TrackType::LightEnabled:
             if (m_sceneMgr) applyLightTrack(track, m_sceneMgr->getPointLight(track.uiHandle), m_frame, m_subFrame);
+            break;
+
+        case TrackType::ScreenFade:
+        case TrackType::ScreenFadeColor:
+        case TrackType::Letterbox:
+        case TrackType::Shake:
+        case TrackType::Trail:
+            applyScreenTrack(track, ScreenFx::get().state(), m_frame, m_subFrame, ScreenFx::get().height());
+            break;
+    }
+}
+
+void captureScreenTrack(CutsceneTrack& track, const screenfx::State& fx) {
+    switch (track.trackType) {
+        case TrackType::ScreenFade:
+            track.initialValues[0] = fx.fade.value;
+            break;
+        case TrackType::ScreenFadeColor:
+            track.initialValues[0] = fx.fadeR;
+            track.initialValues[1] = fx.fadeG;
+            track.initialValues[2] = fx.fadeB;
+            break;
+        case TrackType::Letterbox:
+            track.initialValues[0] = fx.letterbox.value;
+            break;
+        case TrackType::Shake:
+            track.initialValues[0] = fx.shake.value;
+            break;
+        case TrackType::Trail:
+            track.initialValues[0] = fx.trail;
+            break;
+        default:
+            break;
+    }
+}
+
+void applyScreenTrack(CutsceneTrack& track, screenfx::State& fx, uint16_t frame, uint16_t subFrame,
+                      int32_t screenH) {
+    if (track.keyframeCount == 0 || !track.keyframes) return;
+    const CutsceneKeyframe* kf = track.keyframes;
+    if (track.trackType == TrackType::ScreenFadeColor || track.trackType == TrackType::Trail) {
+        // Step: the last key at or before the frame, the initial value before the first.
+        const int16_t* v = frame < kf[0].getFrame() ? track.initialValues : kf[0].values;
+        for (uint8_t i = 0; i < track.keyframeCount; i++) {
+            if (kf[i].getFrame() <= frame) v = kf[i].values;
+            else break;
+        }
+        if (track.trackType == TrackType::Trail) fx.driveTrail(v[0]);
+        else fx.driveFadeColor(v[0], v[1], v[2]);
+        return;
+    }
+    int16_t out[3];
+    psxsplash::lerpKeyframesSub(track.keyframes, track.keyframeCount, frame, subFrame, track.initialValues, out);
+    switch (track.trackType) {
+        case TrackType::ScreenFade:
+            fx.driveFade(out[0]);
+            break;
+        case TrackType::Letterbox:
+            fx.driveLetterbox(out[0], screenH);
+            break;
+        case TrackType::Shake:
+            fx.driveShake(out[0]);
+            break;
+        default:
             break;
     }
 }
