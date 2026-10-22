@@ -269,6 +269,21 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     Renderer::GetInstance().SetShadowFloor(&m_navRegions);
 #endif
 
+#if PSXSPLASH_FEATURE_SHINE
+    // Shine (v30+): the renderer finds an object's record by its index.
+    {
+        int shines = 0;
+        if (sceneSetup.shineTable && !m_gameObjects.empty()) {
+            m_shineByObject.assign(m_gameObjects.size(), nullptr);
+            shines = shinemath::parseTable(
+                sceneSetup.shineTable, uint16_t(m_gameObjects.size()),
+                [this](uint16_t i) { return m_gameObjects[i]->polyCount; }, m_shineByObject.data());
+        }
+        if (shines > 0) Renderer::GetInstance().SetShine(m_shineByObject.data(), m_gameObjects[0], uint16_t(m_gameObjects.size()));
+        else Renderer::GetInstance().SetShine(nullptr, nullptr, 0);
+    }
+#endif
+
 #if PSXSPLASH_FEATURE_SPRITES
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
     // images and 3D textures, so there is nothing to upload here - only the
@@ -1838,6 +1853,10 @@ void psxsplash::SceneManager::clearScene() {
 #if PSXSPLASH_FEATURE_SHADOWS
     m_shadowCount = 0;
     Renderer::GetInstance().SetShadows(nullptr, 0);
+#endif
+#if PSXSPLASH_FEATURE_SHINE
+    Renderer::GetInstance().SetShine(nullptr, nullptr, 0);
+    { eastl::vector<const ShineRecord*> tmp; tmp.swap(m_shineByObject); }
 #endif
     // BVH and NavRegions will be overwritten by next load
 

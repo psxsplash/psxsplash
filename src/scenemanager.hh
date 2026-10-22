@@ -16,6 +16,7 @@
 #include "collision.hh"
 #include "controls.hh"
 #include "gameobject.hh"
+#include "shinemath.hh"
 #include "lua.h"
 #include "splashpack.hh"
 #include "navregion.hh"
@@ -639,6 +640,11 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_SHADOWS
         ShadowRecord m_shadows[MAX_SCENE_SHADOWS];
         int m_shadowCount = 0;
+#endif
+#if PSXSPLASH_FEATURE_SHINE
+        // Shine record of each object by object index, nullptr for the dull
+        // ones; the records live in splashpack data.
+        eastl::vector<const ShineRecord*> m_shineByObject;
 #endif
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;

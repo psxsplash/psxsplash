@@ -51,6 +51,9 @@
 #ifndef PSXSPLASH_FEATURE_SHADOWS
 #define PSXSPLASH_FEATURE_SHADOWS 1    // blob shadows under objects
 #endif
+#ifndef PSXSPLASH_FEATURE_SHINE
+#define PSXSPLASH_FEATURE_SHINE 1      // environment-mapped reflections on shiny materials
+#endif
 
 #if PSXSPLASH_FEATURE_AGENTS && !PSXSPLASH_FEATURE_NAV
 #error "PSXSPLASH_FEATURE_AGENTS needs PSXSPLASH_FEATURE_NAV: agents path along nav regions"

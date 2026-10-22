@@ -13,6 +13,9 @@ namespace psxsplash {
   // The texture is a paletted cutout (palette entry 0 is the transparent texel),
   // so the fog pass can draw through the fog mask CLUT and skip its holes.
   static constexpr uint16_t CUTOUT_FLAG = 0x2;
+  // The triangle shines: drawn again through its object's reflection texture
+  // (shinemath.hh), whose shine record carries its vertex normals.
+  static constexpr uint16_t SHINE_FLAG = 0x4;
   // Set by the renderer only, on the children of a split triangle, whose
   // corner colours already carry the point lights. Never in a splashpack.
   static constexpr uint16_t SPLIT_LIT_FLAG = 0x8000;
