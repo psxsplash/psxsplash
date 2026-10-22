@@ -34,6 +34,7 @@ STREAM_BIN := $(BUILD)/stream_tests
 FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 JUMP_BIN   := $(BUILD)/jump_tests
+DECAL_BIN  := $(BUILD)/decal_tests
 GEN_BIN    := $(BUILD)/gen_vectors
 
 .PHONY: all test vectors clean
@@ -62,6 +63,8 @@ $(FADE_BIN): test_fade.cpp testing.hh compat.hh $(SRC_DIR)/fade.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_fade.cpp
 $(SHADOW_BIN): test_shadow.cpp testing.hh compat.hh $(SRC_DIR)/shadowmath.hh $(SRC_DIR)/splashpackversion.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_shadow.cpp
+$(DECAL_BIN): test_decal.cpp testing.hh compat.hh $(SRC_DIR)/otdepth.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_decal.cpp
 # jumpmath.hh is header-only.
 $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_jump.cpp
@@ -69,7 +72,7 @@ $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(DECAL_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -86,6 +89,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BI
 	@$(SHADOW_BIN)
 	@echo "== jump =="
 	@$(JUMP_BIN)
+	@echo "== decal =="
+	@$(DECAL_BIN)
 
 vectors: $(GEN_BIN)
 	@mkdir -p $(VEC_DIR)
