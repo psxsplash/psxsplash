@@ -23,15 +23,16 @@ static constexpr int32_t kShadowDepthBias = 8;
 // the surface under them and they lie on it, so they go this many buckets in
 // front of their own max(SZ): a piece holding its surface triangle's deepest
 // corner ties with it otherwise, and lost about half its pixels in Redux at
-// every view measured (1 already won them all; 4 leaves room for the
-// exporter's rounding of the cut corners). One SZ is gteScaling / 4096 m:
-// 4 is 1 cm at the default gteScaling 10, 9.8 cm at gteScaling 100.
+// every view measured. 1, 4 and 20 won them all alike: 2 is the smallest
+// that worked plus one SZ for the exporter's rounding of the cut corners.
+// One SZ is gteScaling / 4096 m: 2 is 0.5 cm at gteScaling 10, 4.9 cm at
+// gteScaling 100.
 // The other side of the bias: a triangle in front of the surface whose deepest
-// corner is less than 4 SZ nearer than the decal piece's (a thin poster on the
-// wall, a foot on the floor, a coplanar overlay) is drawn before the decal, so
-// where they overlap on screen the decal shows through it (at exactly 4,
-// insertion order decides).
-static constexpr int32_t kDecalDepthBias = 4;
+// corner is less than 2 SZ nearer than the decal piece's (a thin poster on the
+// wall, a foot or a crate against it) is drawn before the decal, so where they
+// overlap on screen the decal shows through it (at exactly 2, insertion order
+// decides). Bigger K widens that band: 4 was 10 cm at gteScaling 100.
+static constexpr int32_t kDecalDepthBias = 2;
 
 // The bucket of a decal triangle whose plain bucket (max(SZ), already floored)
 // is zIndex.

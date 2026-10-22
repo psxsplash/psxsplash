@@ -46,11 +46,12 @@ TEST(decal_bucket_floors_at_world_min) {
 }
 
 TEST(decal_bias_is_small_in_metres) {
-    // 1.0 in the engine's 4.12 fixed point is gteScaling (10 at the default)
-    // metres: the bias must stay under 6 cm, or a decal on the floor would come
-    // through the feet of whatever stands on it.
+    // 1.0 in the engine's 4.12 fixed point is gteScaling metres: the bias must
+    // stay under 6 cm even at gteScaling 100, or a decal on a wall would come
+    // through a foot or a crate standing against it.
     CHECK(kDecalDepthBias > 0);
-    CHECK(kDecalDepthBias * 10.0 / 4096.0 < 0.06);
+    CHECK(kDecalDepthBias * 100.0 / 4096.0 < 0.06);
+    CHECK(kDecalDepthBias * 10.0 / 4096.0 < 0.006);
 }
 
 TEST(shadow_bias_unchanged) {
