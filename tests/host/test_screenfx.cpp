@@ -168,6 +168,7 @@ TEST(shake_offsets_bounded_moving_deterministic) {
         if (dx > amp || dx < -amp || dy > amp || dy < -amp) bad++;
         if (amp >= 2 && (dx == 0 || dy == 0)) bad++;  // always off centre while shaking
         if (i > 0 && dx == pdx && dy == pdy) same++;
+        if (i > 0 && (dx > 0) == (pdx > 0)) same++;  // x changes side every frame
         pdx = dx;
         pdy = dy;
     }
