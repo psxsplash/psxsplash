@@ -29,6 +29,13 @@ namespace psxsplash {
     printf("Splashpack: %u %s ignored, feature '%s' is not in this build\n", count, what, feature);
 }
 
+// SPLASHPACKFileHeader::renderFlags. The byte was padding the editor wrote 0,
+// so older packs carry 0 in every bit: no edge fade, no reverb.
+constexpr uint8_t kRenderFlagEdgeFade = 1 << 0;
+constexpr uint8_t kRenderFlagReverbShift = 1;     // scene default reverb preset (reverb.hh), 0 = off
+constexpr uint8_t kRenderFlagReverbMask = 0x1E;   // bits 1-4
+constexpr uint8_t kRenderFlagCdReverb = 1 << 7;   // CD music feeds the reverb (SPU ATTR bit 2)
+
 struct SPLASHPACKFileHeader {
     char magic[2];
     uint16_t version;
@@ -66,8 +73,9 @@ struct SPLASHPACKFileHeader {
     uint8_t fogEnabled;
     uint8_t fogR, fogG, fogB;
     uint8_t fogDensity;
-    // Bit 0: edge fade (Renderer FogConfig::edgeFade). Was padding the editor
-    // wrote 0, so older packs read as off.
+    // kRenderFlag* above: bit 0 edge fade (Renderer FogConfig::edgeFade),
+    // bits 1-4 scene default reverb preset, bit 7 CD music reverb. Was padding
+    // the editor wrote 0, so older packs read as off.
     uint8_t renderFlags;
     uint16_t roomCount;
     uint16_t portalCount;
@@ -368,7 +376,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.fogG = header->fogG;
     setup.fogB = header->fogB;
     setup.fogDensity = header->fogDensity;
-    setup.edgeFade = (header->renderFlags & 1) != 0;
+    setup.edgeFade = (header->renderFlags & kRenderFlagEdgeFade) != 0;
+    setup.reverbDefault = (header->renderFlags & kRenderFlagReverbMask) >> kRenderFlagReverbShift;
+    setup.cdReverb = (header->renderFlags & kRenderFlagCdReverb) != 0;
     setup.fogMaskClut4 = header->fogMaskClut4;
     setup.fogMaskClut8 = header->fogMaskClut8;
     setup.sceneType = header->sceneType;

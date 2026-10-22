@@ -125,6 +125,9 @@ class Renderer final {
                          const RoomCell* cells = nullptr,
                          const RoomPortalRef* roomPortalRefs = nullptr,
                          int cameraRoom = -1);
+    // The room the last RenderWithRooms drew from (after its AABB fallback),
+    // -1 when none contained the camera.
+    int lastCameraRoom() const { return m_lastCameraRoom; }
 
     void VramUpload(const uint16_t* imageData, int16_t posX, int16_t posY,
                     int16_t width, int16_t height);
@@ -262,6 +265,7 @@ class Renderer final {
     TriangleRef* m_visibleRefs = nullptr;
     uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
+    int m_lastCameraRoom = -1;
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
