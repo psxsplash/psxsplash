@@ -5,6 +5,7 @@
 #include "collision.hh"
 #include "profiler.hh"
 #include "renderer.hh"
+#include "screenfx.hh"
 #include "splashpack.hh"
 #include "streq.hh"
 #include "luaapi.hh"
@@ -73,6 +74,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     auto& gpu = Renderer::GetInstance().getGPU();
 
     L.Reset();
+
+    // A new scene starts with no fade, flash, shake, bars or trail.
+    ScreenFx::get().reset();
 
     // Deliberately NO m_audio.initHardware() here.
     //
@@ -576,6 +580,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     m_cutscenePlayer.tick(m_dt12);
     m_animationPlayer.tick(m_dt12);
 #endif
+    ScreenFx::get().tick(m_dt12);
 
 #if PSXSPLASH_FEATURE_SKIN
     // Tick skinned mesh animations

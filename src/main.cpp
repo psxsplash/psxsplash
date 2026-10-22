@@ -8,6 +8,7 @@
 #include <psyqo/trigonometry.hh>
 
 #include "renderer.hh"
+#include "screenfx.hh"
 #include "scenemanager.hh"
 #include "features.hh"
 #include "fileloader.hh"
@@ -86,6 +87,8 @@ void PSXSplash::prepare() {
 
     // Initialize the Renderer singleton
     psxsplash::Renderer::Init(gpu());
+    // The screen effects draw over the whole screen and read back the previous frame.
+    psxsplash::ScreenFx::get().setScreen(320, 240, true);
 
     // Clear screen
     psyqo::Prim::FastFill ff(psyqo::Color{.r = 0, .g = 0, .b = 0});
