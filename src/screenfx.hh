@@ -6,9 +6,10 @@
 //
 //   beginFrame()   after setProjectionH: the shake, as a 2D GTE OFX/OFY offset
 //                  (render only, the camera does not move)
-//   drawWorld()    before the sprites and the UI: the trail and the letterbox
-//                  bars, over the world and the sprites, under the UI
-//   drawOverlay()  chained after every text: the fade and the flash, over
+//   drawWorld()    before the sprites and the UI: the letterbox bars, over
+//                  the world and the sprites, under the UI
+//   drawOverlay()  chained after every text: the fade and the flash, then the
+//                  trail (the previous frame as shown, blended 50/50), over
 //                  everything
 
 #include <stdint.h>
@@ -57,6 +58,8 @@ class ScreenFx {
     bool m_maskForced = false;  // GPU draws with the mask bit set (trail on)
     bool m_trailWarned = false;
     bool m_offsetSet = false;   // GTE OFX/OFY hold a shake offset
+    bool m_trailNow = false;    // drawOverlay blends the previous frame in this frame
+    uint8_t m_prevPageY = 0;    // texture page row of the displayed buffer
 #ifdef PSXSPLASH_PROFILER
     uint32_t m_costTicks = 0, m_costFrames = 0, m_costPeak = 0, m_costFrame = 0, m_ctrlTicks = 0;
     uint16_t m_costStart = 0;

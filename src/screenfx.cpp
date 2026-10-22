@@ -98,8 +98,7 @@ void ScreenFx::drawWorld(Renderer::OT& ot, Renderer::Balloc& balloc, unsigned pa
     SCREENFX_COST();
     if (m_state.idle() && !m_maskForced) return;
     const int32_t z = Renderer::SPRITE_DEPTH_BASE;
-    // The last fragment inserted at a depth is drawn first: bars, then the
-    // trail strips under them.
+    m_trailNow = false;
     const int16_t bar = m_state.letterbox.value;
     if (bar > 0) {
         for (int i = 0; i < 2; i++) {
@@ -112,6 +111,9 @@ void ScreenFx::drawWorld(Renderer::OT& ot, Renderer::Balloc& balloc, unsigned pa
     }
 
     const bool trailOn = m_state.trail > 0 && m_doubleBuffered;
+    // This frame draws into the buffer getNextClear clears; the other one is on
+    // screen and holds the previous frame.
+    m_prevPageY = parity == 0 ? 0 : 1;
     if (trailOn != m_maskForced) {
         // Semi-transparency applies only to texels with the mask bit set, and
         // the GPU sets it on what it draws only when told to. The first frame
@@ -123,29 +125,10 @@ void ScreenFx::drawWorld(Renderer::OT& ot, Renderer::Balloc& balloc, unsigned pa
         m_maskForced = trailOn;
         return;
     }
-    if (!trailOn) return;
-    // This frame draws into the buffer getNextClear clears; the other one is on
-    // screen and holds the previous frame.
-    const uint8_t prevPageY = parity == 0 ? 0 : 1;
-    const uint8_t grey = screenfx::State::kTrailGrey;
-    for (int16_t x = 0; x < m_width; x += kStrip) {
-        auto& s = balloc.allocateFragment<psyqo::Prim::Sprite>();
-        s.primitive.setColor(psyqo::Color{.r = grey, .g = grey, .b = grey});
-        s.primitive.setSemiTrans();
-        s.primitive.position = {{.x = x, .y = 0}};
-        s.primitive.texInfo.u = 0;
-        s.primitive.texInfo.v = 0;
-        const int16_t w = m_width - x < kStrip ? int16_t(m_width - x) : kStrip;
-        s.primitive.size = {{.x = w, .y = m_height}};
-        ot.insert(s, z);
-        auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
-        tp.primitive.attr.setPageX(uint8_t(x / kStrip))
-            .setPageY(prevPageY)
-            .set(psyqo::Prim::TPageAttr::Tex16Bits)
-            .set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront)
-            .setDithering(true);
-        ot.insert(tp, z);
-    }
+    // The strips go last in the overlay (drawOverlayPasses), after the fade
+    // and the flash: the previous frame already carries them, so blending it
+    // under them would apply them again every frame.
+    m_trailNow = trailOn;
 }
 
 void ScreenFx::drawOverlay(psyqo::GPU& gpu, Renderer::Balloc& balloc) {
@@ -230,6 +213,29 @@ void ScreenFx::drawOverlayPasses(psyqo::GPU& gpu, Renderer::Balloc& balloc) {
         uint8_t r, g, b;
         m_state.flashAdd(r, g, b);
         pass(psyqo::Prim::TPageAttr::FullBackAndFullFront, r, g, b);
+    }
+    // The trail: the previous frame, as shown (bars, UI, fade and flash
+    // included), blended 50/50 over this one once it has all of them too.
+    if (m_trailNow) {
+        const uint8_t grey = screenfx::State::kTrailGrey;
+        for (int16_t x = 0; x < m_width; x += kStrip) {
+            auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
+            tp.primitive.attr.setPageX(uint8_t(x / kStrip))
+                .setPageY(m_prevPageY)
+                .set(psyqo::Prim::TPageAttr::Tex16Bits)
+                .set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront)
+                .setDithering(true);
+            gpu.chain(tp);
+            auto& sp = balloc.allocateFragment<psyqo::Prim::Sprite>();
+            sp.primitive.setColor(psyqo::Color{.r = grey, .g = grey, .b = grey});
+            sp.primitive.setSemiTrans();
+            sp.primitive.position = {{.x = x, .y = 0}};
+            sp.primitive.texInfo.u = 0;
+            sp.primitive.texInfo.v = 0;
+            const int16_t w = m_width - x < kStrip ? int16_t(m_width - x) : kStrip;
+            sp.primitive.size = {{.x = w, .y = m_height}};
+            gpu.chain(sp);
+        }
     }
 }
 
