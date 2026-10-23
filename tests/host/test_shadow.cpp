@@ -27,6 +27,15 @@ TEST(header_size_per_version) {
     CHECK_EQ(kSplashpackHeaderSizeV28 - kSplashpackHeaderSizeV25, 4);
 }
 
+TEST(version_gate) {
+    CHECK(!splashpackVersionSupported(19));
+    CHECK(splashpackVersionSupported(20));
+    CHECK(splashpackVersionSupported(kSplashpackNewestVersion));
+    // A pack from a newer editor is refused, not parsed with this header.
+    CHECK(!splashpackVersionSupported(kSplashpackNewestVersion + 1));
+    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV28);
+}
+
 namespace {
 void putRecord(uint8_t* p, uint16_t obj, uint8_t mode, uint8_t dark, uint16_t size, uint16_t fade) {
     p[0] = obj & 0xFF; p[1] = obj >> 8;

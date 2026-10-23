@@ -115,8 +115,8 @@ struct SPLASHPACKFileHeader {
     // scene without shadows, so this word only exists when it is used.
     uint32_t shadowTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV28,
-              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV28 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == splashpackHeaderSize(kSplashpackNewestVersion),
+              "SPLASHPACKFileHeader must be the newest version's header size");
 // Historical sizes and splashpackHeaderSize(): splashpackversion.hh.
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
@@ -149,11 +149,20 @@ struct SPLASHPACKClut {
     uint16_t pad;
 };
 
+#define PSXSPLASH_STR2(x) #x
+#define PSXSPLASH_STR(x) PSXSPLASH_STR2(x)
+
 void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup) {
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
     psyqo::Kernel::assert(__builtin_memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
-    psyqo::Kernel::assert(header->version >= 20, "Splashpack version too old (need v20+): re-export from SplashEdit");
+    psyqo::Kernel::assert(header->version >= kSplashpackOldestVersion,
+                          "Splashpack version too old (need v20+): re-export from SplashEdit");
+    // The editor reads "splashpack v<N> newest" out of the executable to warn
+    // before it boots a scene this engine cannot read: keep that wording.
+    psyqo::Kernel::assert(header->version <= kSplashpackNewestVersion,
+                          "Scene is newer than this engine (splashpack v" PSXSPLASH_STR(
+                              PSXSPLASH_SPLASHPACK_NEWEST) " newest): update psxsplash");
 
     setup.playerStartPosition = header->playerStartPos;
     setup.playerStartRotation = header->playerStartRot;
