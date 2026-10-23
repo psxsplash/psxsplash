@@ -25,6 +25,10 @@ TEST(header_size_per_version) {
     CHECK_EQ(splashpackHeaderSize(29), 160);
     // v28 appends exactly one u32, the shadow table offset.
     CHECK_EQ(kSplashpackHeaderSizeV28 - kSplashpackHeaderSizeV25, 4);
+    // v29 (skins with more than 16 clips) keeps the v28 header and is the
+    // newest version the loader accepts.
+    CHECK_EQ(kSplashpackNewestVersion, 29);
+    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV28);
 }
 
 namespace {

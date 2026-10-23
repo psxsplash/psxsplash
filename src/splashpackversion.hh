@@ -15,7 +15,13 @@ static constexpr uint32_t kSplashpackHeaderSizeV21 = 128;
 static constexpr uint32_t kSplashpackHeaderSizeV22 = 144;
 static constexpr uint32_t kSplashpackHeaderSizeV24 = 148;
 static constexpr uint32_t kSplashpackHeaderSizeV25 = 156;  // v25..v27
-static constexpr uint32_t kSplashpackHeaderSizeV28 = 160;  // + shadowTableOffset
+static constexpr uint32_t kSplashpackHeaderSizeV28 = 160;  // + shadowTableOffset, v28..v29
+
+// The newest version this engine parses. A newer pack may lay out its tables
+// differently, so the loader refuses it instead of reading garbage.
+// v29 changes no layout: a skin may carry more than 16 clips (up to
+// SKINMESH_MAX_CLIPS), and SplashEdit writes v29 only for such a scene.
+static constexpr uint16_t kSplashpackNewestVersion = 29;
 
 inline uint32_t splashpackHeaderSize(uint16_t version) {
     if (version >= 28) return kSplashpackHeaderSizeV28;
