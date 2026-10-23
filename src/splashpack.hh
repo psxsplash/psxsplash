@@ -92,6 +92,17 @@ static_assert(sizeof(SPLASHPACKPointLight) == 28, "SPLASHPACKPointLight must be 
 // Legacy alias kept so any old code that still uses SPLASHPACKAgent compiles.
 using SPLASHPACKAgent = SPLASHPACKAgentV2;
 
+/// One per paletted texture. The words themselves are in the .vram file; clutOffset and pad
+/// carry an optional palette cycling record (palettecycle.hh).
+struct SPLASHPACKClut {
+    uint32_t clutOffset;
+    uint16_t clutPackingX;
+    uint16_t clutPackingY;
+    uint16_t length;
+    uint16_t pad;
+};
+static_assert(sizeof(SPLASHPACKClut) == 12, "SPLASHPACKClut must be 12 bytes");
+
 struct SplashpackSceneSetup {
     int sceneLuaFileIndex;
     eastl::vector<LuaFile *> luaFiles;
@@ -170,6 +181,9 @@ struct SplashpackSceneSetup {
     SkinAnimSet loadedSkinAnimSets[MAX_SKINNED_MESHES];
 #endif
     int skinnedMeshCount = 0;
+
+    const SPLASHPACKClut* cluts = nullptr;  ///< CLUT table (resident, in the pack)
+    uint16_t clutCount = 0;
 
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
