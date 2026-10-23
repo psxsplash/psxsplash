@@ -411,6 +411,21 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Input_GetAnalogPlayer2);
     L.setField(-2, "GetAnalogPlayer2");
 
+    // Any player, 1..8: 1 and 2 are ports 1 and 2, 3-5 and 6-8 the multitap
+    // slots B-D of port 1 and port 2.
+    L.push(Input_IsPressed);
+    L.setField(-2, "IsPressed");
+    L.push(Input_IsReleased);
+    L.setField(-2, "IsReleased");
+    L.push(Input_IsHeld);
+    L.setField(-2, "IsHeld");
+    L.push(Input_GetAnalog);
+    L.setField(-2, "GetAnalog");
+    L.push(Input_GetDevice);
+    L.setField(-2, "GetDevice");
+    L.push(Input_GetMouse);
+    L.setField(-2, "GetMouse");
+
     L.push(Input_BindToActor);
     L.setField(-2, "BindToActor");
     L.push(Input_GetBoundActor);
@@ -2031,6 +2046,89 @@ void LuaAPI::RegisterInputConstants(psyqo::Lua& L) {
     
     L.pushNumber(static_cast<lua_Number>(psyqo::AdvancedPad::Button::R3));
     L.setField(-2, "R3");
+
+    // A mouse's buttons, in the bits where a pad has R1 and L1.
+    L.pushNumber(static_cast<lua_Number>(inputmap::MOUSE_LEFT_BIT));
+    L.setField(-2, "MOUSE_LEFT");
+
+    L.pushNumber(static_cast<lua_Number>(inputmap::MOUSE_RIGHT_BIT));
+    L.setField(-2, "MOUSE_RIGHT");
+}
+
+// The Controls of the player number at idx (1..8), or nullptr when there is no
+// scene or it is not a number in range; the getters then answer "nothing held".
+static psxsplash::Controls* InputPlayer(psyqo::Lua& lua, int idx, psxsplash::SceneManager* sm) {
+    if (!sm || !lua.isNumber(idx)) return nullptr;
+    return sm->getControls(static_cast<int>(lua.toNumber(idx)));
+}
+
+int LuaAPI::Input_IsPressed(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->wasButtonPressed(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsReleased(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->wasButtonReleased(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsHeld(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->isButtonHeld(button));
+    return 1;
+}
+
+int LuaAPI::Input_GetAnalog(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 2;
+    }
+    int stick = lua.isNumber(2) ? static_cast<int>(lua.toNumber(2)) : 0;
+    int16_t x = stick == 1 ? c->getRightStickX() : c->getLeftStickX();
+    int16_t y = stick == 1 ? c->getRightStickY() : c->getLeftStickY();
+    // Same scale as GetAnalogPlayer1: stick range -127..+127 to about -1.0..1.0
+    lua.pushNumber(x * kFixedScale / 127);
+    lua.pushNumber(y * kFixedScale / 127);
+    return 2;
+}
+
+int LuaAPI::Input_GetDevice(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    lua.push(inputmap::deviceName(c ? c->device() : inputmap::Device::None));
+    return 1;
+}
+
+int LuaAPI::Input_GetMouse(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    // Raw counts, not scaled: the mouse's own units, summed over the frame.
+    lua.pushNumber(c ? c->mouseDeltaX() : 0);
+    lua.pushNumber(c ? c->mouseDeltaY() : 0);
+    return 2;
 }
 
 int LuaAPI::Input_IsPressedPlayer1(lua_State* L) {
@@ -2170,7 +2268,7 @@ int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
 
 int LuaAPI::Input_BindToActor(lua_State* L) {
     psyqo::Lua lua(L);
-    // Input.BindToActor(player, actor) - player is 1 or 2. Bind to the player
+    // Input.BindToActor(player, actor) - player is 1..8. Bind to the player
     // actor (Actor.GetPlayer()) to restore default player locomotion.
     int player = static_cast<int>(lua.checkNumber(1)) - 1;
     uint16_t actorId = ReadActorId(lua, 2);
