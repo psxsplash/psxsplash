@@ -31,6 +31,7 @@
 #include "spritesystem.hh"
 #include "tilesystem.hh"
 #include "uisystem.hh"
+#include "palettecycler.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
 #endif
@@ -671,6 +672,8 @@ namespace psxsplash {
         // Reads reload.flag into `tag`; false when it does not exist.
         bool readHotReloadTag(uint8_t* tag, uint8_t& len);
         uint8_t* m_currentSceneData = nullptr; // Owned pointer to loaded splashpack data
+        uint32_t m_currentSceneSize = 0;        // Its size in bytes, for bounds checks
+        PaletteCycler m_paletteCycler;
 
         // ---- Agent runtime (native AI: pathing, perception, state machine) ----
         static constexpr uint8_t AGENT_FLAG_REGISTERED    = 0x01;
