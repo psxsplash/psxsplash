@@ -2482,10 +2482,10 @@ int LuaAPI::Net_Stats(lua_State* L) {
     // PAD INITS, and it belongs beside heapKB for exactly the same reason: it is
     // the other thing that used to accumulate until the console died.
     //
-    // MUST READ 2 AND STAY THERE for the whole boot -- one per player, registered
-    // once. It is not a trend line, it is an assertion with a known answer, which
-    // is what makes it readable at a glance on a screen that is the only channel
-    // this machine has.
+    // MUST READ 1 AND STAY THERE for the whole boot -- one AdvancedPad for all
+    // players, registered once. It is not a trend line, it is an assertion with
+    // a known answer, which is what makes it readable at a glance on a screen
+    // that is the only channel this machine has.
     //
     // It used to read 2 x (scene loads). psyqo::AdvancedPad::initialize() appends a
     // readPad() callback to the kernel's per-frame list, nothing can remove one,

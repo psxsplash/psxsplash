@@ -31,10 +31,8 @@ class Controls {
     /// Hand SIO0 to psyqo's AdvancedPad. IDEMPOTENT, AND THAT IS LOAD-BEARING.
     ///
     /// There is ONE AdvancedPad for all eight players (s_input), polled in
-    /// PollingMode::Fast: both ports every frame, and all four slots of a port
-    /// with a multitap. Two instances used to share SIO0 here, each in Normal
-    /// mode, so each port was read twice every other frame; Fast mode is the same
-    /// two port reads per frame, each port every frame.
+    /// PollingMode::Fast: both ports every frame (two port reads per frame), and
+    /// all four slots of a port with a multitap.
     ///
     /// psyqo::AdvancedPad::initialize() ends with
     ///
@@ -45,9 +43,9 @@ class Controls {
     /// overflow enabled, so past 32 entries it spills to the heap and keeps
     /// growing. Every registered copy runs every frame, from inside GPU::flip().
     ///
-    /// SceneManager::InitializeScene calls this on every scene load (it used to,
-    /// once per player), so without this guard the console permanently gained two more
-    /// blocking, bit-banged SIO0 pad polls per frame on every scene transition:
+    /// SceneManager::InitializeScene calls this on every scene load, so without
+    /// this guard the console permanently gained two more blocking, bit-banged
+    /// SIO0 pad polls per frame on every scene transition:
     /// ~0.8ms per frame after the menu, ~2.4ms by the time the game scene is up,
     /// and climbing by ~0.8ms with every lobby->game round after that.
     ///
@@ -201,8 +199,7 @@ class Controls {
     /// a console with no other channel: it must read 1 (the one shared
     /// AdvancedPad) and stay there for the life of the boot. Anything higher means
     /// the guard in Init() has been defeated and the per-frame pad-poll cost is
-    /// growing again. It read 2 x (scene loads) before that guard existed, and 2
-    /// while each of the two players had an AdvancedPad of its own.
+    /// growing again. It read 2 x (scene loads) before that guard existed.
     static uint32_t padInitCount() { return s_padInitCount; }
 
   private:

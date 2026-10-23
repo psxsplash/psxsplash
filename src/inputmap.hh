@@ -15,7 +15,7 @@ namespace inputmap {
 
 static constexpr int MAX_PLAYERS = 8;
 
-/// Player 1 is port 1 (Pad1a) and player 2 port 2 (Pad2a), as before multitaps;
+/// Player 1 is port 1 (Pad1a) and player 2 port 2 (Pad2a), with or without a tap;
 /// players 3-5 are port 1's tap slots B-D, players 6-8 port 2's. -1 when the
 /// player is not 1..8.
 constexpr int slotForPlayer(int player) {

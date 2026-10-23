@@ -518,8 +518,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 }
 
 bool psxsplash::SceneManager::playerDrivenByController() const {
-    // Players 1 and 2 count while enabled, whatever they are bound to (as
-    // before multitaps); the others only when bound to the player.
+    // Players 1 and 2 count while enabled, whatever they are
+    // bound to; the others only when bound to the player.
     if (m_controlsEnabled[0] || m_controlsEnabled[1]) return true;
     for (int p = 2; p < inputmap::MAX_PLAYERS; p++) {
         if (m_controlBoundActor[p] == PLAYER_ACTOR_ID) return true;
