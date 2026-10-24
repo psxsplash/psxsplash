@@ -48,6 +48,10 @@ jobs:
       - name: Chained cutscenes
         run: |
           tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
+      - name: Lua breakpoints
+        run: |
+          tests/boot/luadebug.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 120
+          NOBP=1 tests/boot/luadebug.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 120
 
   host-tests:
     runs-on: ubuntu-latest

@@ -14,6 +14,14 @@ their last frame, under frames slow enough that a tick never lands on that frame
 
     tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
 
+`luadebug.sh` drives the Lua debugger (`src/luadebug.hh`) the way SplashEdit's Play does, on
+`fixture-luadebug/`: its `luabp.txt` sets a breakpoint on line 11 of the boot script; the run must
+stop there with the local `answer` = 42, ignore a resume meant for another stop, step to line 12
+with the global `marker` = 43, then continue to `BOOT OK: luadebug 43`. With `NOBP=1` it runs
+without `luabp.txt`: no debugger, no stop, the same pass line.
+
+    tests/boot/luadebug.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 120
+
 `fetch-redux.sh` downloads the newest Linux dev build of pcsx-redux and unpacks the AppImage, so
 no FUSE is needed. Any other `pcsx-redux` binary works as the first argument.
 
@@ -28,5 +36,10 @@ reading the committed version (the job then fails with the engine's own version 
     build/cli/splashpack-cli export tests/boot/scene/boot.scene -o tests/boot/fixture/scene_0.splashpack
 
     build/cli/splashpack-cli export tests/boot/scene/cutscene.scene -o tests/boot/fixture-cutscene/scene_0.splashpack
+
+    build/cli/splashpack-cli export tests/boot/scene/luadebug.scene -o tests/boot/fixture-luadebug/scene_0.splashpack --lua-debug
+
+`--lua-debug` keeps the line numbers and local names the debugger needs (Play does the same while
+a project has breakpoints); `fixture-luadebug/luabp.txt` is written by hand.
 
 The export writes `scene_0.vram` and `scene_0.spu` beside the `.splashpack`. Commit all three.
