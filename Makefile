@@ -12,6 +12,7 @@ src/random.cpp\
 src/luautility.cpp\
 src/lua.cpp \
 src/luaapi.cpp \
+src/luadebug.cpp \
 src/scenemanager.cpp \
 src/fileloader.cpp \
 src/audiomanager.cpp \
