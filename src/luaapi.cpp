@@ -11,6 +11,7 @@
 #include "sio1.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
+#include "particlesystem.hh"
 #include "uisystem.hh"
 #include "networkmanager.hh"
 
@@ -42,6 +43,7 @@ AnimationPlayer* LuaAPI::s_animationPlayer = nullptr;
 UISystem* LuaAPI::s_uiSystem = nullptr;
 SpriteSystem* LuaAPI::s_spriteSystem = nullptr;
 TileSystem* LuaAPI::s_tileSystem = nullptr;
+ParticleSystem* LuaAPI::s_particleSystem = nullptr;
 
 // Scale factor: FixedPoint<12> stores 1.0 as raw 4096.
 // Lua scripts work in world-space units (1 = one unit), so we convert.
@@ -64,13 +66,14 @@ static psyqo::Trig<> s_trig;
 // REGISTRATION
 // ============================================================================
 
-void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem, TileSystem* tileSystem) {
+void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem, TileSystem* tileSystem, ParticleSystem* particleSystem) {
     s_sceneManager = scene;
     s_cutscenePlayer = cutscenePlayer;
     s_animationPlayer = animationPlayer;
     s_uiSystem = uiSystem;
     s_spriteSystem = spriteSystem;
     s_tileSystem = tileSystem;
+    s_particleSystem = particleSystem;
     
     // ========================================================================
     // ACTOR API
@@ -903,6 +906,32 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Sprite");
 #else
     RegisterCompiledOut(L, "Sprite", "sprites");
+#endif
+
+#if PSXSPLASH_FEATURE_PARTICLES
+    // ========================================================================
+    // PARTICLES API
+    // ========================================================================
+    L.newTable();  // Particles table
+
+    L.push(Particles_Find);
+    L.setField(-2, "Find");
+    L.push(Particles_Play);
+    L.setField(-2, "Play");
+    L.push(Particles_Stop);
+    L.setField(-2, "Stop");
+    L.push(Particles_Clear);
+    L.setField(-2, "Clear");
+    L.push(Particles_Burst);
+    L.setField(-2, "Burst");
+    L.push(Particles_IsPlaying);
+    L.setField(-2, "IsPlaying");
+    L.push(Particles_Count);
+    L.setField(-2, "Count");
+
+    L.setGlobal("Particles");
+#else
+    RegisterCompiledOut(L, "Particles", "particles");
 #endif
 
 #if PSXSPLASH_FEATURE_LIGHTS
@@ -5616,5 +5645,70 @@ int LuaAPI::Light_SetEnabled(lua_State* L) {
     return 0;
 }
 
+#endif
+
+#if PSXSPLASH_FEATURE_PARTICLES
+// ============================================================================
+// PARTICLES API
+// ============================================================================
+//
+// Emitters are named by their object's name (most have no mesh, so no
+// GameObject to pass), or by the number Find returned. A real Lua string is a
+// name; anything else is read as a number: lua_isstring is true for numbers
+// too, which is what made Sprite.Create(1) look for a sheet named "1".
+
+static int particleEmitterArg(psyqo::Lua& lua, ParticleSystem* ps) {
+    if (!ps) return -1;
+    if (lua.type(1) == LUA_TSTRING) return ps->find(lua.toString(1));
+    if (lua.isNumber(1)) return static_cast<int>(lua.toNumber(1));
+    return -1;
+}
+
+int LuaAPI::Particles_Find(lua_State* L) {
+    psyqo::Lua lua(L);
+    const int i = (s_particleSystem && lua.type(1) == LUA_TSTRING) ? s_particleSystem->find(lua.toString(1)) : -1;
+    if (i < 0) lua.push();
+    else lua.pushNumber(i);
+    return 1;
+}
+
+int LuaAPI::Particles_Play(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_particleSystem) s_particleSystem->play(particleEmitterArg(lua, s_particleSystem));
+    return 0;
+}
+
+int LuaAPI::Particles_Stop(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_particleSystem) s_particleSystem->stop(particleEmitterArg(lua, s_particleSystem));
+    return 0;
+}
+
+int LuaAPI::Particles_Clear(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_particleSystem) s_particleSystem->clear(particleEmitterArg(lua, s_particleSystem));
+    return 0;
+}
+
+int LuaAPI::Particles_Burst(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_particleSystem) return 0;
+    const int i = particleEmitterArg(lua, s_particleSystem);
+    const int n = lua.isNumber(2) ? static_cast<int>(lua.toNumber(2)) : 0;
+    if (n > 0) s_particleSystem->burst(i, static_cast<uint32_t>(n));
+    return 0;
+}
+
+int LuaAPI::Particles_IsPlaying(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_particleSystem && s_particleSystem->isPlaying(particleEmitterArg(lua, s_particleSystem)));
+    return 1;
+}
+
+int LuaAPI::Particles_Count(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(s_particleSystem ? s_particleSystem->liveParticles(particleEmitterArg(lua, s_particleSystem)) : 0);
+    return 1;
+}
 #endif
 }  // namespace psxsplash
