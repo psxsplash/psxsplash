@@ -152,8 +152,9 @@ inline void clear(ParticleEmitterState& e) {
     e.count = 0;
 }
 
+/// Spawns n now; stops once the pool is full (a huge n from Lua costs nothing).
 inline void burst(ParticleEmitterState& e, uint32_t n) {
-    for (uint32_t i = 0; i < n; i++) spawn(e);
+    for (uint32_t i = 0; i < n && e.count < e.rec->maxParticles; i++) spawn(e);
 }
 
 /// One vsync tick (see the top of this file).

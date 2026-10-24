@@ -118,6 +118,8 @@ TEST(burst_rate_and_ring) {
     // Fill: the pool holds 8; more spawns are dropped.
     burst(e, 10);
     CHECK_EQ(e.count, 8);
+    burst(e, 0xFFFFFFFFu);  // returns at once: the pool is full
+    CHECK_EQ(e.count, 8);
     // Retire: after the lifetime the burst goes first, ring head moves.
     for (int i = 0; i < 28; i++) tick(e);
     CHECK_EQ(e.head, 3);
