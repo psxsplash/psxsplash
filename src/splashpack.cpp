@@ -114,9 +114,16 @@ struct SPLASHPACKFileHeader {
     // Offset to the shadow table, or 0 if none. SplashEdit writes v27 for a
     // scene without shadows, so this word only exists when it is used.
     uint32_t shadowTableOffset;
+    // --- v31 (appended; the header grows from 160 to 172) ---
+    // Two words for the fields of v29 and v30 (SplashEdit writes them 0),
+    // then the offset of the particle emitter table, or 0 if none. SplashEdit
+    // writes v31 only for a scene with emitters.
+    uint32_t reservedV29;
+    uint32_t reservedV30;
+    uint32_t particleTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV28,
-              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV28 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV31,
+              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV31 bytes");
 // Historical sizes and splashpackHeaderSize(): splashpackversion.hh.
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
@@ -749,6 +756,16 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.shadowTable = table;
 #else
         skipCompiledOut(table[0] | (table[1] << 8), "shadows", "shadows");
+#endif
+    }
+
+    // Particle emitters (v31+). The word does not exist in older headers.
+    if (header->version >= 31 && header->particleTableOffset != 0) {
+        const uint8_t* table = data + header->particleTableOffset;
+#if PSXSPLASH_FEATURE_PARTICLES
+        setup.particleTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "particle emitters", "particles");
 #endif
     }
 

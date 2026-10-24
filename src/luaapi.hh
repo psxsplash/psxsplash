@@ -33,6 +33,7 @@ class AnimationPlayer;  // Forward declaration
 class UISystem;  // Forward declaration
 class SpriteSystem;  // Forward declaration
 class TileSystem;    // Forward declaration
+class ParticleSystem;  // Forward declaration
 
 /**
  * Lua API - Provides game scripting functionality
@@ -49,7 +50,7 @@ class TileSystem;    // Forward declaration
 class LuaAPI {
 public:
     // Initialize all API modules
-    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr, SpriteSystem* spriteSystem = nullptr, TileSystem* tileSystem = nullptr);
+    static void RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer = nullptr, AnimationPlayer* animationPlayer = nullptr, UISystem* uiSystem = nullptr, SpriteSystem* spriteSystem = nullptr, TileSystem* tileSystem = nullptr, ParticleSystem* particleSystem = nullptr);
     
     // Called once per frame to advance the Lua frame counter
     static void IncrementFrameCount();
@@ -75,6 +76,7 @@ private:
 
     // Tile system pointer (set during RegisterAll)
     static TileSystem* s_tileSystem;
+    static ParticleSystem* s_particleSystem;
 
     // ========================================================================
     // SPRITE API - 2D sprites (screen-space), authored sheets + animations
@@ -121,6 +123,37 @@ private:
     static int Tile_MapSize(lua_State* L);
     static int Tile_ObjectCount(lua_State* L);
     static int Tile_ObjectAt(lua_State* L);
+
+    // ========================================================================
+    // PARTICLES API - the scene's particle emitters, by their object's name
+    // ========================================================================
+    // An emitter is named by the object its Particle Emitter component is on:
+    // pass that name, or the number Particles.Find returned. An unknown name
+    // does nothing (and Find returns nil), like a missing sprite sheet.
+
+    // Particles.Find(name) -> emitter or nil
+    // The emitter's number, or nil when no emitter has that name.
+    static int Particles_Find(lua_State* L);
+    // Particles.Play(emitter)
+    // Starts emitting from the beginning: the burst is spawned, the rate
+    // carries on (a one-shot emitter for its duration) and the random spread
+    // starts again from the emitter's seed. Live particles are kept.
+    static int Particles_Play(lua_State* L);
+    // Particles.Stop(emitter)
+    // Stops spawning; the live particles finish their lives.
+    static int Particles_Stop(lua_State* L);
+    // Particles.Clear(emitter)
+    // Removes every live particle at once; a playing emitter keeps spawning.
+    static int Particles_Clear(lua_State* L);
+    // Particles.Burst(emitter, count)
+    // Spawns count particles at once, playing or not (as many as the pool has room for).
+    static int Particles_Burst(lua_State* L);
+    // Particles.IsPlaying(emitter) -> boolean
+    // True while the emitter spawns: after Play until Stop, or until a one-shot emitter's duration ends.
+    static int Particles_IsPlaying(lua_State* L);
+    // Particles.Count(emitter) -> number
+    // How many of its particles are alive.
+    static int Particles_Count(lua_State* L);
 
 
     // ========================================================================

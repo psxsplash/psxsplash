@@ -1,0 +1,210 @@
+{
+ "format": "splashedit-ng/scene",
+ "version": 1,
+ "settings": {
+  "gteScaling": 100.0,
+  "sceneType": "exterior",
+  "fog": {
+   "enabled": false,
+   "color": [
+    0.1,
+    0.1,
+    0.2
+   ],
+   "density": 5
+  },
+  "networkId": "",
+  "script": "scripts/particles_check.lua"
+ },
+ "objects": [
+  {
+   "name": "Crate",
+   "active": true,
+   "transform": {
+    "position": [
+     0.9,
+     -0.3,
+     4.0
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "scale": [
+     0.6,
+     0.6,
+     0.6
+    ]
+   },
+   "components": [
+    {
+     "type": "mesh",
+     "mesh": "meshes/crate.mesh",
+     "materials": [
+      {
+       "texture": "textures/crate.png",
+       "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+       ]
+      }
+     ],
+     "bitDepth": 8,
+     "vertexColors": "flat",
+     "flatColor": [
+      128,
+      128,
+      128
+     ]
+    },
+    {
+     "type": "script",
+     "lua": "scripts/particles_crate.lua"
+    }
+   ],
+   "children": []
+  },
+  {
+   "name": "Fountain",
+   "active": true,
+   "transform": {
+    "position": [
+     -0.6,
+     -0.9,
+     4.0
+    ],
+    "rotation": [
+     0,
+     0,
+     0,
+     1
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "components": [
+    {
+     "type": "particles",
+     "sheet": "spark",
+     "anim": "",
+     "cell": 1,
+     "rate": 24,
+     "burst": 0,
+     "lifetime": 1.5,
+     "velocity": [
+      0,
+      2.6,
+      0
+     ],
+     "spread": [
+      0.7,
+      0.4,
+      0.4
+     ],
+     "gravity": 3.5,
+     "startColor": [
+      1.0,
+      0.8,
+      0.5
+     ],
+     "endColor": [
+      0.35,
+      0.05,
+      0.0
+     ],
+     "size": 0.3,
+     "maxParticles": 40,
+     "loop": true,
+     "autoplay": true,
+     "duration": 1
+    }
+   ],
+   "children": []
+  },
+  {
+   "name": "Sparks",
+   "active": true,
+   "transform": {
+    "position": [
+     0.9,
+     0.5,
+     4.0
+    ],
+    "rotation": [
+     0,
+     0,
+     0,
+     1
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "components": [
+    {
+     "type": "particles",
+     "sheet": "spark",
+     "anim": "twinkle",
+     "cell": 0,
+     "rate": 30,
+     "burst": 6,
+     "lifetime": 1.0,
+     "velocity": [
+      0,
+      0.5,
+      0
+     ],
+     "spread": [
+      1.2,
+      1.2,
+      0.3
+     ],
+     "gravity": 0.0,
+     "startColor": [
+      0.3,
+      0.6,
+      1.0
+     ],
+     "endColor": [
+      0.1,
+      0.2,
+      0.5
+     ],
+     "size": 0.25,
+     "maxParticles": 48,
+     "loop": false,
+     "autoplay": false,
+     "duration": 0.8
+    }
+   ],
+   "children": []
+  }
+ ],
+ "spriteSheets": [
+  {
+   "name": "spark",
+   "texture": "textures/spark.png",
+   "bitDepth": 4,
+   "cellWidth": 8,
+   "cellHeight": 8,
+   "anims": [
+    {
+     "name": "twinkle",
+     "firstFrame": 0,
+     "frameCount": 4,
+     "frameDuration": 6,
+     "loop": true
+    }
+   ]
+  }
+ ]
+}
