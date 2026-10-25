@@ -226,7 +226,7 @@ void LoadingScreen::drawCustomText(psyqo::GPU& gpu, int handle,
     gpu.sendPrimitive(tpCmd);
 
     // CLUT reference (same as renderProportionalText in UISystem)
-    psyqo::Vertex clutPos = {{.x = (int16_t)fd->vramX, .y = (int16_t)fd->vramY}};
+    psyqo::Vertex clutPos = {{.x = (int16_t)fd->vramX, .y = (int16_t)fd->clutY}};
     psyqo::PrimPieces::ClutIndex clutIdx(clutPos);
     psyqo::Color color = {.r = r, .g = g, .b = b};
 

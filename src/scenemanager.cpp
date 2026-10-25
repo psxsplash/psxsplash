@@ -1626,7 +1626,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 //         Per-atlas: vramX(u16) vramY(u16) width(u16) height(u16) + pixel data + align4
 //         Per-CLUT: clutPackingX(u16) clutPackingY(u16) length(u16) pad(u16) + data + align4
 //         Per-font: glyphW(u8) glyphH(u8) vramX(u16) vramY(u16) textureH(u16)
-//                   dataSize(u32) + pixel data + align4
+//                   dataSize(u32) + pixel data [+ 16-entry palette] + align4
 
 void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
     if (!vramData || vramSize < 8) return;
@@ -1695,11 +1695,18 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
                 (int16_t)fontVramX, (int16_t)fontVramY,
                 64, (int16_t)textureH);
 
-            // Upload white CLUT (entry 0=transparent, entry 1=white)
-            static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
-            renderer.VramUpload(whiteCLUT,
-                (int16_t)fontVramX, (int16_t)fontVramY,
-                2, 1);
+            if (dataSize >= 128u * textureH + 32) {
+                // Font's own 16-entry palette follows the sheet: row below it
+                renderer.VramUpload(reinterpret_cast<const uint16_t*>(ptr + 128u * textureH),
+                    (int16_t)fontVramX, (int16_t)(fontVramY + textureH),
+                    16, 1);
+            } else {
+                // Upload white CLUT (entry 0=transparent, entry 1=white)
+                static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
+                renderer.VramUpload(whiteCLUT,
+                    (int16_t)fontVramX, (int16_t)fontVramY,
+                    2, 1);
+            }
             ptr += dataSize;
         }
 
