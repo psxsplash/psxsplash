@@ -154,7 +154,7 @@ class Renderer final {
 #if PSXSPLASH_FEATURE_SHADOWS
     /// The scene's blob shadows (shadowmath.hh). nullptr / 0 draws none.
     void SetShadows(const ShadowRecord* shadows, int count) {
-        m_shadows = shadows; m_shadowCount = count;
+        m_shadows = shadows; m_shadowCount = count; m_shadowDrawCount = 0;
     }
     /// The floor shadows land on. nullptr (or nav not loaded) puts each blob
     /// flat under its object's bounds.
@@ -255,8 +255,30 @@ class Renderer final {
     const ShadowRecord* m_shadows = nullptr;
     int m_shadowCount = 0;
     const NavRegionSystem* m_shadowNav = nullptr;
-    void renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
-                       int32_t fogFarSZ, OT& ot, Balloc& balloc);
+    // A blob that will be drawn this frame: its bucket, darkness and fan.
+    struct ShadowDraw {
+        const GameObject* obj;
+        int32_t bucket;
+        uint8_t dark;
+        psyqo::Vertex sxy[1 + shadowmath::kRimVerts];
+    };
+    ShadowDraw m_shadowDraws[MAX_SCENE_SHADOWS];
+    int m_shadowDrawCount = 0;
+    // The deepest bucket the current object's triangles may take: one in
+    // front of its own blob, so the blob never darkens its caster.
+    static constexpr int32_t kNoCasterCap = 0x7FFFFFFF;
+    int32_t m_casterCap = kNoCasterCap;
+    void setCasterCap(const GameObject* obj) {
+        m_casterCap = kNoCasterCap;
+        for (int i = 0; i < m_shadowDrawCount; i++)
+            if (m_shadowDraws[i].obj == obj && m_shadowDraws[i].bucket - 1 < m_casterCap)
+                m_casterCap = m_shadowDraws[i].bucket - 1;
+    }
+    // Before the meshes: everything a blob needs but the ordering table, and
+    // the caps its caster's triangles take from it.
+    void prepareShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition, int32_t fogFarSZ);
+    // After the meshes: the blobs prepareShadows kept.
+    void renderShadows(OT& ot, Balloc& balloc);
 #endif
 
     TriangleRef* m_visibleRefs = nullptr;
