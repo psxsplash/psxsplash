@@ -21,11 +21,17 @@ using namespace psyqo::GTE;
 //
 // The bucket is the centre's depth less kShadowDepthBias: in front of the
 // floor under it, so the floor is drawn first, and level with the caster's
-// feet.
+// feet. The caster's own triangles are capped one bucket in front of it
+// (setCasterCap), so the whole caster draws after its blob.
 static constexpr int32_t kShadowDepthBias = 8;
 
-void psxsplash::Renderer::renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
-                                        int32_t fogFarSZ, OT& ot, Balloc& balloc) {
+// A blob on the bounds-bottom fallback stands on the top face of whatever
+// object is there: its top within this of the caster's bottom.
+static constexpr int32_t kSupportTolerance = 2;
+
+void psxsplash::Renderer::prepareShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
+                                         int32_t fogFarSZ) {
+    m_shadowDrawCount = 0;
     if (m_shadowCount == 0) return;
     const bool nav = m_shadowNav != nullptr && m_shadowNav->isLoaded();
     for (int si = 0; si < m_shadowCount; si++) {
@@ -57,6 +63,23 @@ void psxsplash::Renderer::renderShadows(eastl::vector<GameObject*>& objects, con
         if (region != NAV_NO_REGION)
             edge = shadowmath::edgeFade(m_shadowNav->distanceToWalkoffEdge(cx, cz, region), radius);
 
+        // Off the nav floor, the rim stays inside the footprint of the object
+        // the caster stands on, so it does not hang over that object's edge.
+        // A linear scan: casters are few, and only these take it.
+        int32_t rimMinX = -0x7FFF, rimMaxX = 0x7FFF, rimMinZ = -0x7FFF, rimMaxZ = 0x7FFF;
+        if (region == NAV_NO_REGION) {
+            for (size_t oi = 0; oi < objects.size(); oi++) {
+                const GameObject* o = objects[oi];
+                if (o == obj || !o->isActive()) continue;
+                const int32_t dy = o->aabbMinY - floorY;
+                if (dy < -kSupportTolerance || dy > kSupportTolerance) continue;
+                if (cx < o->aabbMinX || cx > o->aabbMaxX || cz < o->aabbMinZ || cz > o->aabbMaxZ) continue;
+                rimMinX = o->aabbMinX - cx; rimMaxX = o->aabbMaxX - cx;
+                rimMinZ = o->aabbMinZ - cz; rimMaxZ = o->aabbMaxZ - cz;
+                break;
+            }
+        }
+
         // Camera transform with the blob's centre as the object origin, as
         // setupObjectTransform does for a mesh.
         ::clear<Register::TRX, Safe>();
@@ -78,6 +101,8 @@ void psxsplash::Renderer::renderShadows(eastl::vector<GameObject*>& objects, con
         for (int i = 0; i < shadowmath::kRimVerts; i++) {
             int32_t dx = (radius * shadowmath::kRimCos[i]) >> 12;
             int32_t dz = (radius * shadowmath::kRimSin[i]) >> 12;
+            dx = eastl::clamp(dx, rimMinX, rimMaxX);
+            dz = eastl::clamp(dz, rimMinZ, rimMaxZ);
             int32_t dy = 0;
             if (region != NAV_NO_REGION) dy = m_shadowNav->getFloorY(cx + dx, cz + dz, region) - floorY;
             if (dy > 0x7FFF) dy = 0x7FFF;
@@ -125,7 +150,22 @@ void psxsplash::Renderer::renderShadows(eastl::vector<GameObject*>& objects, con
 
         int32_t zIndex = sz[0] - kShadowDepthBias;
         if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
-        for (int i = 0; i < 1 + shadowmath::kRimVerts; i++) clampForRasterizer(sxy[i]);
+        ShadowDraw& d = m_shadowDraws[m_shadowDrawCount++];
+        d.obj = obj; d.bucket = zIndex; d.dark = dark;
+        for (int i = 0; i < 1 + shadowmath::kRimVerts; i++) {
+            clampForRasterizer(sxy[i]);
+            d.sxy[i] = sxy[i];
+        }
+    }
+}
+
+void psxsplash::Renderer::renderShadows(OT& ot, Balloc& balloc) {
+    m_casterCap = kNoCasterCap;
+    for (int di = 0; di < m_shadowDrawCount; di++) {
+        const ShadowDraw& d = m_shadowDraws[di];
+        const int32_t zIndex = d.bucket;
+        const psyqo::Vertex* sxy = d.sxy;
+        const uint8_t dark = d.dark;
 
         // Last inserted is drawn first: restore, fan, subtract.
         auto& restore = balloc.allocateFragment<psyqo::Prim::TPage>();

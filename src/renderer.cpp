@@ -161,6 +161,9 @@ void psxsplash::Renderer::setupObjectTransform(
     psyqo::GteMath::multiplyMatrix33(obj->rotation, m_currentCamera->GetRotation(), &finalMatrix);
     writeSafe<PseudoRegister::Translation>(objectPosition);
     writeSafe<PseudoRegister::Rotation>(finalMatrix);
+#if PSXSPLASH_FEATURE_SHADOWS
+    setCasterCap(obj);
+#endif
 
 #if PSXSPLASH_FEATURE_LIGHTS
     m_objLights.count = 0;
@@ -365,6 +368,9 @@ void psxsplash::Renderer::processTriangle(
         RENDER_LOST(m_lost.ot++);
         return;
     }
+#if PSXSPLASH_FEATURE_SHADOWS
+    if (zIndex > m_casterCap) zIndex = m_casterCap;
+#endif
     // Clamp above the reserved 2D bands, never to 0: geometry this close to the
     // camera must not land in the slots the sprites and UI draw from.
     if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
@@ -931,6 +937,9 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
         // Ordering-table depth: the piece's deepest view z, floored as processTriangle does.
         const int32_t psz[3] = {sz[0], sz[i], sz[i + 1]};
         int32_t zIndex = eastl::max(eastl::max(psz[0], psz[1]), psz[2]);
+#if PSXSPLASH_FEATURE_SHADOWS
+        if (zIndex > m_casterCap) zIndex = m_casterCap;
+#endif
         if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
         emitTriangle(piece, a, b, c, psz, zIndex, fogFarSZ, ot, balloc, uvOffset);
     }
@@ -957,6 +966,9 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
+#if PSXSPLASH_FEATURE_SHADOWS
+    prepareShadows(objects, cameraPosition, fogFarSZ);
+#endif
     for (auto& obj : objects) {
         if (!obj->isActive()) continue;
         if (obj->isSkinned()) continue;
@@ -969,7 +981,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
-    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
+    renderShadows(ot, balloc);
 #endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
@@ -1021,6 +1033,9 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
+#if PSXSPLASH_FEATURE_SHADOWS
+    prepareShadows(objects, cameraPosition, fogFarSZ);
+#endif
     int16_t lastObjectIndex = -1;
     bool lastObjCulled = false;
     RENDER_LOST(uint32_t submitted = 0);
@@ -1074,7 +1089,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
-    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
+    renderShadows(ot, balloc);
 #endif
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
@@ -1344,6 +1359,9 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
+#if PSXSPLASH_FEATURE_SHADOWS
+    prepareShadows(objects, cameraPosition, fogFarSZ);
+#endif
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
     int32_t camZ = m_currentCamera->GetPosition().z.raw();
@@ -1788,7 +1806,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
-    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
+    renderShadows(ot, balloc);
 #endif
 
     // Sprites go in before the UI: both head-insert, so inserting the UI
@@ -1859,6 +1877,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
         GameObject* obj = objects[animSet.gameObjectIndex];
         if (!obj->isActive()) continue;
         if (animSet.clipCount == 0) continue;
+#if PSXSPLASH_FEATURE_SHADOWS
+        setCasterCap(obj);
+#endif
 
         // Frustum cull using object AABB
         if (frustum) {
@@ -2041,6 +2062,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
                 RENDER_LOST(m_lost.ot++);
                 continue;
             }
+#if PSXSPLASH_FEATURE_SHADOWS
+            if (zIndex > m_casterCap) zIndex = m_casterCap;
+#endif
             if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
 
             // Off-screen reject
