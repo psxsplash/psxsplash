@@ -198,13 +198,14 @@ void psxsplash::Controls::forceAnalogMode() {
 
     // Sequence for port 0 (Pad 1):
     // 1) Enter config mode
-    static const uint8_t enterConfig[] = {0x01, 0x43, 0x00, 0x01, 0x00};
+    static const uint8_t enterConfig[] = {0x01, 0x43, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
     // 2) Set analog mode (0x01) + lock (0x03)
     static const uint8_t setAnalog[] = {0x01, 0x44, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00};
     // 3) Map vibration motors: byte[0]=small motor (M2), byte[1]=large motor (M1)
     static const uint8_t mapMotors[] = {0x01, 0x4D, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF};
-    // 4) Exit config mode
-    static const uint8_t exitConfig[] = {0x01, 0x43, 0x00, 0x00, 0x00};
+    // 4) Exit config mode. All nine bytes: a DualShock acts on 43h at the last one, and a
+    // short packet leaves it in config mode for good (a real pad on an SCPH-5501).
+    static const uint8_t exitConfig[] = {0x01, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
     // Configure both ports: a controller in port 1 (player 1) and/or port 2
     // (player 2). A missing controller simply loses ACK and is skipped harmlessly.
