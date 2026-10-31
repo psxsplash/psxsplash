@@ -279,6 +279,8 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU&, Controls&) { return false; }
 bool psxsplash::MoviePlayer::frame(Controls&, Result&) { return true; }
 bool psxsplash::MoviePlayer::skipPressed(Controls&) { return false; }
 void psxsplash::MoviePlayer::finish() {}
+uint32_t psxsplash::MoviePlayer::framesShown() const { return 0; }
+void psxsplash::MoviePlayer::releaseSubtitles() {}
 
 #endif  // LOADER_CDROM
 
