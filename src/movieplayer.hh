@@ -33,7 +33,10 @@ namespace psxsplash {
  *
  * Nothing else runs while a movie plays: no game logic, no Lua, no scene audio.
  * Scene voices and CD music are stopped first; a script restarts its music in
- * onComplete.
+ * onComplete. A movie that loops can only end by the pad, so it is always skippable.
+ *
+ * In place, a movie smaller than the screen plays on black, or with `overlay`
+ * as a window over the frozen last frame, at `x`, `y` or else centered.
  */
 class MoviePlayer {
   public:
@@ -45,8 +48,11 @@ class MoviePlayer {
         char name[9] = {};      // "INTRO": A-Z, 0-9 and _, 8 characters at most
         int thenScene = -1;     // the scene to load after it, or -1 to stay
         int onComplete = c_noRef;
+        int16_t x = -1, y = -1;  // the picture's corner, -1 to center it
         bool skippable = false;
         bool rgb24 = false;
+        bool loop = false;
+        bool overlay = false;
     };
 
     // Queues a movie for the end of this frame. False while one is queued or

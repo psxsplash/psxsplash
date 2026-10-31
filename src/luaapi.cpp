@@ -4261,11 +4261,28 @@ int LuaAPI::Movie_Play(lua_State* L) {
         return 1;
     }
 
-    // Optional second argument: {skip=bool, thenScene=n, rgb24=bool, onComplete=function}
+    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n,
+    // thenScene=n, rgb24=bool, onComplete=function}
     bool rgb24Set = false;
     if (lua.isTable(2)) {
         lua.getField(2, "skip");
         if (lua.isBoolean(-1)) request.skippable = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "loop");
+        if (lua.isBoolean(-1)) request.loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "overlay");
+        if (lua.isBoolean(-1)) request.overlay = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "x");
+        if (lua.isNumber(-1)) request.x = static_cast<int16_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "y");
+        if (lua.isNumber(-1)) request.y = static_cast<int16_t>(lua.toNumber(-1));
         lua.pop();
 
         lua.getField(2, "thenScene");
@@ -4292,6 +4309,8 @@ int LuaAPI::Movie_Play(lua_State* L) {
     // run over the textures beside them, which the scene still needs.
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
+    if (request.rgb24 || request.thenScene >= 0) request.overlay = false;  // nothing to lay it over
+    if (request.loop) request.skippable = true;  // no script runs to end it
 
     const bool queued = s_sceneManager->requestMovie(request);
     if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);

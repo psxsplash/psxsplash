@@ -943,9 +943,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Movie.Play then Scene.Load in one frame means the movie, then the scene.
     pollHotReload();
 #if PSXSPLASH_FEATURE_MOVIE
-    if (m_movie.pending()) {
-        startMovie(gpu);
-    } else
+    if (!m_movie.pending())
 #endif
     processPendingSceneLoad();
 
@@ -1521,6 +1519,13 @@ void psxsplash::SceneManager::stopMovieOn() {
 }
 
 bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
+    if (m_movie.pending()) {
+        // A frame after the one that asked, with its chain out: the player's first
+        // upload must not meet that chain, nor a 24-bit display show its picture.
+        gpu.waitChainIdle();
+        startMovie(gpu);
+        return true;
+    }
     if (!m_movie.playing()) return false;
     MoviePlayer::Result result;
     if (m_movie.frame(m_controls[0], result)) finishMovie(gpu, result);

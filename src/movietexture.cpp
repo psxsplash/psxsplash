@@ -145,6 +145,18 @@ bool psxsplash::MovieTexture::play(const char* name, const GameObject* target, c
 
     char path[24];
     snprintf(path, sizeof path, "MOVIES/%s.SBS;1", name);
+    uint32_t lba = 0, bytes = 0;
+    if (!loader.resolveBlocking(path, lba, bytes)) {
+        printf("Movie %s: not on the disc\n", name);
+        return false;
+    }
+    // The loader allocates with `new`, and nothing can see that fail (MoviePlayer).
+    void* room = psyqo_malloc((bytes + 2047) & ~2047u);
+    if (!room) {
+        printf("Movie %s: the file does not fit in the heap\n", name);
+        return false;
+    }
+    psyqo_free(room);
     int size = 0;
     uint8_t* file = loader.LoadFileSync(path, size);
     if (!file) {
