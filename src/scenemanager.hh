@@ -472,6 +472,7 @@ namespace psxsplash {
         bool tickMovie(psyqo::GPU& gpu);
         // Movie.PlayOn: a small movie on a mesh, the game carrying on.
         bool playMovieOn(const char* name, const GameObject* target, const MovieTexture::Options& options);
+        bool playMovieOnImage(const char* name, int element, const MovieTexture::Options& options);
         void stopMovieOn();
 #endif
         Controls& getControlsPlayer1() { return m_controls[0]; }

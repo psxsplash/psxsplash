@@ -14,6 +14,7 @@
 
 #include "fileloader.hh"
 #include "fileloader_cdrom.hh"
+#include "scenemanager.hh"
 
 namespace {
 
@@ -173,6 +174,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     s_player->play(lba, sectors, options);
     m_playing = true;
     m_skipHeld = skipPressed(pad);  // a press that started the movie does not end it
+    m_clockStarted = false;
     return true;
 }
 
@@ -183,6 +185,7 @@ bool psxsplash::MoviePlayer::skipPressed(Controls& pad) {
 bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
     const StrPlayer::Status status = s_player->frame();
     if (status == StrPlayer::Status::PLAYING) {
+        drawSubtitles();
         const bool held = skipPressed(pad);
         const bool pressed = held && !m_skipHeld;
         m_skipHeld = held;
@@ -200,6 +203,43 @@ bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
            s.framesDropped, s.framesRejected, s.readErrors, s.badAddresses);
     finish();
     return true;
+}
+
+// The frame just decoded is in the back buffer and the flip has not happened, so
+// text drawn here shows with its picture and goes with it.
+void psxsplash::MoviePlayer::drawSubtitles() {
+    if (!m_clockStarted) {
+        m_clockStarted = true;
+        m_clockStart = m_gpu->getLiveFrameCount();
+    }
+    if (!m_request.subtitleCount) return;
+    psyqo::Font<>* font = SceneManager::GetFont();
+    if (!font) return;
+    const uint32_t vsyncs = m_gpu->getLiveFrameCount() - m_clockStart;
+    const uint32_t ms = vsyncs * 1000 / m_gpu->getRefreshRate();
+    for (unsigned i = 0; i < m_request.subtitleCount; i++) {
+        const Subtitle& line = m_request.subtitles[i];
+        if (ms < line.fromMs || ms >= line.toMs) continue;
+        const char* second = line.text;
+        while (*second && *second != '\n') second++;
+        const size_t firstLength = second - line.text;
+        const bool two = *second == '\n';
+        if (two) second++;
+        const size_t secondLength = two ? __builtin_strlen(second) : 0;
+        const eastl::string_view rows[2] = {{line.text, firstLength}, {second, secondLength}};
+        for (int row = 0; row < (two ? 2 : 1); row++) {
+            const int16_t x = int16_t((320 - int(rows[row].size()) * 8) / 2);
+            const int16_t y = int16_t((two ? 204 : 220) + row * 16);
+            font->print(*m_gpu, rows[row], {{.x = int16_t(x + 1), .y = int16_t(y + 1)}}, {{.r = 0, .g = 0, .b = 0}});
+            font->print(*m_gpu, rows[row], {{.x = x, .y = y}}, {{.r = 0xff, .g = 0xff, .b = 0xff}});
+        }
+    }
+}
+
+void psxsplash::MoviePlayer::releaseSubtitles() {
+    if (m_request.subtitles) psyqo_free(m_request.subtitles);
+    m_request.subtitles = nullptr;
+    m_request.subtitleCount = 0;
 }
 
 void psxsplash::MoviePlayer::finish() {

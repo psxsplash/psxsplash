@@ -44,6 +44,14 @@ class MoviePlayer {
 
     static constexpr int c_noRef = -2;  // LUA_NOREF
 
+    // One line of text over a 15-bit movie, split on \n into at most two rows. Times
+    // are from the first picture. The GPU cannot draw into a 24-bit picture.
+    static constexpr unsigned c_subtitleText = 80;
+    struct Subtitle {
+        uint32_t fromMs, toMs;
+        char text[c_subtitleText];
+    };
+
     struct Request {
         char name[9] = {};      // "INTRO": A-Z, 0-9 and _, 8 characters at most
         int thenScene = -1;     // the scene to load after it, or -1 to stay
@@ -54,6 +62,8 @@ class MoviePlayer {
         bool loop = false;
         bool overlay = false;
         uint8_t speed = 0;  // 1 for a movie made with psxavenc -x 1, 2 for -x 2, 0 for the disc's
+        Subtitle* subtitles = nullptr;  // from psyqo_malloc; the player frees them
+        uint16_t subtitleCount = 0;
     };
 
     // Queues a movie for the end of this frame. False while one is queued or
@@ -78,8 +88,12 @@ class MoviePlayer {
 
     const Request& request() const { return m_request; }
 
+    // The scene calls this when a movie has ended, or never started.
+    void releaseSubtitles();
+
   private:
     bool skipPressed(Controls& pad);
+    void drawSubtitles();
     void finish();
 
     Request m_request;
@@ -87,6 +101,8 @@ class MoviePlayer {
     bool m_pending = false;
     bool m_playing = false;
     bool m_skipHeld = false;
+    bool m_clockStarted = false;
+    uint32_t m_clockStart = 0;
 };
 
 }  // namespace psxsplash

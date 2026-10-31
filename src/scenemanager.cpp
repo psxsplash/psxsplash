@@ -1512,6 +1512,24 @@ bool psxsplash::SceneManager::playMovieOn(const char* name, const GameObject* ta
 #endif
 }
 
+bool psxsplash::SceneManager::playMovieOnImage(const char* name, int element, const MovieTexture::Options& options) {
+#if defined(LOADER_CDROM) && PSXSPLASH_FEATURE_UI
+    const UIImageData* image = m_uiSystem.getImageData(element);
+    if (!image || image->bitDepth != 2) {
+        printf("Movie %s: the target needs a 16-bit image\n", name);
+        return false;
+    }
+    CDRomHelper::WakeDrive();
+    const bool playing =
+        m_movieTexture.play(name, int16_t(image->texpageX * 64 + image->u0), int16_t(image->texpageY * 256 + image->v0),
+                            (image->u1 - image->u0 + 8u) & ~15u, (image->v1 - image->v0 + 8u) & ~15u, options);
+    CDRomHelper::SilenceDrive();
+    return playing;
+#else
+    return false;
+#endif
+}
+
 void psxsplash::SceneManager::stopMovieOn() {
     m_movieTexture.stop();
     const int ref = m_movieTexture.takeOnComplete();
@@ -1534,6 +1552,7 @@ bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
 
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
     const MoviePlayer::Request& request = m_movie.request();
+    m_movie.releaseSubtitles();
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
         loadScene(gpu, request.thenScene, /*isFirstScene=*/true);
