@@ -96,6 +96,7 @@ target("psxsplash", function()
             -- psyqo-paths has no xmake target; the player and its decoder are all a movie needs.
             add_files("third_party/nugget/psyqo-paths/src/str-player.cpp")
             add_files("third_party/nugget/bsdec/bsdec.c", {cflags = "-O3"})
+            add_files("third_party/nugget/common/crt0/clz.c")
         end
     else
         add_defines("PCDRV_SUPPORT=1")
