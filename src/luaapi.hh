@@ -609,6 +609,12 @@ private:
     // CUTSCENE API - Cutscene playback control
     // ========================================================================
     
+    // Movie.Play(name) or Movie.Play(name, {skip=bool, onComplete=fn(result), thenScene=n, rgb24=bool}) -> queued
+    static int Movie_Play(lua_State* L);
+
+    // Movie.IsPlaying() -> boolean
+    static int Movie_IsPlaying(lua_State* L);
+
     // Cutscene.Play(name) or Cutscene.Play(name, {loop=bool, onComplete=fn})
     static int Cutscene_Play(lua_State* L);
 

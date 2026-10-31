@@ -31,6 +31,7 @@
 #include "spritesystem.hh"
 #include "tilesystem.hh"
 #include "uisystem.hh"
+#include "movieplayer.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
 #endif
@@ -462,6 +463,13 @@ namespace psxsplash {
         void setObjectActive(GameObject* go, bool active);
 
         // Public accessors for Lua API
+#if PSXSPLASH_FEATURE_MOVIE
+        // Movie.Play: queues the movie for the end of this frame.
+        bool requestMovie(const MoviePlayer::Request& request) { return m_movie.request(request); }
+        bool isMovieBusy() const { return m_movie.busy(); }
+        // One frame of the movie playing, if there is one; false when there is none.
+        bool tickMovie(psyqo::GPU& gpu);
+#endif
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
         Camera& getCamera() { return m_currentCamera; }
@@ -534,6 +542,14 @@ namespace psxsplash {
 
         // Check and process pending scene load (called from GameTick)
         void processPendingSceneLoad();
+#if PSXSPLASH_FEATURE_MOVIE
+        void startMovie(psyqo::GPU& gpu);
+        void finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result);
+        MoviePlayer m_movie;
+#endif
+#if defined(LOADER_CDROM)
+        void settleDrive(psyqo::GPU& gpu);
+#endif
 
         // Hot reload for an editor driving a PCdrv build: when "reload.flag"
         // exists beside the scene at boot, its contents are re-read every few

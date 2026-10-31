@@ -26,7 +26,7 @@ src/loadbuffer_patch.cpp
 #                comma separated. Unset builds all of them. SplashEdit passes
 #                the set the exported scenes use, e.g. FEATURES=ui,collision,nav.
 #                FEATURES= or FEATURES=none builds the smallest engine.
-ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows
+ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows movie
 ifeq ($(origin FEATURES),undefined)
 FEATURES := $(ALL_FEATURES)
 endif
@@ -51,6 +51,7 @@ FEATURE_SRCS_streaming = src/streamreader.cpp src/streamselftest.cpp src/worldst
 FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
 FEATURE_SRCS_shadows = src/shadowrender.cpp
+FEATURE_SRCS_movie = src/movieplayer.cpp
 
 SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 
@@ -127,6 +128,16 @@ endif
 
 include third_party/nugget/psyqo-lua/psyqo-lua.mk
 include third_party/nugget/psyqo/psyqo.mk
+
+# Movies stream off the drive, so only a disc build links the player. Its
+# library comes first: it calls into psyqo, and the linker reads them in order.
+ifeq ($(LOADER),cdrom)
+ifneq ($(filter movie,$(FEATURES)),)
+include third_party/nugget/psyqo-paths/psyqo-paths.mk
+LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-paths.a,$(LIBRARIES))
+$(BINDIR)$(TARGET).elf: $(PSYQOPATHSDIR)libpsyqo-paths.a
+endif
+endif
 
 # Redirect Lua's allocator through our OOM-guarded wrapper
 LDFLAGS := $(subst luaI_realloc=libc_realloc,luaI_realloc=lua_oom_realloc,$(LDFLAGS))

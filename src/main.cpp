@@ -182,6 +182,15 @@ void MainScene::frame() {
     // (only relevant for the async CD-ROM backend).
     if (!m_ready) return;
 
+#if PSXSPLASH_FEATURE_MOVIE
+    // Before the frame counter's test: the player needs every flip it gets.
+    if (m_sceneManager.tickMovie(gpu())) {
+        m_lastFrameCounter = gpu().getFrameCount();
+        gpu().pumpCallbacks();
+        return;
+    }
+#endif
+
     uint32_t beginFrame = gpu().now();
     auto currentFrameCounter = gpu().getFrameCount();
     auto deltaTime = currentFrameCounter - mainScene.m_lastFrameCounter;

@@ -8,7 +8,7 @@ includes("third_party/nugget/psyqo-lua")
 -- Engine subsystems and the sources each one adds, as in the Makefile and
 -- src/features.hh.
 local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "lights", "streaming",
-                      "memcard", "nav", "agents", "collision"}
+                      "memcard", "nav", "agents", "collision", "movie"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
     net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
@@ -22,6 +22,7 @@ local feature_srcs = {
                  "src/streamplanner.cpp"},
     memcard = {"src/memorycardmanager.cpp", "src/luatableserializer.cpp"},
     collision = {"src/collision.cpp"},
+    movie = {"src/movieplayer.cpp"},
 }
 
 option("features", {type = "string",
@@ -91,6 +92,11 @@ target("psxsplash", function()
 
     if is_config("loader", "cdrom") then
         add_defines("LOADER_CDROM")
+        if features.movie then
+            -- psyqo-paths has no xmake target; the player and its decoder are all a movie needs.
+            add_files("third_party/nugget/psyqo-paths/src/str-player.cpp")
+            add_files("third_party/nugget/bsdec/bsdec.c", {cflags = "-O3"})
+        end
     else
         add_defines("PCDRV_SUPPORT=1")
     end
