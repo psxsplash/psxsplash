@@ -64,6 +64,10 @@ class MoviePlayer {
         uint8_t speed = 0;  // 1 for a movie made with psxavenc -x 1, 2 for -x 2, 0 for the disc's
         Subtitle* subtitles = nullptr;  // from psyqo_malloc; the player frees them
         uint16_t subtitleCount = 0;
+        // A 16-bit UI image's rectangle, for a movie that plays behind the scene.
+        int16_t vramX = -1, vramY = 0;
+        uint16_t vramWidth = 0, vramHeight = 0;
+        bool behind() const { return vramX >= 0; }
     };
 
     // Queues a movie for the end of this frame. False while one is queued or
@@ -87,6 +91,9 @@ class MoviePlayer {
     bool frame(Controls& pad, Result& result);
 
     const Request& request() const { return m_request; }
+
+    // Frames shown so far, for a scene that follows the movie.
+    uint32_t framesShown() const;
 
     // The scene calls this when a movie has ended, or never started.
     void releaseSubtitles();

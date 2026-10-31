@@ -160,11 +160,22 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
         return false;
     }
 
-    if (m_request.rgb24) setDisplayDepth(gpu, true);
-    if (m_request.overlay) {
-        freezeFramebuffers(gpu);
+    if (m_request.behind()) {
+        if (width != m_request.vramWidth || height != m_request.vramHeight) {
+            printf("Movie %s: %ux%u does not fill its image, %ux%u\n", m_request.name, width, height,
+                   m_request.vramWidth, m_request.vramHeight);
+            return false;
+        }
+        options.rgb24 = false;
+        options.vramX = m_request.vramX;
+        options.vramY = m_request.vramY;
     } else {
-        clearFramebuffers(gpu, m_request.rgb24);
+        if (m_request.rgb24) setDisplayDepth(gpu, true);
+        if (m_request.overlay) {
+            freezeFramebuffers(gpu);
+        } else {
+            clearFramebuffers(gpu, m_request.rgb24);
+        }
     }
 
     s_options = options;
@@ -182,10 +193,15 @@ bool psxsplash::MoviePlayer::skipPressed(Controls& pad) {
     return pad.isButtonHeld(psyqo::AdvancedPad::Button::Start) || pad.isButtonHeld(psyqo::AdvancedPad::Button::Cross);
 }
 
+uint32_t psxsplash::MoviePlayer::framesShown() const { return s_player ? s_player->stats().framesShown : 0; }
+
 bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
+    // Behind a scene the last frame's chain may still be running, and the player's
+    // uploads cannot share the GPU's DMA with it.
+    if (m_request.behind()) m_gpu->waitChainIdle();
     const StrPlayer::Status status = s_player->frame();
     if (status == StrPlayer::Status::PLAYING) {
-        drawSubtitles();
+        if (!m_request.behind()) drawSubtitles();
         const bool held = skipPressed(pad);
         const bool pressed = held && !m_skipHeld;
         m_skipHeld = held;

@@ -702,6 +702,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Movie_IsPlaying);
     L.setField(-2, "IsPlaying");
 
+    L.push(Movie_Frame);
+    L.setField(-2, "Frame");
+
     L.push(Movie_PlayOn);
     L.setField(-2, "PlayOn");
 
@@ -4334,6 +4337,19 @@ int LuaAPI::Movie_Play(lua_State* L) {
         }
         lua.pop();
     }
+    // A 16-bit UI image, drawn behind the scene, that the movie plays into as the game runs.
+    if (lua.isTable(2)) {
+        lua.getField(2, "behind");
+        const bool wanted = lua.isNumber(-1);
+        const bool ready = wanted && s_sceneManager->setMovieBehind(static_cast<int>(lua.toNumber(-1)), request);
+        lua.pop();
+        if (wanted && !ready) {
+            if (request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+            if (request.subtitles) psyqo_free(request.subtitles);
+            lua.push(false);
+            return 1;
+        }
+    }
     if (request.subtitleCount) rgb24Set = true;  // no text on 24 bits
     if (request.subtitleCount) request.rgb24 = false;
 
@@ -4341,7 +4357,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
     // run over the textures beside them, which the scene still needs.
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
-    if (request.rgb24 || request.thenScene >= 0) request.overlay = false;  // nothing to lay it over
+    if (request.rgb24 || request.thenScene >= 0 || request.behind()) request.overlay = false;  // nothing to lay it over
     if (request.loop) request.skippable = true;  // no script runs to end it
 
     const bool queued = s_sceneManager->requestMovie(request);
@@ -4354,6 +4370,12 @@ int LuaAPI::Movie_Play(lua_State* L) {
 int LuaAPI::Movie_IsPlaying(lua_State* L) {
     psyqo::Lua lua(L);
     lua.push(s_sceneManager && s_sceneManager->isMovieBusy());
+    return 1;
+}
+
+int LuaAPI::Movie_Frame(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(s_sceneManager ? s_sceneManager->movieFramesShown() : 0));
     return 1;
 }
 

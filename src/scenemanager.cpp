@@ -1530,6 +1530,24 @@ bool psxsplash::SceneManager::playMovieOnImage(const char* name, int element, co
 #endif
 }
 
+bool psxsplash::SceneManager::setMovieBehind(int element, MoviePlayer::Request& request) {
+#if PSXSPLASH_FEATURE_UI
+    const UIImageData* image = m_uiSystem.getImageData(element);
+    if (!image || image->bitDepth != 2) {
+        printf("Movie %s: behind needs a 16-bit image\n", request.name);
+        return false;
+    }
+    request.vramX = int16_t(image->texpageX * 64 + image->u0);
+    request.vramY = int16_t(image->texpageY * 256 + image->v0);
+    request.vramWidth = uint16_t((image->u1 - image->u0 + 8u) & ~15u);
+    request.vramHeight = uint16_t((image->v1 - image->v0 + 8u) & ~15u);
+    m_uiSystem.setBehindScene(element, true);
+    return true;
+#else
+    return false;
+#endif
+}
+
 void psxsplash::SceneManager::stopMovieOn() {
     m_movieTexture.stop();
     const int ref = m_movieTexture.takeOnComplete();
@@ -1547,7 +1565,8 @@ bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
     if (!m_movie.playing()) return false;
     MoviePlayer::Result result;
     if (m_movie.frame(m_controls[0], result)) finishMovie(gpu, result);
-    return true;
+    // Behind the scene the game goes on, a frame of it for each of the movie's.
+    return !m_movie.request().behind();
 }
 
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {

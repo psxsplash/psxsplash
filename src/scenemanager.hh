@@ -468,6 +468,9 @@ namespace psxsplash {
         // Movie.Play: queues the movie for the end of this frame.
         bool requestMovie(const MoviePlayer::Request& request) { return m_movie.request(request); }
         bool isMovieBusy() const { return m_movie.busy(); }
+        uint32_t movieFramesShown() const { return m_movie.framesShown(); }
+        // Points a request at a 16-bit UI image and draws that image behind the scene.
+        bool setMovieBehind(int element, MoviePlayer::Request& request);
         // One frame of the movie playing, if there is one; false when there is none.
         bool tickMovie(psyqo::GPU& gpu);
         // Movie.PlayOn: a small movie on a mesh, the game carrying on.

@@ -609,13 +609,14 @@ private:
     // CUTSCENE API - Cutscene playback control
     // ========================================================================
     
-    // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, subtitles={{from, to, "line"}}, onComplete=fn(result), thenScene=n, rgb24=bool}) -> queued
+    // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, subtitles={{from, to, "line"}}, behind=element, onComplete=fn(result), thenScene=n, rgb24=bool}) -> queued
     static int Movie_Play(lua_State* L);
 
     // Movie.IsPlaying() -> boolean
     static int Movie_IsPlaying(lua_State* L);
 
     // Movie.PlayOn(entity, name) or Movie.PlayOn(entity, name, {fps=n, loop=bool, onComplete=fn}) -> started
+    static int Movie_Frame(lua_State* L);
     static int Movie_PlayOn(lua_State* L);
 
     // Movie.StopOn() -> nil
