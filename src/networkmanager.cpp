@@ -4,11 +4,9 @@
 
 #include "netinterp.hh"
 
+#include "pcdrv_handler.hh"
 #include "scenemanager.hh"
 #include "sio1.hh"
-#ifdef PCDRV_SUPPORT
-#include "pcdrv_handler.hh"
-#endif
 
 namespace psxsplash {
 
@@ -44,6 +42,11 @@ int pcnetRead(int, void*, int) { return -1; }
 int pcnetWrite(int, const void*, int) { return -1; }
 #endif
 constexpr PcdrvNetOps c_pcnetOps = {pcnetOpen, pcnetClose, pcnetRead, pcnetWrite};
+
+// Is the serial port the monitor's own link? Sio1::init would then retune it under
+// the monitor, and the host would lose the console until someone pressed RESET.
+// The BIOS leaves the port off, so a monitor on another link leaves these bits clear.
+bool sio1IsTheMonitorsLink() { return !pcsx_present() && psxmon_owns_breaks() && (SIO1_CTRL & 5) == 5; }
 }  // namespace
 
 NetworkManager NetworkManager::s_instance;
@@ -67,6 +70,10 @@ void NetworkManager::begin(uint32_t sceneHash, uint32_t seed, uint32_t baud, Sio
     if (m_socket.open(server ? server : PcdrvSocket::c_defaultServer)) {
         if (!usingSocket()) printf("Net: transport tcp://%s\n", server ? server : PcdrvSocket::c_defaultServer);
         m_link.setTransport(m_socket);
+    } else if (sio1IsTheMonitorsLink()) {
+        printf("Net: no server, and SIO1 is the monitor's link\n");
+        m_state = State::Disconnected;
+        return;
     } else {
         if (usingSocket()) printf("Net: transport sio1\n");
         Sio1::Get().init(baud, rxMode);
