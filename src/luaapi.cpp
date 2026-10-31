@@ -4278,7 +4278,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
         lua.pop();
 
         lua.getField(2, "speed");
-        if (lua.isNumber(-1)) request.singleSpeed = static_cast<int>(lua.toNumber(-1)) == 1;
+        if (lua.isNumber(-1)) request.speed = static_cast<uint8_t>(lua.toNumber(-1));
         lua.pop();
 
         lua.getField(2, "x");

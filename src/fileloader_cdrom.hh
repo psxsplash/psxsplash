@@ -32,7 +32,7 @@ class FileLoaderCDRom final : public FileLoader {
     // -- prepare: must be called from Application::prepare() ------
     void prepare() override {
         m_cdrom.prepare();
-        m_cdrom.setDoubleSpeed(g_discReadSpeed[c_discReadSpeedDigit] != '1');
+        m_cdrom.setDoubleSpeed(discDoubleSpeed());
     }
 
     // -- scheduleInit ---------------------------------------------
@@ -188,6 +188,9 @@ class FileLoaderCDRom final : public FileLoader {
     void setGPU(psyqo::GPU* gpu) { m_gpu = gpu; }
 
     psyqo::CDRomDevice* getCDRomDevice() { return &m_cdrom; }
+
+    /** What the disc is set to, whatever a bad read has since slowed the drive to. */
+    static bool discDoubleSpeed() { return g_discReadSpeed[c_discReadSpeedDigit] != '1'; }
 
     /** Blocking directory lookup; the drive must be awake (scene loading). */
     bool resolveBlocking(const char* path, uint32_t& outLBA, uint32_t& outSize) {

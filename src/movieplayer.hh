@@ -53,7 +53,7 @@ class MoviePlayer {
         bool rgb24 = false;
         bool loop = false;
         bool overlay = false;
-        bool singleSpeed = false;  // made with psxavenc -x 1
+        uint8_t speed = 0;  // 1 for a movie made with psxavenc -x 1, 2 for -x 2, 0 for the disc's
     };
 
     // Queues a movie for the end of this frame. False while one is queued or
