@@ -29,19 +29,14 @@ struct RecordWire {
 // The PCDRV calls behind PcdrvSocket. Only where PCDRV is answered by a `break`
 // (the emulator, or a psxmon holding the exception slot): over the SIO1 PCDRV
 // protocol the calls would share the wire with the very session they replace.
-// Without PCDRV in the build, every open fails and the session uses SIO1.
+// Every build has them, a CD one too: the check is a read of RAM, so a console
+// with no monitor just goes on to SIO1, and a disc under a cart's monitor gets the
+// socket like anything else.
 namespace {
-#ifdef PCDRV_SUPPORT
 int pcnetOpen(const char* name) { return pcdrv_uses_break() ? PCopen(name, 0, 0) : -1; }
 int pcnetClose(int fd) { return PCclose(fd); }
 int pcnetRead(int fd, void* buf, int len) { return PCread(fd, buf, len); }
 int pcnetWrite(int fd, const void* buf, int len) { return PCwrite(fd, buf, len); }
-#else
-int pcnetOpen(const char*) { return -1; }
-int pcnetClose(int) { return -1; }
-int pcnetRead(int, void*, int) { return -1; }
-int pcnetWrite(int, const void*, int) { return -1; }
-#endif
 // Timer 1 is psyqo's, in scanlines (gpu.cpp), and it counts while a call has the
 // console stopped with interrupts off: the time a call took is what it measures.
 uint16_t pcnetNow() {
