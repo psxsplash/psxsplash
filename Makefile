@@ -41,7 +41,7 @@ override FEATURES += nav
 endif
 
 FEATURE_SRCS_bootlogo = src/bootlogo.cpp
-FEATURE_SRCS_net = src/sio1.cpp src/netlink.cpp src/nettest.cpp src/networkmanager.cpp src/luatableserializer.cpp
+FEATURE_SRCS_net = src/sio1.cpp src/pcdrvsocket.cpp src/netlink.cpp src/nettest.cpp src/networkmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_ui = src/uisystem.cpp src/loadingscreen.cpp
 FEATURE_SRCS_sprites = src/spritesystem.cpp src/spritemath.cpp src/tilesystem.cpp src/tilemath.cpp
 FEATURE_SRCS_skin = src/skinmesh.cpp
