@@ -21,6 +21,10 @@ namespace psxsplash {
  *
  */
 
+// The disc builder overwrites the digit for a disc set to read at single speed.
+extern volatile const char g_discReadSpeed[];
+inline constexpr unsigned c_discReadSpeedDigit = sizeof("psxsplash disc read speed 2") - 2;
+
 class FileLoaderCDRom final : public FileLoader {
   public:
     FileLoaderCDRom() : m_isoParser(&m_cdrom) {}
@@ -28,6 +32,7 @@ class FileLoaderCDRom final : public FileLoader {
     // -- prepare: must be called from Application::prepare() ------
     void prepare() override {
         m_cdrom.prepare();
+        m_cdrom.setDoubleSpeed(g_discReadSpeed[c_discReadSpeedDigit] != '1');
     }
 
     // -- scheduleInit ---------------------------------------------
@@ -128,9 +133,7 @@ class FileLoaderCDRom final : public FileLoader {
             uint32_t toRead = totalSectors - sectorsRead;
             if (toRead > kChunkSectors) toRead = kChunkSectors;
 
-            bool ok = m_cdrom.readSectorsBlocking(
-                fileLBA + sectorsRead, toRead,
-                buf + sectorsRead * 2048, *m_gpu);
+            bool ok = readBlocking(fileLBA + sectorsRead, toRead, buf + sectorsRead * 2048);
             if (!ok) {
                 delete[] buf;
                 return nullptr;
@@ -166,7 +169,7 @@ class FileLoaderCDRom final : public FileLoader {
         uint32_t sectors = (fileSize + 2047) / 2048;
         uint8_t* buf = new uint8_t[sectors * 2048];
 
-        bool ok = m_cdrom.readSectorsBlocking(fileLBA, sectors, buf, *m_gpu);
+        bool ok = readBlocking(fileLBA, sectors, buf);
         if (!ok) {
             delete[] buf;
             return nullptr;
@@ -207,10 +210,35 @@ class FileLoaderCDRom final : public FileLoader {
     // first use; directory sectors are re-read per lookup (cheap: 1-2 sectors).
     bool resolveEntryBlocking(const char* path, uint32_t& outLBA, uint32_t& outSize) {
         if (!m_gpu) return false;
+        if (resolveOnce(path, outLBA, outSize)) return true;
+        // A directory sector can come back as junk with no error at all, which reads as no
+        // such file (an SCPH-7502 on a CD-R, "Movie CLIP: not on the disc"). A file that is
+        // really missing puts the speed back.
+        const bool wasDouble = m_cdrom.isDoubleSpeed();
+        if (!wasDouble) return false;
+        m_cdrom.setDoubleSpeed(false);
+        m_haveRoot = false;
+        if (resolveOnce(path, outLBA, outSize)) return true;
+        m_cdrom.setDoubleSpeed(wasDouble);
+        return false;
+    }
+
+    // One bad read must not end the game. On a CD-R a console's laser holds badly, double
+    // speed gives seek errors where single speed read 438 sectors of 438 exact, so a read
+    // that fails goes again slower and the drive stays there.
+    bool readBlocking(uint32_t lba, uint32_t count, void* buffer) {
+        for (int i = 0; i < c_readTries; i++) {
+            if (m_cdrom.readSectorsBlocking(lba, count, buffer, *m_gpu)) return true;
+            m_cdrom.setDoubleSpeed(false);
+        }
+        return false;
+    }
+
+    bool resolveOnce(const char* path, uint32_t& outLBA, uint32_t& outSize) {
 
         // Cache the root directory record from the Primary Volume Descriptor.
         if (!m_haveRoot) {
-            if (!m_cdrom.readSectorsBlocking(16, 1, m_dirBuf, *m_gpu)) return false;
+            if (!readBlocking(16, 1, m_dirBuf)) return false;
             const uint8_t* r = m_dirBuf + 156;  // root DirRecord inside the PVD
             m_rootLBA = readLE32(r + 2);
             m_rootSize = readLE32(r + 10);
@@ -228,7 +256,7 @@ class FileLoaderCDRom final : public FileLoader {
             bool found = false;
             const uint32_t dirSectors = (dirSize + 2047) / 2048;
             for (uint32_t s = 0; s < dirSectors && !found; ++s) {
-                if (!m_cdrom.readSectorsBlocking(dirLBA + s, 1, m_dirBuf, *m_gpu)) return false;
+                if (!readBlocking(dirLBA + s, 1, m_dirBuf)) return false;
 
                 uint32_t off = 0;
                 while (off < 2048) {
@@ -262,6 +290,8 @@ class FileLoaderCDRom final : public FileLoader {
     static uint32_t readLE32(const uint8_t* p) {
         return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
     }
+
+    static constexpr int c_readTries = 4;
 
     psyqo::CDRomDevice m_cdrom;
     psyqo::ISO9660Parser m_isoParser;
