@@ -146,6 +146,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
 
     StrPlayer::Options options;
     options.rgb24 = m_request.rgb24;
+    options.doubleSpeed = !m_request.singleSpeed;
     uint16_t width = 0, height = 0;
     sizeBuffers(*cdrom, gpu, lba, sectors, options, width, height);
     // The player centers the picture in the display size it is given, so a

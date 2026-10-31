@@ -4261,7 +4261,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
         return 1;
     }
 
-    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n,
+    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2,
     // thenScene=n, rgb24=bool, onComplete=function}
     bool rgb24Set = false;
     if (lua.isTable(2)) {
@@ -4275,6 +4275,10 @@ int LuaAPI::Movie_Play(lua_State* L) {
 
         lua.getField(2, "overlay");
         if (lua.isBoolean(-1)) request.overlay = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "speed");
+        if (lua.isNumber(-1)) request.singleSpeed = static_cast<int>(lua.toNumber(-1)) == 1;
         lua.pop();
 
         lua.getField(2, "x");
