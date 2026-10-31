@@ -195,8 +195,8 @@ bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
         result = status == StrPlayer::Status::ENDED ? Result::ENDED : Result::FAILED;
     }
     const auto& s = s_player->stats();
-    printf("Movie %s: shown %u dropped %u rejected %u read errors %u\n", m_request.name, s.framesShown, s.framesDropped,
-           s.framesRejected, s.readErrors);
+    printf("Movie %s: shown %u dropped %u rejected %u read errors %u bad addresses %u\n", m_request.name, s.framesShown,
+           s.framesDropped, s.framesRejected, s.readErrors, s.badAddresses);
     finish();
     return true;
 }

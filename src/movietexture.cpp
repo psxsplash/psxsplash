@@ -27,6 +27,10 @@ volatile uint32_t& MDEC0 = *reinterpret_cast<volatile uint32_t*>(0x1f801820);
 volatile uint32_t& MDEC1 = *reinterpret_cast<volatile uint32_t*>(0x1f801824);
 
 constexpr uint32_t c_dmaSpin = 2000000;
+// A macroblock takes the MDEC under a thousand cycles, so this is some forty times what a
+// frame needs. One that has not come out by then is a stream the disc gave us damaged.
+constexpr uint32_t c_spinsPerMacroblock = 4000;
+constexpr uint32_t c_stallsToGiveUp = 30;
 constexpr uint32_t c_blocksPerMacroblock = 6;
 constexpr uint32_t c_macroblock = 16;
 constexpr uint16_t c_bsMarker = 0x3800;  // the second halfword of every BS frame
@@ -51,8 +55,8 @@ constexpr int16_t c_scale[64] = {
 uint32_t s_quantWords[32] __attribute__((aligned(4)));
 uint32_t s_scaleWords[32] __attribute__((aligned(4)));
 
-bool waitDma(int channel) {
-    for (uint32_t i = 0; i < c_dmaSpin; i++) {
+bool waitDma(int channel, uint32_t spins = c_dmaSpin) {
+    for (uint32_t i = 0; i < spins; i++) {
         if ((DMA_CTRL[channel].CHCR & 0x01000000) == 0) return true;
     }
     return false;
@@ -201,6 +205,7 @@ bool psxsplash::MovieTexture::play(const char* name, const GameObject* target, c
     m_onComplete = options.onComplete;
     m_shown = 0xffffffff;
     m_startVsync = 0;
+    m_stalls = 0;
     snprintf(m_name, sizeof m_name, "%s", name);
     printf("Movie %s: %u frames of %u bytes, %ux%u at %d,%d\n", m_name, frames, stride, width, height, m_x, m_y);
     return true;
@@ -236,16 +241,18 @@ bool psxsplash::MovieTexture::decode(uint32_t index, psyqo::GPU& gpu) {
     DMA_CTRL[DMA_MDECOUT].MADR = reinterpret_cast<uintptr_t>(m_pixels);
     DMA_CTRL[DMA_MDECOUT].BCR = (outWords / 32) << 16 | 32;
     DMA_CTRL[DMA_MDECOUT].CHCR = 0x01000200;
-    const bool landed = waitDma(DMA_MDECOUT);
+    const bool landed = waitDma(DMA_MDECOUT, m_macroblocks * c_spinsPerMacroblock);
     // The picture is out, but the MDEC has not finished: the blocks a frame's
     // padding reads as are still going in, or waiting to come out. So this stops
     // it where it stands and the next frame starts from a reset.
     DMA_CTRL[DMA_MDECIN].CHCR = 0;
     if (!landed) {
+        // That frame is lost, not the movie: the next one starts from a reset.
         printf("Movie %s: the MDEC stopped at frame %u\n", m_name, index);
         DMA_CTRL[DMA_MDECOUT].CHCR = 0;
-        return false;
+        return ++m_stalls < c_stallsToGiveUp;
     }
+    m_stalls = 0;
 
     // The MDEC's macroblocks run down the picture, so each column of them is one
     // contiguous 16-wide strip, which is one VRAM rectangle.
