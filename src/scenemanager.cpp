@@ -1583,17 +1583,32 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
 
     fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
                                           : result == MoviePlayer::Result::SKIPPED ? "skipped"
-                                                                                   : "failed");
+                                                                                   : "failed",
+                      int(m_movie.lastShown()), int(m_movie.lastDropped()));
 }
 
-void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
+int psxsplash::SceneManager::readSpeed() {
+#if defined(LOADER_CDROM)
+    return static_cast<FileLoaderCDRom&>(FileLoader::Get()).getCDRomDevice()->isDoubleSpeed() ? 2 : 1;
+#else
+    return 0;
+#endif
+}
+
+void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result, int shown, int dropped) {
     if (ref == MoviePlayer::c_noRef) return;
     lua_State* state = L.getState().getState();
     psyqo::Lua lua(state);
     lua.rawGetI(LUA_REGISTRYINDEX, ref);
     if (lua.isFunction(-1)) {
         lua.push(result);
-        if (lua.pcall(1, 0) != LUA_OK) lua.pop();
+        int args = 1;
+        if (shown >= 0) {
+            lua.pushNumber(static_cast<lua_Number>(shown));
+            lua.pushNumber(static_cast<lua_Number>(dropped));
+            args = 3;
+        }
+        if (lua.pcall(args, 0) != LUA_OK) lua.pop();
     } else {
         lua.pop();
     }

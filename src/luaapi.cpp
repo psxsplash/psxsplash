@@ -705,6 +705,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Movie_Frame);
     L.setField(-2, "Frame");
 
+    L.push(Movie_ReadSpeed);
+    L.setField(-2, "ReadSpeed");
+
     L.push(Movie_PlayOn);
     L.setField(-2, "PlayOn");
 
@@ -4370,6 +4373,12 @@ int LuaAPI::Movie_Play(lua_State* L) {
 int LuaAPI::Movie_IsPlaying(lua_State* L) {
     psyqo::Lua lua(L);
     lua.push(s_sceneManager && s_sceneManager->isMovieBusy());
+    return 1;
+}
+
+int LuaAPI::Movie_ReadSpeed(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(s_sceneManager ? s_sceneManager->readSpeed() : 0));
     return 1;
 }
 

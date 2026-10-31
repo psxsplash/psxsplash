@@ -94,6 +94,8 @@ class MoviePlayer {
 
     // Frames shown so far, for a scene that follows the movie.
     uint32_t framesShown() const;
+    uint32_t lastShown() const { return m_lastShown; }
+    uint32_t lastDropped() const { return m_lastDropped; }
 
     // The scene calls this when a movie has ended, or never started.
     void releaseSubtitles();
@@ -109,6 +111,7 @@ class MoviePlayer {
     bool m_playing = false;
     bool m_skipHeld = false;
     bool m_clockStarted = false;
+    uint32_t m_lastShown = 0, m_lastDropped = 0;
     uint32_t m_clockStart = 0;
 };
 
