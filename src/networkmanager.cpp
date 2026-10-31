@@ -2,6 +2,7 @@
 
 #include <psyqo/xprintf.h>
 
+#include "common/hardware/counters.h"
 #include "netinterp.hh"
 
 #include "pcdrv_handler.hh"
@@ -41,7 +42,14 @@ int pcnetClose(int) { return -1; }
 int pcnetRead(int, void*, int) { return -1; }
 int pcnetWrite(int, const void*, int) { return -1; }
 #endif
-constexpr PcdrvNetOps c_pcnetOps = {pcnetOpen, pcnetClose, pcnetRead, pcnetWrite};
+// Timer 1 is psyqo's, in scanlines (gpu.cpp), and it counts while a call has the
+// console stopped with interrupts off: the time a call took is what it measures.
+uint16_t pcnetNow() {
+    uint32_t v;
+    do { v = COUNTERS[1].value; } while (v != COUNTERS[1].value);
+    return static_cast<uint16_t>(v);
+}
+constexpr PcdrvNetOps c_pcnetOps = {pcnetOpen, pcnetClose, pcnetRead, pcnetWrite, pcnetNow};
 
 // Is the serial port the monitor's own link? Sio1::init would then retune it under
 // the monitor, and the host would lose the console until someone pressed RESET.

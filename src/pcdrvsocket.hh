@@ -7,7 +7,7 @@
 
 namespace psxsplash {
 
-/// The four PCDRV calls a socket needs, behind pointers so this file stays
+/// The PCDRV calls a socket needs and a clock, behind pointers so this file stays
 /// hardware-free: the engine passes the real break calls (networkmanager.cpp),
 /// the host tests pass fakes.
 struct PcdrvNetOps {
@@ -15,6 +15,7 @@ struct PcdrvNetOps {
     int (*close)(int fd);
     int (*read)(int fd, void* buf, int len);         // never blocks: 0 = nothing yet, < 0 = gone
     int (*write)(int fd, const void* buf, int len);  // blocks until written (host timeout 5 s)
+    uint16_t (*now)();  // scanlines, and it must run during a call; nullptr: every poll runs
 };
 
 /**
@@ -33,10 +34,26 @@ struct PcdrvNetOps {
  * and the PSNL frames above it do not change. A PC server reads them on its raw
  * port (psnl_server: 6699), the one the serial bridge uses.
  *
- * Both rings are drained in poll(), once a frame: one PCread loop until the host
- * has nothing more, then PCwrite of everything queued. A failed call closes the
- * socket; isOpen() then reports false and the session above treats it as a lost
- * link.
+ * Both rings are drained in poll(): one PCread loop until the host has nothing
+ * more, then PCwrite of everything queued. A failed call closes the socket;
+ * isOpen() then reports false and the session above treats it as a lost link.
+ *
+ * WHY poll() PACES ITSELF. A PCDRV call stops the console until the host has
+ * answered, and over a monitor's serial link that is a long time: on an SCPH-5501
+ * through nugget's monitor an empty PCread took 25.7 ms and a PCwrite of a frame
+ * 31.5 ms at 115200 baud, 6.9 and 8.2 ms at 529200, against a 16.7 ms frame. Two
+ * calls a frame took a 60 fps scene to 15.3 fps at 115200. So poll() times its own
+ * calls and compares the frame that carried them with one that did not. If the
+ * game lost nothing the next frame gets a turn too: a game with time to spare, or
+ * a fast host, is polled every frame. If the game lost time, the socket rests for
+ * c_restPerBusy times what it lost, so it costs at most a quarter of the console's
+ * time however slow the link is. There is nothing to configure. A slow
+ * host gets one call at a time, in turn, so that a frame carries one stall and not
+ * both. Outgoing data waits in the ring meanwhile, where txSpace() lets the
+ * droppable data lose out. Incoming data can't be left to wait: psnl_server sends
+ * one console 1,068 bytes a second (30 snapshots of 35), and at 256 bytes a read an
+ * SCPH-5501 at 115200 was 50 KB behind after 112 s. So a read asks for c_chunk, a
+ * server that is ahead shortens the rest, and the two together keep up.
  */
 class PcdrvSocket final : public INetTransport {
   public:
@@ -79,8 +96,40 @@ class PcdrvSocket final : public INetTransport {
     // Same sizes as Sio1, for the same reasons; see c_rxRingSize there.
     static constexpr uint32_t c_rxRingSize = 4096;
     static constexpr uint32_t c_txRingSize = 1024;
+    /// The most one PCread or PCwrite moves. A call moves only what there is, and its
+    /// round trip is the dear part (25.7 ms at 115200 before the first byte), so a
+    /// large one costs nothing when there is little. A member: the stack can't spare it.
+    static constexpr uint32_t c_chunk = 1024;
+    /// Rest this many times what the game lost: at most 1/(1 + 3) of the time.
+    static constexpr uint32_t c_restPerBusy = 3;
+    /// Calls that took longer than this (2 ms, in scanlines) mean a slow host.
+    static constexpr uint16_t c_slowLines = 32;
+    /// The longest rest, half a second in scanlines. NetLink pings once a second,
+    /// so a stalling host still gets a read and a write across that.
+    static constexpr uint32_t c_maxRestLines = 7864;
+    /// One video frame in scanlines: the most a turn can push a frame past its deadline.
+    static constexpr uint16_t c_videoFrameLines = 263;
+    /// A frame with a turn this much (1 ms) over a quiet one has cost nothing.
+    static constexpr uint16_t c_marginLines = 16;
+    /// Two video frames, in scanlines.
+    static constexpr uint16_t c_firstRestLines = 526;
+
+    uint16_t now() const { return m_ops.now ? m_ops.now() : 0; }
+    bool pollRx(bool drain);
+    bool pollTx(bool drain);
 
     PcdrvNetOps m_ops;
+    uint16_t m_turnEnd = 0;
+    uint16_t m_rest = 0;
+    uint16_t m_lastPoll = 0;
+    uint16_t m_spent = 0;       // what the last turn's calls took
+    uint16_t m_quietFrame = 0;  // the shortest frame since the last turn with no calls in it
+    bool m_quietFresh = false;
+    bool m_behind = false;      // the last read came back full: the server is ahead
+    uint8_t m_chunk[c_chunk];
+    bool m_turned = false;
+    bool m_slow = false;
+    bool m_writeTurn = false;
     int m_fd = -1;
     RingBuffer<c_rxRingSize> m_rx;
     RingBuffer<c_txRingSize> m_tx;
