@@ -615,6 +615,12 @@ private:
     // Movie.IsPlaying() -> boolean
     static int Movie_IsPlaying(lua_State* L);
 
+    // Movie.PlayOn(entity, name) or Movie.PlayOn(entity, name, {fps=n, loop=bool, onComplete=fn}) -> started
+    static int Movie_PlayOn(lua_State* L);
+
+    // Movie.StopOn() -> nil
+    static int Movie_StopOn(lua_State* L);
+
     // Cutscene.Play(name) or Cutscene.Play(name, {loop=bool, onComplete=fn})
     static int Cutscene_Play(lua_State* L);
 

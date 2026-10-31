@@ -51,7 +51,7 @@ FEATURE_SRCS_streaming = src/streamreader.cpp src/streamselftest.cpp src/worldst
 FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
 FEATURE_SRCS_shadows = src/shadowrender.cpp
-FEATURE_SRCS_movie = src/movieplayer.cpp
+FEATURE_SRCS_movie = src/movieplayer.cpp src/movietexture.cpp
 
 SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 

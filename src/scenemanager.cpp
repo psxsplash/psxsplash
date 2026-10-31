@@ -933,6 +933,12 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     NetworkManager::Get().postTick(*this, m_dt12);
 #endif
 
+#if PSXSPLASH_FEATURE_MOVIE
+    // Last, so the next flip's chain is the frame that shows it, and the chain
+    // running now is the one flip would have waited for anyway.
+    if (m_movieTexture.tick(gpu)) fireMovieComplete(m_movieTexture.takeOnComplete(), "ended");
+#endif
+
     // Process pending scene transitions (at end of frame). A movie goes first:
     // Movie.Play then Scene.Load in one frame means the movie, then the scene.
     pollHotReload();
@@ -1464,9 +1470,17 @@ void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
 void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
     const MoviePlayer::Request& request = m_movie.takeRequest();
 #if defined(LOADER_CDROM)
-    // Gameplay reads and CD music have to let go of the drive first.
+    // Gameplay reads and CD music have to let go of the drive first. A scene that
+    // stays keeps what it queued: its streamer is waiting on those reads.
 #if PSXSPLASH_FEATURE_STREAMING
-    StreamReader::Get().drain();
+    if (request.thenScene >= 0) {
+        StreamReader::Get().drain();
+    } else {
+        while (StreamReader::Get().busy()) {
+            StreamReader::Get().update();
+            gpu.pumpCallbacks();
+        }
+    }
 #endif
     CDRomHelper::WakeDrive();
     settleDrive(gpu);
@@ -1487,6 +1501,25 @@ void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
     finishMovie(gpu, MoviePlayer::Result::FAILED);
 }
 
+bool psxsplash::SceneManager::playMovieOn(const char* name, const GameObject* target,
+                                          const MovieTexture::Options& options) {
+#if defined(LOADER_CDROM)
+    // Lua runs with the drive's interrupts off (SilenceDrive), and the read needs them.
+    CDRomHelper::WakeDrive();
+    const bool playing = m_movieTexture.play(name, target, options);
+    CDRomHelper::SilenceDrive();
+    return playing;
+#else
+    return false;
+#endif
+}
+
+void psxsplash::SceneManager::stopMovieOn() {
+    m_movieTexture.stop();
+    const int ref = m_movieTexture.takeOnComplete();
+    if (ref != MovieTexture::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+}
+
 bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
     if (!m_movie.playing()) return false;
     MoviePlayer::Result result;
@@ -1505,13 +1538,18 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
 #endif
     m_lastFrameTime = 0;  // the movie's length is not a frame's
 
-    if (request.onComplete == MoviePlayer::c_noRef) return;
-    const int ref = request.onComplete;
+    fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
+                                          : result == MoviePlayer::Result::SKIPPED ? "skipped"
+                                                                                   : "failed");
+}
+
+void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
+    if (ref == MoviePlayer::c_noRef) return;
     lua_State* state = L.getState().getState();
     psyqo::Lua lua(state);
     lua.rawGetI(LUA_REGISTRYINDEX, ref);
     if (lua.isFunction(-1)) {
-        lua.push(result == MoviePlayer::Result::ENDED ? "ended" : result == MoviePlayer::Result::SKIPPED ? "skipped" : "failed");
+        lua.push(result);
         if (lua.pcall(1, 0) != LUA_OK) lua.pop();
     } else {
         lua.pop();
@@ -1813,6 +1851,12 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
 }
 
 void psxsplash::SceneManager::clearScene() {
+#if PSXSPLASH_FEATURE_MOVIE
+    // Its target and its script go with the scene.
+    m_movieTexture.stop();
+    m_movieTexture.takeOnComplete();
+#endif
+
     // 0. Drop network replication state: actorIds refer to different objects in
     //    a new scene, so any mapping/registry must not carry over.
     //

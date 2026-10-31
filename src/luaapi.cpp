@@ -702,6 +702,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Movie_IsPlaying);
     L.setField(-2, "IsPlaying");
 
+    L.push(Movie_PlayOn);
+    L.setField(-2, "PlayOn");
+
+    L.push(Movie_StopOn);
+    L.setField(-2, "StopOn");
+
     L.setGlobal("Movie");
 #else
     RegisterCompiledOut(L, "Movie", "movie");
@@ -4297,6 +4303,54 @@ int LuaAPI::Movie_IsPlaying(lua_State* L) {
     psyqo::Lua lua(L);
     lua.push(s_sceneManager && s_sceneManager->isMovieBusy());
     return 1;
+}
+
+int LuaAPI::Movie_PlayOn(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    char name[9];
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+        lua.push(false);
+        return 1;
+    }
+    lua.getField(1, "__cpp_ptr");
+    auto target = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+    if (!target) {
+        lua.push(false);
+        return 1;
+    }
+
+    // Optional third argument: {fps=n, loop=bool, onComplete=function}
+    MovieTexture::Options options;
+    if (lua.isTable(3)) {
+        lua.getField(3, "fps");
+        if (lua.isNumber(-1)) options.fps = static_cast<uint8_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(3, "loop");
+        if (lua.isBoolean(-1)) options.loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(3, "onComplete");
+        if (lua.isFunction(-1)) {
+            options.onComplete = lua.ref();  // pops and stores in registry
+        } else {
+            lua.pop();
+        }
+    }
+
+    const bool started = s_sceneManager->playMovieOn(name, target, options);
+    if (!started && options.onComplete != MovieTexture::c_noRef) {
+        luaL_unref(L, LUA_REGISTRYINDEX, options.onComplete);
+    }
+    lua.push(started);
+    return 1;
+}
+
+int LuaAPI::Movie_StopOn(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->stopMovieOn();
+    return 0;
 }
 #endif
 

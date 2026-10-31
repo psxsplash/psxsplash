@@ -22,7 +22,7 @@ local feature_srcs = {
                  "src/streamplanner.cpp"},
     memcard = {"src/memorycardmanager.cpp", "src/luatableserializer.cpp"},
     collision = {"src/collision.cpp"},
-    movie = {"src/movieplayer.cpp"},
+    movie = {"src/movieplayer.cpp", "src/movietexture.cpp"},
 }
 
 option("features", {type = "string",

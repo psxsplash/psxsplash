@@ -32,6 +32,7 @@
 #include "tilesystem.hh"
 #include "uisystem.hh"
 #include "movieplayer.hh"
+#include "movietexture.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
 #endif
@@ -469,6 +470,9 @@ namespace psxsplash {
         bool isMovieBusy() const { return m_movie.busy(); }
         // One frame of the movie playing, if there is one; false when there is none.
         bool tickMovie(psyqo::GPU& gpu);
+        // Movie.PlayOn: a small movie on a mesh, the game carrying on.
+        bool playMovieOn(const char* name, const GameObject* target, const MovieTexture::Options& options);
+        void stopMovieOn();
 #endif
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
@@ -545,7 +549,9 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_MOVIE
         void startMovie(psyqo::GPU& gpu);
         void finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result);
+        void fireMovieComplete(int ref, const char* result);
         MoviePlayer m_movie;
+        MovieTexture m_movieTexture;
 #endif
 #if defined(LOADER_CDROM)
         void settleDrive(psyqo::GPU& gpu);
