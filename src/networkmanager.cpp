@@ -2,13 +2,12 @@
 
 #include <psyqo/xprintf.h>
 
+#include "common/hardware/counters.h"
 #include "netinterp.hh"
 
+#include "pcdrv_handler.hh"
 #include "scenemanager.hh"
 #include "sio1.hh"
-#ifdef PCDRV_SUPPORT
-#include "pcdrv_handler.hh"
-#endif
 
 namespace psxsplash {
 
@@ -30,20 +29,27 @@ struct RecordWire {
 // The PCDRV calls behind PcdrvSocket. Only where PCDRV is answered by a `break`
 // (the emulator, or a psxmon holding the exception slot): over the SIO1 PCDRV
 // protocol the calls would share the wire with the very session they replace.
-// Without PCDRV in the build, every open fails and the session uses SIO1.
+// Every build has them, a CD one too: the check is a read of RAM, so a console
+// with no monitor just goes on to SIO1, and a disc under a cart's monitor gets the
+// socket like anything else.
 namespace {
-#ifdef PCDRV_SUPPORT
 int pcnetOpen(const char* name) { return pcdrv_uses_break() ? PCopen(name, 0, 0) : -1; }
 int pcnetClose(int fd) { return PCclose(fd); }
 int pcnetRead(int fd, void* buf, int len) { return PCread(fd, buf, len); }
 int pcnetWrite(int fd, const void* buf, int len) { return PCwrite(fd, buf, len); }
-#else
-int pcnetOpen(const char*) { return -1; }
-int pcnetClose(int) { return -1; }
-int pcnetRead(int, void*, int) { return -1; }
-int pcnetWrite(int, const void*, int) { return -1; }
-#endif
-constexpr PcdrvNetOps c_pcnetOps = {pcnetOpen, pcnetClose, pcnetRead, pcnetWrite};
+// Timer 1 is psyqo's, in scanlines (gpu.cpp), and it counts while a call has the
+// console stopped with interrupts off: the time a call took is what it measures.
+uint16_t pcnetNow() {
+    uint32_t v;
+    do { v = COUNTERS[1].value; } while (v != COUNTERS[1].value);
+    return static_cast<uint16_t>(v);
+}
+constexpr PcdrvNetOps c_pcnetOps = {pcnetOpen, pcnetClose, pcnetRead, pcnetWrite, pcnetNow};
+
+// Is the serial port the monitor's own link? Sio1::init would then retune it under
+// the monitor, and the host would lose the console until someone pressed RESET.
+// The BIOS leaves the port off, so a monitor on another link leaves these bits clear.
+bool sio1IsTheMonitorsLink() { return !pcsx_present() && psxmon_owns_breaks() && (SIO1_CTRL & 5) == 5; }
 }  // namespace
 
 NetworkManager NetworkManager::s_instance;
@@ -67,6 +73,10 @@ void NetworkManager::begin(uint32_t sceneHash, uint32_t seed, uint32_t baud, Sio
     if (m_socket.open(server ? server : PcdrvSocket::c_defaultServer)) {
         if (!usingSocket()) printf("Net: transport tcp://%s\n", server ? server : PcdrvSocket::c_defaultServer);
         m_link.setTransport(m_socket);
+    } else if (sio1IsTheMonitorsLink()) {
+        printf("Net: no server, and SIO1 is the monitor's link\n");
+        m_state = State::Disconnected;
+        return;
     } else {
         if (usingSocket()) printf("Net: transport sio1\n");
         Sio1::Get().init(baud, rxMode);
