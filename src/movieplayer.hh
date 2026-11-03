@@ -9,6 +9,7 @@
 #include <psyqo/gpu.hh>
 
 #include "controls.hh"
+#include "srt.hh"
 
 namespace psxsplash {
 
@@ -47,11 +48,7 @@ class MoviePlayer {
     // One line of text over a 15-bit movie, split on \n into at most two rows. Times
     // are from the first picture. They come from MOVIES/NAME.SRT beside the movie, when
     // there is one, and make it 15-bit: the GPU cannot draw into a 24-bit picture.
-    static constexpr unsigned c_subtitleText = 80;
-    struct Subtitle {
-        uint32_t fromMs, toMs;
-        char text[c_subtitleText];
-    };
+    using Subtitle = srt::Subtitle;
 
     struct Request {
         char name[9] = {};      // "INTRO": A-Z, 0-9 and _, 8 characters at most
