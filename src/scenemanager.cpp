@@ -1494,7 +1494,10 @@ void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
         }
     }
 
-    if (m_movie.start(gpu, m_controls[0])) return;
+    if (m_movie.start(gpu, m_controls[0])) {
+        if (!m_movie.request().behind()) m_controls[0].setFastPolling(true);
+        return;
+    }
 #endif
     finishMovie(gpu, MoviePlayer::Result::FAILED);
 }
@@ -1597,6 +1600,7 @@ bool psxsplash::SceneManager::updateMovie() {
 
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
     const MoviePlayer::Request& request = m_movie.request();
+    m_controls[0].setFastPolling(false);
     // Before onComplete, which may queue the next movie in its place.
     if (request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, request.onUpdate);
     m_movie.releaseSubtitles();

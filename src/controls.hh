@@ -60,6 +60,12 @@ class Controls {
     /// boot is not merely cheaper -- it is the correct lifetime.
     void Init();
 
+    /// Both ports every frame, or one. A full-screen movie ticks once per picture, so at
+    /// one a frame port 1 is read every 8 vblanks at 15 fps.
+    void setFastPolling(bool fast) {
+        m_input.setPollingMode(fast ? psyqo::AdvancedPad::PollingMode::Fast : psyqo::AdvancedPad::PollingMode::Normal);
+    }
+
     /// Per-player movement/look handling.
     /// Player 1 reads the controller in port 1 (Pad1a); player 2 reads port 2 (Pad2a).
     void HandleControlsPlayer1(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
