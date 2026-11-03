@@ -227,6 +227,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     s_player->play(lba, sectors, options);
     m_playing = true;
     m_skipHeld = skipPressed(pad);  // a press that started the movie does not end it
+    m_stopAsked = false;
     m_clockStarted = false;
     return true;
 }
@@ -241,7 +242,8 @@ bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
     // Behind a scene the last frame's chain may still be running, and the player's
     // uploads cannot share the GPU's DMA with it.
     if (m_request.behind()) m_gpu->waitChainIdle();
-    const StrPlayer::Status status = s_player->frame();
+    // Movie.Stop: no frame more decodes, and the one up stays.
+    const StrPlayer::Status status = m_stopAsked ? StrPlayer::Status::IDLE : s_player->frame();
     if (status == StrPlayer::Status::PLAYING) {
         if (!m_request.behind()) drawSubtitles();
         const bool held = skipPressed(pad);
@@ -250,6 +252,9 @@ bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
         if (!m_request.skippable || !pressed) return false;
         s_player->stop();
         result = Result::SKIPPED;
+    } else if (m_stopAsked) {
+        s_player->stop();
+        result = Result::STOPPED;
     } else {
         if (status == StrPlayer::Status::ENDED && m_request.loop && s_player->play(s_lba, s_sectors, s_options)) {
             return false;

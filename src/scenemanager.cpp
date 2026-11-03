@@ -1564,13 +1564,38 @@ bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
     }
     if (!m_movie.playing()) return false;
     MoviePlayer::Result result;
-    if (m_movie.frame(m_controls[0], result)) finishMovie(gpu, result);
+    bool ended = m_movie.frame(m_controls[0], result);
+    // A Movie.Stop in its onUpdate ends it on the picture the script saw.
+    if (!ended && updateMovie()) ended = m_movie.frame(m_controls[0], result);
+    if (ended) finishMovie(gpu, result);
     // Behind the scene the game goes on, a frame of it for each of the movie's.
     return !m_movie.request().behind();
 }
 
+// The movie's onUpdate, with the pad's states brought up to date for it: the
+// scene's own tick does that behind the scene, and nothing does in front of it.
+bool psxsplash::SceneManager::updateMovie() {
+    const int ref = m_movie.request().onUpdate;
+    if (ref == MoviePlayer::c_noRef) return false;
+    if (!m_movie.request().behind()) {
+        m_controls[0].UpdateButtonStatesPlayer1();
+        m_controls[1].UpdateButtonStatesPlayer2();
+    }
+    psyqo::Lua lua(L.getState().getState());
+    lua.rawGetI(LUA_REGISTRYINDEX, ref);
+    if (lua.isFunction(-1)) {
+        lua.pushNumber(static_cast<lua_Number>(m_movie.framesShown()));
+        if (lua.pcall(1, 0) != LUA_OK) lua.pop();
+    } else {
+        lua.pop();
+    }
+    return m_movie.stopAsked();
+}
+
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
     const MoviePlayer::Request& request = m_movie.request();
+    // Before onComplete, which may queue the next movie in its place.
+    if (request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, request.onUpdate);
     m_movie.releaseSubtitles();
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
@@ -1584,6 +1609,7 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
 
     fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
                                           : result == MoviePlayer::Result::SKIPPED ? "skipped"
+                                          : result == MoviePlayer::Result::STOPPED ? "stopped"
                                                                                    : "failed",
                       int(m_movie.lastShown()), int(m_movie.lastDropped()));
     // Its last picture stays up for a movie onComplete queued; otherwise the game's display comes back.
