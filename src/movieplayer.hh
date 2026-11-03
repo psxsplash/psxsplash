@@ -97,6 +97,9 @@ class MoviePlayer {
 
     // The scene calls this when a movie has ended, or never started.
     void releaseSubtitles();
+
+    // The scene behind the movie is going: it stops where it is, and nothing of it runs.
+    void abandon();
     static void loadSubtitles(class FileLoaderCDRom& loader, Request& request);
 
     // The display back as the game left it, once no movie follows: a movie that
