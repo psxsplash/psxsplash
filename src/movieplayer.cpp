@@ -34,8 +34,6 @@ constexpr uint32_t c_probeSectors = 16;  // a movie's first video sector is this
 // encoder working to a fixed bitrate does fill them on a small picture.
 constexpr uint32_t c_rlPerMacroblock = 6 * 65;
 constexpr uint8_t c_spareSectors = 2;
-constexpr uint32_t c_chunkPayload = 2016;
-constexpr uint32_t c_slotRecord = 32;   // StrPlayer::Slot is private; it is 28 bytes
 constexpr uint32_t c_stackRoom = 16 * 1024;  // the heap runs to the top of RAM, where the stack lives
 
 uint16_t le16(const uint8_t* p) { return p[0] | (p[1] << 8); }
@@ -59,31 +57,14 @@ void sizeBuffers(psyqo::CDRomDevice& cdrom, psyqo::GPU& gpu, uint32_t lba, uint3
     }
 }
 
-// StrPlayer cannot report what it says it reports: gcc takes `new` for never null,
-// so its check after allocating is compiled out and a buffer that did not fit is
-// written from address 0, over the exception vectors (forced with an impossible
-// rlHalfwords, and the machine died). So the same blocks are tried here first,
-// in its order, on an allocator that will give them back the same way.
+// play() refuses a block the heap does not have, but one that only just fits would
+// leave the stack nothing to grow into, so the stack's room is asked for with it.
 bool fitsInHeap(const StrPlayer::Options& o) {
-    const uint32_t slice = (o.rgb24 ? 24 : 16) * o.displayHeight * sizeof(uint16_t);
-    const uint32_t run = o.rlHalfwords * sizeof(uint16_t);
-    const uint32_t sizes[] = {o.frameSlots * c_slotRecord,
-                              o.maxSectorsPerFrame * c_chunkPayload * o.frameSlots + 4,
-                              run,
-                              run,
-                              slice,
-                              slice,
-                              c_stackRoom};
-    void* blocks[sizeof(sizes) / sizeof(sizes[0])];
-    bool fits = true;
-    for (unsigned i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
-        blocks[i] = psyqo_malloc(sizes[i]);
-        fits = fits && blocks[i];
-    }
-    for (void* block : blocks) {
-        if (block) psyqo_free(block);
-    }
-    return fits;
+    const uint32_t need = StrPlayer::heapNeeded(o);
+    if (need == 0xffffffffu) return false;
+    void* block = psyqo_malloc(need + c_stackRoom);
+    if (block) psyqo_free(block);
+    return block != nullptr;
 }
 
 // GP1(08h): 320 wide, as psyqo left it, at the movie's depth.
@@ -176,7 +157,12 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     s_lba = lba;
     s_sectors = sectors;
     s_player = new (s_playerStorage) StrPlayer(*cdrom, gpu);
-    s_player->play(lba, sectors, options);
+    if (!s_player->play(lba, sectors, options)) {
+        printf("Movie %s: the player did not start\n", m_request.name);
+        finish();
+        restoreDisplay();
+        return false;
+    }
     m_playing = true;
     m_skipHeld = skipPressed(pad);  // a press that started the movie does not end it
     return true;
