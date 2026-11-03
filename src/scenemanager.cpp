@@ -1611,7 +1611,10 @@ void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result, int
             lua.pushNumber(static_cast<lua_Number>(dropped));
             args = 3;
         }
-        if (lua.pcall(args, 0) != LUA_OK) lua.pop();
+        if (lua.pcall(args, 0) != LUA_OK) {
+            printf("Lua error: %s\n", lua.toString(-1));
+            lua.pop();
+        }
     } else {
         lua.pop();
     }
