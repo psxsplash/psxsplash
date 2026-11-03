@@ -165,18 +165,17 @@ class FileLoaderCDRom final : public FileLoader {
         // LoadFileSyncWithProgress for why the async parser is avoided here.
         uint32_t fileLBA = 0, fileSize = 0;
         if (!resolveEntryBlocking(filename, fileLBA, fileSize)) return nullptr;
+        return readFile(fileLBA, fileSize, outSize);
+    }
 
-        uint32_t sectors = (fileSize + 2047) / 2048;
-        uint8_t* buf = new uint8_t[sectors * 2048];
-
-        bool ok = readBlocking(fileLBA, sectors, buf);
-        if (!ok) {
-            delete[] buf;
-            return nullptr;
-        }
-
-        outSize = static_cast<int>(fileSize);
-        return buf;
+    // A file that is mostly not on the disc (a movie's .SRT), looked up once at the drive's
+    // speed: resolveEntryBlocking would take each miss for a junk read and go round again
+    // at single speed and back, two speed changes for every movie without subtitles.
+    uint8_t* LoadFileSyncIfThere(const char* filename, int& outSize) {
+        outSize = 0;
+        uint32_t fileLBA = 0, fileSize = 0;
+        if (!m_gpu || !resolveOnce(filename, fileLBA, fileSize)) return nullptr;
+        return readFile(fileLBA, fileSize, outSize);
     }
 
     // -- FreeFile -------------------------------------------------
@@ -198,6 +197,20 @@ class FileLoaderCDRom final : public FileLoader {
     }
 
   private:
+    uint8_t* readFile(uint32_t fileLBA, uint32_t fileSize, int& outSize) {
+        uint32_t sectors = (fileSize + 2047) / 2048;
+        uint8_t* buf = new uint8_t[sectors * 2048];
+
+        bool ok = readBlocking(fileLBA, sectors, buf);
+        if (!ok) {
+            delete[] buf;
+            return nullptr;
+        }
+
+        outSize = static_cast<int>(fileSize);
+        return buf;
+    }
+
     // -- resolveEntryBlocking -------------------------------------
     // Walks the ISO9660 directory tree to find `path`, using only the
     // blocking readSectorsBlocking API.  This is a deliberate,

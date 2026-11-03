@@ -147,7 +147,7 @@ void psxsplash::MoviePlayer::loadSubtitles(FileLoaderCDRom& loader, Request& req
     char path[24];
     snprintf(path, sizeof path, "MOVIES/%s.SRT;1", request.name);
     int size = 0;
-    uint8_t* file = loader.LoadFileSync(path, size);
+    uint8_t* file = loader.LoadFileSyncIfThere(path, size);
     if (!file) return;
     const char* text = reinterpret_cast<const char*>(file);
     const unsigned room = srt::count(text, size_t(size));
