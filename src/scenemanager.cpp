@@ -1572,6 +1572,12 @@ bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
     const MoviePlayer::Request& request = m_movie.request();
     m_movie.releaseSubtitles();
+    // The game's tick did not run while a movie in front of it played: the button that skipped it is
+    // no press now. Behind the scene the game ran and read its own presses.
+    if (!request.behind()) {
+        m_controls[0].settleButtons();
+        m_controls[1].settleButtons();
+    }
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
         m_movie.restoreDisplay();
