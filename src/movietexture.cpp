@@ -77,6 +77,9 @@ void seatTables() {
     }
     DPCR |= 0x000000ff;
     MDEC1 = 0x80000000;
+    // Lost with nothing between it and the reset: StrPlayer::mdecReset says why.
+    for (unsigned i = 0; i < 1000 && (MDEC1 & 0x20000000); i++) {
+    }
     MDEC1 = 0x60000000;
     MDEC0 = 0x40000001;
     sendTable(s_quantWords);
