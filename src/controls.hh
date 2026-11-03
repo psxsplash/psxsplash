@@ -72,8 +72,9 @@ class Controls {
     void UpdateButtonStatesPlayer2();
 
     /// Take the pad's live state as already seen, so a button held through a pause in the
-    /// game's tick (a full-screen movie) is no press when the game runs again.
-    void settleButtons();
+    /// game's tick (a full-screen movie) is no press when the game runs again. One per player.
+    void SettleButtonsPlayer1();
+    void SettleButtonsPlayer2();
     
     /// Set movement speeds from splashpack data (call once after scene load)
     void setMoveSpeed(psyqo::FixedPoint<12, uint16_t> speed) { m_moveSpeed.value = speed.value; }
@@ -199,6 +200,7 @@ class Controls {
     // Shared cores, operating on m_pad / m_port. The public PlayerN methods set
     // the identity and then delegate here.
     void updateButtonStates();
+    void settleButtons();
     uint16_t readButtons() const;
     void handleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
                         psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
