@@ -192,6 +192,9 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
         options.rgb24 = false;
         options.vramX = m_request.vramX;
         options.vramY = m_request.vramY;
+        // the rectangle is the image's: StrPlayer refuses one that leaves VRAM
+        options.displayWidth = width;
+        options.displayHeight = height;
     } else {
         if (m_request.rgb24) setDisplayDepth(gpu, true);
         if (m_request.overlay) {
