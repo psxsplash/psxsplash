@@ -288,6 +288,18 @@ void psxsplash::Controls::updateButtonStates() {
     m_buttonsReleased = m_previousButtons & ~m_currentButtons;
 }
 
+void psxsplash::Controls::SettleButtonsPlayer1() {
+    m_pad = psyqo::AdvancedPad::Pad::Pad1a;
+    m_port = 0;
+    settleButtons();
+}
+
+void psxsplash::Controls::SettleButtonsPlayer2() {
+    m_pad = psyqo::AdvancedPad::Pad::Pad2a;
+    m_port = 1;
+    settleButtons();
+}
+
 void psxsplash::Controls::settleButtons() {
     m_currentButtons = m_previousButtons = readButtons();
     m_buttonsPressed = m_buttonsReleased = 0;
