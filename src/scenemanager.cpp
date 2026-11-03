@@ -1558,7 +1558,10 @@ void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
     lua.rawGetI(LUA_REGISTRYINDEX, ref);
     if (lua.isFunction(-1)) {
         lua.push(result);
-        if (lua.pcall(1, 0) != LUA_OK) lua.pop();
+        if (lua.pcall(1, 0) != LUA_OK) {
+            printf("Lua error: %s\n", lua.toString(-1));
+            lua.pop();
+        }
     } else {
         lua.pop();
     }
