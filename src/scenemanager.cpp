@@ -1574,6 +1574,7 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
     m_movie.releaseSubtitles();
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
+        m_movie.restoreDisplay();
         loadScene(gpu, request.thenScene, /*isFirstScene=*/true);
         return;
     }
@@ -1585,6 +1586,8 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
                                           : result == MoviePlayer::Result::SKIPPED ? "skipped"
                                                                                    : "failed",
                       int(m_movie.lastShown()), int(m_movie.lastDropped()));
+    // Its last picture stays up for a movie onComplete queued; otherwise the game's display comes back.
+    if (!m_movie.pending()) m_movie.restoreDisplay();
 }
 
 int psxsplash::SceneManager::readSpeed() {

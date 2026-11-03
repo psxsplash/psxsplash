@@ -99,6 +99,10 @@ class MoviePlayer {
     void releaseSubtitles();
     static void loadSubtitles(class FileLoaderCDRom& loader, Request& request);
 
+    // The display back as the game left it, once no movie follows: a movie that
+    // ends leaves its last picture up, so one that follows starts from it.
+    void restoreDisplay();
+
   private:
     bool skipPressed(Controls& pad);
     void drawSubtitles();
@@ -113,6 +117,8 @@ class MoviePlayer {
     uint32_t m_lastShown = 0, m_lastDropped = 0;
     uint32_t m_clockStart = 0;
     int16_t m_picX = 0, m_picY = 0, m_picW = 0, m_picH = 0;  // the picture in the display, for the subtitles
+    bool m_held = false;       // a movie's last picture is up
+    bool m_heldRgb24 = false;  // at 24 bits
 };
 
 }  // namespace psxsplash

@@ -196,6 +196,12 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
         return false;
     }
 
+    // A movie that follows another at the same depth and fills the screen keeps
+    // the last one's picture up until its own first frame replaces it.
+    const bool covers = width >= options.displayWidth && height >= options.displayHeight;
+    const bool keep = m_held && !m_request.behind() && m_heldRgb24 == m_request.rgb24 && !m_request.overlay && covers;
+    if (m_held && !keep) restoreDisplay();
+    m_held = false;
     if (m_request.behind()) {
         if (width != m_request.vramWidth || height != m_request.vramHeight) {
             printf("Movie %s: %ux%u does not fill its image, %ux%u\n", m_request.name, width, height,
@@ -209,7 +215,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
         if (m_request.rgb24) setDisplayDepth(gpu, true);
         if (m_request.overlay) {
             freezeFramebuffers(gpu);
-        } else {
+        } else if (!keep) {
             clearFramebuffers(gpu, m_request.rgb24);
         }
     }
@@ -319,11 +325,17 @@ void psxsplash::MoviePlayer::finish() {
         s_player->~StrPlayer();
         s_player = nullptr;
     }
-    if (m_request.rgb24) {
+    m_held = !m_request.behind();
+    m_heldRgb24 = m_request.rgb24;
+    m_playing = false;
+}
+
+void psxsplash::MoviePlayer::restoreDisplay() {
+    if (m_held && m_heldRgb24) {
         setDisplayDepth(*m_gpu, false);
         clearFramebuffers(*m_gpu, true);
     }
-    m_playing = false;
+    m_held = false;
 }
 
 #else  // PCdrv: there is no drive to stream from.
@@ -335,6 +347,7 @@ bool psxsplash::MoviePlayer::skipPressed(Controls&) { return false; }
 void psxsplash::MoviePlayer::finish() {}
 uint32_t psxsplash::MoviePlayer::framesShown() const { return 0; }
 void psxsplash::MoviePlayer::releaseSubtitles() {}
+void psxsplash::MoviePlayer::restoreDisplay() {}
 
 #endif  // LOADER_CDROM
 
