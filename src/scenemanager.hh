@@ -30,6 +30,7 @@
 #include "skinmesh.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
+#include "particlesystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -612,6 +613,9 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_SPRITES
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+        ParticleSystem m_particleSystem;
 #endif
         uint32_t m_authoredSceneHash = 0;
 

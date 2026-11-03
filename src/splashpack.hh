@@ -200,6 +200,8 @@ struct SplashpackSceneSetup {
     /// The shadow table (shadowmath.hh: u16 count, u16 pad, ShadowRecords),
     /// or nullptr when the scene has no shadows.
     const uint8_t* shadowTable = nullptr;
+    // Particle emitter table (v31+, particlemath.hh), or nullptr.
+    const uint8_t* particleTable = nullptr;
 };
 
 class SplashPackLoader {

@@ -14,6 +14,12 @@ their last frame, under frames slow enough that a tick never lands on that frame
 
     tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
 
+A third, `fixture-particles/`, has two particle emitters (splashpack v31): its scene script finds
+them by name, checks which one autoplays and bursts the other; the crate's script stops the playing
+one from Lua at update 240 and passes once its particles have all lived out their lifetime:
+
+    tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-particles 'BOOT OK: particles'
+
 `fetch-redux.sh` downloads the newest Linux dev build of pcsx-redux and unpacks the AppImage, so
 no FUSE is needed. Any other `pcsx-redux` binary works as the first argument.
 
@@ -28,5 +34,7 @@ reading the committed version (the job then fails with the engine's own version 
     build/cli/splashpack-cli export tests/boot/scene/boot.scene -o tests/boot/fixture/scene_0.splashpack
 
     build/cli/splashpack-cli export tests/boot/scene/cutscene.scene -o tests/boot/fixture-cutscene/scene_0.splashpack
+
+    build/cli/splashpack-cli export tests/boot/scene/particles.scene -o tests/boot/fixture-particles/scene_0.splashpack
 
 The export writes `scene_0.vram` and `scene_0.spu` beside the `.splashpack`. Commit all three.

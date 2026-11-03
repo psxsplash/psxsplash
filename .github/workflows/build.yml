@@ -48,6 +48,9 @@ jobs:
       - name: Chained cutscenes
         run: |
           tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
+      - name: Particle emitters
+        run: |
+          tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-particles 'BOOT OK: particles'
 
   host-tests:
     runs-on: ubuntu-latest
