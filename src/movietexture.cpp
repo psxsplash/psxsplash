@@ -207,6 +207,7 @@ bool psxsplash::MovieTexture::play(const char* name, const GameObject* target, c
     m_loop = options.loop;
     m_onComplete = options.onComplete;
     m_shown = 0xffffffff;
+    m_decoded = 0;
     m_startVsync = 0;
     m_stalls = 0;
     snprintf(m_name, sizeof m_name, "%s", name);
@@ -256,6 +257,7 @@ bool psxsplash::MovieTexture::decode(uint32_t index, psyqo::GPU& gpu) {
         return ++m_stalls < c_stallsToGiveUp;
     }
     m_stalls = 0;
+    m_decoded++;
 
     // The MDEC's macroblocks run down the picture, so each column of them is one
     // contiguous 16-wide strip, which is one VRAM rectangle.
@@ -279,7 +281,7 @@ bool psxsplash::MovieTexture::tick(psyqo::GPU& gpu) {
     uint32_t index = (now - m_startVsync) * m_fps / gpu.getRefreshRate();
     if (index >= m_frames) {
         if (!m_loop) {
-            printf("Movie %s: ended\n", m_name);
+            printf("Movie %s: ended, %u of %u frames shown\n", m_name, m_decoded, m_frames);
             stop();
             return true;
         }

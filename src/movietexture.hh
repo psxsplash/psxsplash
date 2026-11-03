@@ -74,6 +74,7 @@ class MovieTexture {
     int16_t m_x = 0, m_y = 0, m_width = 0, m_height = 0;
     int m_onComplete = c_noRef;
     uint32_t m_stalls = 0;
+    uint32_t m_decoded = 0;
     uint8_t m_fps = 15;
     bool m_loop = true;
     char m_name[9] = {};
