@@ -3566,9 +3566,16 @@ int LuaAPI::Audio_StopAll(lua_State* L) {
     return 0;
 }
 
+// What would send the drive a command while a movie streams off it raises an error instead: the
+// command would end the stream. onComplete runs once the drive is free.
+static int refuseWhileMovie(lua_State* L, const char* what) {
+    return luaL_error(L, "%s: not while a movie plays (the drive is streaming it); call it from onComplete", what);
+}
+
 int LuaAPI::Audio_PlayCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.PlayCDDA");
     s_sceneManager->getMusic().playCDDATrack(static_cast<int>(lua.toNumber(1)));
     return 0;
 }
@@ -3576,6 +3583,7 @@ int LuaAPI::Audio_PlayCDDA(lua_State *L) {
 int LuaAPI::Audio_ResumeCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.ResumeCDDA");
     s_sceneManager->getMusic().resumeCDDA();
     return 0;
 }
@@ -3583,6 +3591,7 @@ int LuaAPI::Audio_ResumeCDDA(lua_State *L) {
 int LuaAPI::Audio_PauseCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.PauseCDDA");
     s_sceneManager->getMusic().pauseCDDA();
     return 0;
 }
@@ -3590,12 +3599,14 @@ int LuaAPI::Audio_PauseCDDA(lua_State *L) {
 int LuaAPI::Audio_StopCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.StopCDDA");
     s_sceneManager->getMusic().stopCDDA();
     return 0;
 }
 
 int LuaAPI::Audio_TellCDDA(lua_State *L) {
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.TellCDDA");
     s_sceneManager->getMusic().tellCDDA(L);
     return 0;
 }
@@ -4343,7 +4354,8 @@ int LuaAPI::Movie_Play(lua_State* L) {
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
     if (request.rgb24 || request.thenScene >= 0 || request.behind()) request.overlay = false;  // nothing to lay it over
-    if (request.loop) request.skippable = true;  // no script runs to end it
+    // Without a script to end it (Movie.Stop), a looping movie ends by the pad.
+    if (request.loop && request.onUpdate == MoviePlayer::c_noRef && !request.behind()) request.skippable = true;
 
     const bool queued = s_sceneManager->requestMovie(request);
     if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
@@ -4381,6 +4393,12 @@ int LuaAPI::Movie_PlayOn(lua_State* L) {
 
     char name[9];
     if (!s_sceneManager || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+        lua.push(false);
+        return 1;
+    }
+    // One stream at a time: a full-screen or behind movie has the drive.
+    if (s_sceneManager->movieStreaming()) {
+        printf("Movie %s: not while a movie plays\n", name);
         lua.push(false);
         return 1;
     }

@@ -482,6 +482,12 @@ namespace psxsplash {
         bool playMovieOnImage(const char* name, int element, const MovieTexture::Options& options);
         void stopMovieOn();
 #endif
+        // A movie is streaming off the drive: nothing else may send it a command.
+#if PSXSPLASH_FEATURE_MOVIE
+        bool movieStreaming() const { return m_movie.playing(); }
+#else
+        bool movieStreaming() const { return false; }
+#endif
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
         Camera& getCamera() { return m_currentCamera; }

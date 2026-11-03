@@ -1585,7 +1585,10 @@ bool psxsplash::SceneManager::updateMovie() {
     lua.rawGetI(LUA_REGISTRYINDEX, ref);
     if (lua.isFunction(-1)) {
         lua.pushNumber(static_cast<lua_Number>(m_movie.framesShown()));
-        if (lua.pcall(1, 0) != LUA_OK) lua.pop();
+        if (lua.pcall(1, 0) != LUA_OK) {
+            printf("Lua error: %s\n", lua.toString(-1));
+            lua.pop();
+        }
     } else {
         lua.pop();
     }
@@ -1650,8 +1653,9 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     // A movie behind the scene goes with it, before the drive is settled. Its image and its
     // onComplete are the scene's, and onComplete does not run while the scene is torn down.
     if (m_movie.playing() && m_movie.request().behind()) {
-        const int ref = m_movie.request().onComplete;
-        if (ref != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+        for (const int ref : {m_movie.request().onComplete, m_movie.request().onUpdate}) {
+            if (ref != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+        }
         m_movie.abandon();
     }
 #endif
