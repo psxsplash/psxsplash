@@ -8,7 +8,7 @@ includes("third_party/nugget/psyqo-lua")
 -- Engine subsystems and the sources each one adds, as in the Makefile and
 -- src/features.hh.
 local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "lights", "streaming",
-                      "memcard", "nav", "agents", "collision"}
+                      "memcard", "nav", "agents", "collision", "shadows"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
     net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
@@ -22,18 +22,14 @@ local feature_srcs = {
                  "src/streamplanner.cpp"},
     memcard = {"src/memorycardmanager.cpp", "src/luatableserializer.cpp"},
     collision = {"src/collision.cpp"},
+    shadows = {"src/shadowrender.cpp"},
 }
 
 option("features", {type = "string",
     description = "Engine subsystems to compile in, comma separated (unset: all; none: the smallest engine). Known: "
         .. table.concat(all_features, ",")})
-option("loader", {default = "pcdrv", values = {"pcdrv", "cdrom"},
-    description = "File backend: pcdrv (emulator and SIO1) or cdrom (ISO builds for real hardware)"})
 option("noparser", {default = false,
     description = "Link Lua without its parser; scripts must be precompiled bytecode"})
-option("memoverlay", {default = false, description = "Runtime heap/RAM usage overlay"})
-option("fpsoverlay", {default = false, description = "Runtime FPS overlay"})
-option("roomdebug", {default = false, description = "Room topology debug overlay"})
 option("profiler", {default = false, description = "Per-frame profiler overlay and PCSX variable export"})
 option("sio1echo", {default = false, description = "Raw SIO1 link self-test in place of the game loop (needs net)"})
 option("nettest", {default = false, description = "In-RAM NetLink protocol self-test in place of the game loop (needs net)"})
@@ -67,71 +63,89 @@ local function selected_features()
     return selected
 end
 
-target("psxsplash", function()
-    add_rules("psyqo-lua.app")
-    add_files("src/main.cpp", "src/renderer.cpp", "src/splashpack.cpp", "src/camera.cpp",
-              "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
-              "src/lua.cpp", "src/luaapi.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
-              "src/audiomanager.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",
-              "src/memoverlay.cpp", "src/musicmanager.cpp", "src/loadbuffer_patch.cpp")
+-- Every build is its own target with its own file, so building one never
+-- overwrites another: psxsplash (PCdrv, for emulators and SIO1),
+-- psxsplash-cdrom (disc images), and the PCdrv builds with on-screen
+-- overlays, -perf (FPS counter and heap bar), -rooms (room wireframe) and
+-- -perf-rooms. Without the bootlogo feature each name ends in -nologo.
+-- `xmake` builds them all; `xmake build psxsplash-cdrom.ps-exe` builds one.
+local variants = {
+    {name = "psxsplash"},
+    {name = "psxsplash-cdrom", cdrom = true},
+    {name = "psxsplash-perf", perf = true},
+    {name = "psxsplash-rooms", rooms = true},
+    {name = "psxsplash-perf-rooms", perf = true, rooms = true},
+}
 
-    local features = selected_features()
-    local added = {}
-    for _, f in ipairs(all_features) do
-        add_defines("PSXSPLASH_FEATURE_" .. f:upper() .. "=" .. (features[f] and "1" or "0"))
-        if features[f] then
-            for _, src in ipairs(feature_srcs[f] or {}) do
-                if not added[src] then
-                    add_files(src)
-                    added[src] = true
+local nologo = not selected_features().bootlogo
+
+for _, variant in ipairs(variants) do
+    local name = variant.name .. (nologo and "-nologo" or "")
+    target(name, function()
+        add_rules("psyqo-lua.app")
+        add_files("src/main.cpp", "src/renderer.cpp", "src/splashpack.cpp", "src/camera.cpp",
+                  "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
+                  "src/lua.cpp", "src/luaapi.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
+                  "src/audiomanager.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",
+                  "src/memoverlay.cpp", "src/musicmanager.cpp", "src/loadbuffer_patch.cpp")
+
+        local features = selected_features()
+        local added = {}
+        for _, f in ipairs(all_features) do
+            add_defines("PSXSPLASH_FEATURE_" .. f:upper() .. "=" .. (features[f] and "1" or "0"))
+            if features[f] then
+                for _, src in ipairs(feature_srcs[f] or {}) do
+                    if not added[src] then
+                        add_files(src)
+                        added[src] = true
+                    end
                 end
             end
         end
-    end
 
-    if is_config("loader", "cdrom") then
-        add_defines("LOADER_CDROM")
-    else
-        add_defines("PCDRV_SUPPORT=1")
-    end
-    if has_config("memoverlay") then add_defines("PSXSPLASH_MEMOVERLAY") end
-    if has_config("fpsoverlay") then add_defines("PSXSPLASH_FPSOVERLAY") end
-    if has_config("roomdebug") then add_defines("PSXSPLASH_ROOM_DEBUG") end
-    if has_config("profiler") then add_defines("PSXSPLASH_PROFILER") end
-    if has_config("sio1echo") then
-        if not features.net then table.insert(config_errors, "sio1echo needs the net feature") end
-        add_defines("PSXSPLASH_SIO1_ECHO")
-    end
-    if has_config("nettest") then
-        if not features.net then table.insert(config_errors, "nettest needs the net feature") end
-        add_defines("PSXSPLASH_NETTEST")
-    end
-    if has_config("streamtest") then
-        if not features.streaming then table.insert(config_errors, "streamtest needs the streaming feature") end
-        add_defines("PSXSPLASH_STREAM_SELFTEST")
-    end
-    if has_config("streamlog") then add_defines("PSXSPLASH_STREAM_LOG") end
-    if has_config("ot_size") then add_defines("OT_SIZE=" .. get_config("ot_size")) end
-    if has_config("bump_size") then add_defines("BUMP_SIZE=" .. get_config("bump_size")) end
-    if has_config("noparser") then
-        -- Wrap luaL_loadbufferx so psyqo-lua's FixedPoint metatable source
-        -- is replaced by precompiled bytecode.
-        add_values("psyqo-lua.noparser", true)
-        add_ldflags("-Wl,--wrap=luaL_loadbufferx", {force = true})
-    end
-
-    on_config(function(target)
-        if #config_errors > 0 then
-            raise(table.concat(config_errors, "; "))
+        if variant.cdrom then
+            add_defines("LOADER_CDROM")
+        else
+            add_defines("PCDRV_SUPPORT=1")
         end
+        if variant.perf then add_defines("PSXSPLASH_MEMOVERLAY", "PSXSPLASH_FPSOVERLAY") end
+        if variant.rooms then add_defines("PSXSPLASH_ROOM_DEBUG") end
+        if has_config("profiler") then add_defines("PSXSPLASH_PROFILER") end
+        if has_config("sio1echo") then
+            if not features.net then table.insert(config_errors, "sio1echo needs the net feature") end
+            add_defines("PSXSPLASH_SIO1_ECHO")
+        end
+        if has_config("nettest") then
+            if not features.net then table.insert(config_errors, "nettest needs the net feature") end
+            add_defines("PSXSPLASH_NETTEST")
+        end
+        if has_config("streamtest") then
+            if not features.streaming then table.insert(config_errors, "streamtest needs the streaming feature") end
+            add_defines("PSXSPLASH_STREAM_SELFTEST")
+        end
+        if has_config("streamlog") then add_defines("PSXSPLASH_STREAM_LOG") end
+        if has_config("ot_size") then add_defines("OT_SIZE=" .. get_config("ot_size")) end
+        if has_config("bump_size") then add_defines("BUMP_SIZE=" .. get_config("bump_size")) end
+        if has_config("noparser") then
+            -- Wrap luaL_loadbufferx so psyqo-lua's FixedPoint metatable source
+            -- is replaced by precompiled bytecode.
+            add_values("psyqo-lua.noparser", true)
+            add_ldflags("-Wl,--wrap=luaL_loadbufferx", {force = true})
+        end
+
+        on_config(function(target)
+            if #config_errors > 0 then
+                raise(table.concat(config_errors, "; "))
+            end
+        end)
+
+        -- Send Lua's allocator through the OOM-logging wrapper in src/lua.cpp.
+        -- This has to come after psyqo-lua's own luaI_realloc definition.
+        add_ldflags("-Wl,--defsym,luaI_realloc=lua_oom_realloc", {force = true})
     end)
 
-    -- Send Lua's allocator through the OOM-logging wrapper in src/lua.cpp.
-    -- This has to come after psyqo-lua's own luaI_realloc definition.
-    add_ldflags("-Wl,--defsym,luaI_realloc=lua_oom_realloc", {force = true})
-end)
-
-target("psxsplash.ps-exe", function()
-    add_deps("psxsplash")
-    add_rules("ps-exe")
-end)
+    target(name .. ".ps-exe", function()
+        add_deps(name)
+        add_rules("ps-exe")
+    end)
+end
