@@ -281,28 +281,38 @@ void psxsplash::Controls::updateButtonStates() {
     // Send motor values via raw SIO (after AdvancedPad's VSync poll has completed)
     sendMotorValues();
     
-    // Read all button states into a single bitmask
-    m_currentButtons = 0;
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Cross))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Cross);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Circle))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Circle);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Square))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Square);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Triangle)) m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Triangle);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L1))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L1);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L2))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L2);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L3))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::L3);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R1))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R1);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R2))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R2);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R3))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::R3);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Start))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Start);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Select))   m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Select);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Up))       m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Up);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Down))     m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Down);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Left))     m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Left);
-    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Right))    m_currentButtons |= (1u << psyqo::AdvancedPad::Button::Right);
-    
+    m_currentButtons = readButtons();
+
     // Calculate pressed and released buttons
     m_buttonsPressed = m_currentButtons & ~m_previousButtons;
     m_buttonsReleased = m_previousButtons & ~m_currentButtons;
+}
+
+void psxsplash::Controls::settleButtons() {
+    m_currentButtons = m_previousButtons = readButtons();
+    m_buttonsPressed = m_buttonsReleased = 0;
+}
+
+// All button states as one bitmask
+uint16_t psxsplash::Controls::readButtons() const {
+    uint16_t buttons = 0;
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Cross))    buttons |= (1u << psyqo::AdvancedPad::Button::Cross);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Circle))   buttons |= (1u << psyqo::AdvancedPad::Button::Circle);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Square))   buttons |= (1u << psyqo::AdvancedPad::Button::Square);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Triangle)) buttons |= (1u << psyqo::AdvancedPad::Button::Triangle);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L1))       buttons |= (1u << psyqo::AdvancedPad::Button::L1);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L2))       buttons |= (1u << psyqo::AdvancedPad::Button::L2);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::L3))       buttons |= (1u << psyqo::AdvancedPad::Button::L3);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R1))       buttons |= (1u << psyqo::AdvancedPad::Button::R1);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R2))       buttons |= (1u << psyqo::AdvancedPad::Button::R2);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::R3))       buttons |= (1u << psyqo::AdvancedPad::Button::R3);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Start))    buttons |= (1u << psyqo::AdvancedPad::Button::Start);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Select))   buttons |= (1u << psyqo::AdvancedPad::Button::Select);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Up))       buttons |= (1u << psyqo::AdvancedPad::Button::Up);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Down))     buttons |= (1u << psyqo::AdvancedPad::Button::Down);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Left))     buttons |= (1u << psyqo::AdvancedPad::Button::Left);
+    if (m_input.isButtonPressed(m_pad, psyqo::AdvancedPad::Button::Right))    buttons |= (1u << psyqo::AdvancedPad::Button::Right);
+    return buttons;
 }
 
 void psxsplash::Controls::HandleControlsPlayer1(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX,

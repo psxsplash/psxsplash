@@ -1534,6 +1534,9 @@ bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
 
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
     const MoviePlayer::Request& request = m_movie.request();
+    // The game's tick did not run while the movie played: the button that skipped it is no press now.
+    m_controls[0].settleButtons();
+    m_controls[1].settleButtons();
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
         m_movie.restoreDisplay();
