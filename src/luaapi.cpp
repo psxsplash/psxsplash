@@ -4267,7 +4267,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
         return 1;
     }
 
-    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, subtitles=table,
+    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2,
     // thenScene=n, rgb24=bool, onComplete=function}
     bool rgb24Set = false;
     if (lua.isTable(2)) {
@@ -4315,31 +4315,6 @@ int LuaAPI::Movie_Play(lua_State* L) {
         }
     }
 
-    // {{500, 2000, "A line"}, {2500, 4000, "Two rows\nof text"}}: milliseconds from the first picture.
-    if (lua.isTable(2)) {
-        lua.getField(2, "subtitles");
-        if (lua.isTable(-1)) {
-            const size_t count = lua.rawLen(-1);
-            if (count) request.subtitles = static_cast<MoviePlayer::Subtitle*>(psyqo_malloc(count * sizeof(MoviePlayer::Subtitle)));
-            for (size_t i = 0; request.subtitles && i < count; i++) {
-                lua.rawGetI(-1, int(i + 1));
-                if (lua.isTable(-1)) {
-                    lua.rawGetI(-1, 1);
-                    lua.rawGetI(-2, 2);
-                    lua.rawGetI(-3, 3);
-                    if (lua.isNumber(-3) && lua.isNumber(-2) && lua.isString(-1)) {
-                        MoviePlayer::Subtitle& line = request.subtitles[request.subtitleCount++];
-                        line.fromMs = static_cast<uint32_t>(lua.toNumber(-3));
-                        line.toMs = static_cast<uint32_t>(lua.toNumber(-2));
-                        snprintf(line.text, sizeof line.text, "%s", lua.toString(-1));
-                    }
-                    lua.pop(3);
-                }
-                lua.pop();
-            }
-        }
-        lua.pop();
-    }
     // A 16-bit UI image, drawn behind the scene, that the movie plays into as the game runs.
     if (lua.isTable(2)) {
         lua.getField(2, "behind");
@@ -4348,14 +4323,10 @@ int LuaAPI::Movie_Play(lua_State* L) {
         lua.pop();
         if (wanted && !ready) {
             if (request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
-            if (request.subtitles) psyqo_free(request.subtitles);
             lua.push(false);
             return 1;
         }
     }
-    if (request.subtitleCount) rgb24Set = true;  // no text on 24 bits
-    if (request.subtitleCount) request.rgb24 = false;
-
     // In place the picture has to stay inside the framebuffers: 24 bits would
     // run over the textures beside them, which the scene still needs.
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
@@ -4365,7 +4336,6 @@ int LuaAPI::Movie_Play(lua_State* L) {
 
     const bool queued = s_sceneManager->requestMovie(request);
     if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
-    if (!queued && request.subtitles) psyqo_free(request.subtitles);
     lua.push(queued);
     return 1;
 }

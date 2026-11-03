@@ -45,7 +45,8 @@ class MoviePlayer {
     static constexpr int c_noRef = -2;  // LUA_NOREF
 
     // One line of text over a 15-bit movie, split on \n into at most two rows. Times
-    // are from the first picture. The GPU cannot draw into a 24-bit picture.
+    // are from the first picture. They come from MOVIES/NAME.SRT beside the movie, when
+    // there is one, and make it 15-bit: the GPU cannot draw into a 24-bit picture.
     static constexpr unsigned c_subtitleText = 80;
     struct Subtitle {
         uint32_t fromMs, toMs;
@@ -99,6 +100,7 @@ class MoviePlayer {
 
     // The scene calls this when a movie has ended, or never started.
     void releaseSubtitles();
+    static void loadSubtitles(class FileLoaderCDRom& loader, Request& request);
 
   private:
     bool skipPressed(Controls& pad);
@@ -113,6 +115,7 @@ class MoviePlayer {
     bool m_clockStarted = false;
     uint32_t m_lastShown = 0, m_lastDropped = 0;
     uint32_t m_clockStart = 0;
+    int16_t m_picX = 0, m_picY = 0, m_picW = 0, m_picH = 0;  // the picture in the display, for the subtitles
 };
 
 }  // namespace psxsplash

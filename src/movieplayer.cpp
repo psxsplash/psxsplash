@@ -4,12 +4,14 @@
 
 #if defined(LOADER_CDROM)
 
+#include <EASTL/algorithm.h>
 #include <new>
 
 #include <psyqo-paths/str-player.hh>
 #include <psyqo/alloc.h>
 #include <psyqo/hardware/gpu.hh>
 #include <psyqo/primitives/misc.hh>
+#include <psyqo/primitives/rectangles.hh>
 #include <psyqo/xprintf.h>
 
 #include "fileloader.hh"
@@ -131,6 +133,86 @@ bool psxsplash::MoviePlayer::request(const Request& request) {
     return true;
 }
 
+// An .SRT: blocks of an optional number, then "00:00:01,500 --> 00:00:04,000", then the text, then a blank line.
+// A block that does not parse is named and left out, not dropped without a word.
+static bool srtTime(const char*& p, const char* end, uint32_t& ms) {
+    uint32_t v[4] = {};
+    while (p < end && *p == ' ') p++;
+    for (int i = 0; i < 4; i++) {
+        if (p >= end || *p < '0' || *p > '9') return false;
+        while (p < end && *p >= '0' && *p <= '9') v[i] = v[i] * 10 + uint32_t(*p++ - '0');
+        if (i < 3) {
+            if (p >= end || (*p != (i < 2 ? ':' : ',') && !(i == 2 && *p == '.'))) return false;
+            p++;
+        }
+    }
+    if (v[1] > 59 || v[2] > 59 || v[3] > 999) return false;
+    ms = ((v[0] * 60 + v[1]) * 60 + v[2]) * 1000 + v[3];
+    return true;
+}
+
+static bool srtLine(const char*& p, const char* end, const char*& from, const char*& to) {
+    if (p >= end) return false;
+    from = p;
+    while (p < end && *p != '\n') p++;
+    to = p;
+    if (to > from && to[-1] == '\r') to--;
+    if (p < end) p++;
+    return true;
+}
+
+void psxsplash::MoviePlayer::loadSubtitles(FileLoaderCDRom& loader, Request& request) {
+    char path[24];
+    snprintf(path, sizeof path, "MOVIES/%s.SRT;1", request.name);
+    int size = 0;
+    uint8_t* file = loader.LoadFileSync(path, size);
+    if (!file) return;
+    const char* s = reinterpret_cast<const char*>(file);
+    const char* end = s + size;
+    if (size >= 3 && file[0] == 0xef && file[1] == 0xbb && file[2] == 0xbf) s += 3;
+    unsigned blocks = 0;
+    for (const char* p = s; p + 3 <= end; p++) blocks += p[0] == '-' && p[1] == '-' && p[2] == '>';
+    if (blocks) request.subtitles = static_cast<Subtitle*>(psyqo_malloc(blocks * sizeof(Subtitle)));
+    unsigned number = 0;
+    const char *from = nullptr, *to = nullptr;
+    while (request.subtitles && srtLine(s, end, from, to)) {
+        if (from == to) continue;  // the blank lines between blocks
+        number++;
+        bool digits = true;
+        for (const char* c = from; c < to; c++) digits = digits && *c >= '0' && *c <= '9';
+        if (digits && !srtLine(s, end, from, to)) break;
+        uint32_t a = 0, b = 0;
+        const char* p = from;
+        bool ok = srtTime(p, to, a);
+        while (ok && p < to && *p == ' ') p++;
+        ok = ok && to - p >= 3 && p[0] == '-' && p[1] == '-' && p[2] == '>';
+        p += 3;
+        ok = ok && srtTime(p, to, b) && b > a && request.subtitleCount < blocks;
+        Subtitle& line = request.subtitles[request.subtitleCount];
+        size_t used = 0;
+        unsigned rows = 0;
+        bool wide = false;
+        while (srtLine(s, end, from, to) && from != to) {
+            if (rows++ && used + 1 < sizeof line.text) line.text[used++] = '\n';
+            wide = wide || to - from > 40;
+            for (const char* c = from; c < to && used + 1 < sizeof line.text; c++) line.text[used++] = *c;
+        }
+        if (!ok || !rows) {
+            printf("Movie %s: subtitle %u is not a time line (00:00:01,500 --> 00:00:04,000) and its text, left out\n",
+                   request.name, number);
+            continue;
+        }
+        line.text[used] = 0;
+        line.fromMs = a;
+        line.toMs = b;
+        request.subtitleCount++;
+        if (rows > 2 || wide) printf("Movie %s: subtitle %u has more than two rows of 40 characters, the rest is off screen\n",
+                                     request.name, number);
+    }
+    FileLoader::Get().FreeFile(file);
+    printf("Movie %s: %u subtitles\n", request.name, request.subtitleCount);
+}
+
 bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     m_gpu = &gpu;
     auto& loader = static_cast<FileLoaderCDRom&>(FileLoader::Get());
@@ -145,6 +227,9 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     }
     const uint32_t sectors = (size + 2047) / 2048;
 
+    if (!m_request.behind()) loadSubtitles(loader, m_request);
+    if (m_request.subtitleCount) m_request.rgb24 = false;
+
     StrPlayer::Options options;
     options.rgb24 = m_request.rgb24;
     options.doubleSpeed = m_request.speed ? m_request.speed == 2 : FileLoaderCDRom::discDoubleSpeed();
@@ -154,9 +239,14 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     // display twice the corner plus the picture puts the picture at the corner.
     if (m_request.x >= 0 && width) options.displayWidth = uint16_t(2 * m_request.x + width);
     if (m_request.y >= 0 && height) options.displayHeight = uint16_t(2 * m_request.y + height);
+    m_picX = int16_t((options.displayWidth - width) / 2);
+    m_picY = int16_t((options.displayHeight - height) / 2);
+    m_picW = int16_t(width);
+    m_picH = int16_t(height);
 
     if (!fitsInHeap(options)) {
         printf("Movie %s: its buffers do not fit in the heap\n", m_request.name);
+        releaseSubtitles();
         return false;
     }
 
@@ -233,6 +323,24 @@ void psxsplash::MoviePlayer::drawSubtitles() {
     if (!m_request.subtitleCount) return;
     psyqo::Font<>* font = SceneManager::GetFont();
     if (!font) return;
+    // Nothing redraws a smaller picture's border, so the text drawn there last time would stay after its time:
+    // the band the rows go in is blanked first, where the picture does not cover it.
+    constexpr int16_t top = 200, bottom = 240;
+    const int16_t px1 = int16_t(m_picX + m_picW), py1 = int16_t(m_picY + m_picH);
+    auto blank = [this](int16_t x, int16_t y, int16_t w, int16_t h) {
+        if (w <= 0 || h <= 0) return;
+        psyqo::Prim::Rectangle r({.r = 0, .g = 0, .b = 0});
+        r.position = {{.x = x, .y = y}};
+        r.size = {{.x = w, .y = h}};
+        m_gpu->sendPrimitive(r);
+    };
+    const int16_t a = eastl::max(top, m_picY), b = eastl::min(bottom, py1);
+    if (b > a) {
+        blank(0, a, m_picX, int16_t(b - a));
+        blank(px1, a, int16_t(320 - px1), int16_t(b - a));
+    }
+    blank(0, top, 320, int16_t(eastl::min(m_picY, bottom) - top));
+    blank(0, eastl::max(top, py1), 320, int16_t(bottom - eastl::max(top, py1)));
     const uint32_t vsyncs = m_gpu->getLiveFrameCount() - m_clockStart;
     const uint32_t ms = vsyncs * 1000 / m_gpu->getRefreshRate();
     for (unsigned i = 0; i < m_request.subtitleCount; i++) {
