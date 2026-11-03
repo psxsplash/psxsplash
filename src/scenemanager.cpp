@@ -1646,6 +1646,15 @@ void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result, int
 #endif
 
 void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool isFirstScene) {
+#if PSXSPLASH_FEATURE_MOVIE
+    // A movie behind the scene goes with it, before the drive is settled. Its image and its
+    // onComplete are the scene's, and onComplete does not run while the scene is torn down.
+    if (m_movie.playing() && m_movie.request().behind()) {
+        const int ref = m_movie.request().onComplete;
+        if (ref != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+        m_movie.abandon();
+    }
+#endif
     // Finish or drop gameplay stream reads while the scene that owns their
     // buffers is still alive; the blocking loads below need an idle drive.
 #if PSXSPLASH_FEATURE_STREAMING

@@ -325,6 +325,13 @@ void psxsplash::MoviePlayer::releaseSubtitles() {
     m_request.subtitleCount = 0;
 }
 
+void psxsplash::MoviePlayer::abandon() {
+    if (!m_playing) return;
+    if (s_player) s_player->stop();
+    printf("Movie %s: stopped, the scene behind it is going\n", m_request.name);
+    finish();
+}
+
 void psxsplash::MoviePlayer::finish() {
     if (s_player) {
         s_player->~StrPlayer();
@@ -350,6 +357,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU&, Controls&) { return false; }
 bool psxsplash::MoviePlayer::frame(Controls&, Result&) { return true; }
 bool psxsplash::MoviePlayer::skipPressed(Controls&) { return false; }
 void psxsplash::MoviePlayer::finish() {}
+void psxsplash::MoviePlayer::abandon() {}
 uint32_t psxsplash::MoviePlayer::framesShown() const { return 0; }
 void psxsplash::MoviePlayer::releaseSubtitles() {}
 void psxsplash::MoviePlayer::restoreDisplay() {}
