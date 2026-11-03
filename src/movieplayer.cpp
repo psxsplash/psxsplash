@@ -159,10 +159,16 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
         return false;
     }
 
+    // A movie that follows another at the same depth and fills the screen keeps
+    // the last one's picture up until its own first frame replaces it.
+    const bool covers = width >= options.displayWidth && height >= options.displayHeight;
+    const bool keep = m_held && m_heldRgb24 == m_request.rgb24 && !m_request.overlay && covers;
+    if (m_held && !keep) restoreDisplay();
+    m_held = false;
     if (m_request.rgb24) setDisplayDepth(gpu, true);
     if (m_request.overlay) {
         freezeFramebuffers(gpu);
-    } else {
+    } else if (!keep) {
         clearFramebuffers(gpu, m_request.rgb24);
     }
 
@@ -207,11 +213,17 @@ void psxsplash::MoviePlayer::finish() {
         s_player->~StrPlayer();
         s_player = nullptr;
     }
-    if (m_request.rgb24) {
+    m_held = true;
+    m_heldRgb24 = m_request.rgb24;
+    m_playing = false;
+}
+
+void psxsplash::MoviePlayer::restoreDisplay() {
+    if (m_held && m_heldRgb24) {
         setDisplayDepth(*m_gpu, false);
         clearFramebuffers(*m_gpu, true);
     }
-    m_playing = false;
+    m_held = false;
 }
 
 #else  // PCdrv: there is no drive to stream from.
@@ -221,6 +233,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU&, Controls&) { return false; }
 bool psxsplash::MoviePlayer::frame(Controls&, Result&) { return true; }
 bool psxsplash::MoviePlayer::skipPressed(Controls&) { return false; }
 void psxsplash::MoviePlayer::finish() {}
+void psxsplash::MoviePlayer::restoreDisplay() {}
 
 #endif  // LOADER_CDROM
 

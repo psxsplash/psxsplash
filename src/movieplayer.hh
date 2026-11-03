@@ -78,6 +78,10 @@ class MoviePlayer {
 
     const Request& request() const { return m_request; }
 
+    // The display back as the game left it, once no movie follows: a movie that
+    // ends leaves its last picture up, so one that follows starts from it.
+    void restoreDisplay();
+
   private:
     bool skipPressed(Controls& pad);
     void finish();
@@ -87,6 +91,8 @@ class MoviePlayer {
     bool m_pending = false;
     bool m_playing = false;
     bool m_skipHeld = false;
+    bool m_held = false;       // a movie's last picture is up
+    bool m_heldRgb24 = false;  // at 24 bits
 };
 
 }  // namespace psxsplash
