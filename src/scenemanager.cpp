@@ -1604,6 +1604,12 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
     // Before onComplete, which may queue the next movie in its place.
     if (request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, request.onUpdate);
     m_movie.releaseSubtitles();
+    // The game's tick did not run while a movie in front of it played: the button that skipped it is
+    // no press now. Behind the scene the game ran and read its own presses.
+    if (!request.behind()) {
+        m_controls[0].SettleButtonsPlayer1();
+        m_controls[1].SettleButtonsPlayer2();
+    }
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
         m_movie.restoreDisplay();

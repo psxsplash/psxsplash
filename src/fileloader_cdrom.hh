@@ -168,10 +168,10 @@ class FileLoaderCDRom final : public FileLoader {
         return readFile(fileLBA, fileSize, outSize);
     }
 
-    // A file that is mostly not on the disc (a movie's .SRT), looked up once at the drive's
-    // speed: resolveEntryBlocking would take each miss for a junk read and go round again
-    // at single speed and back, two speed changes for every movie without subtitles.
-    uint8_t* LoadFileSyncIfThere(const char* filename, int& outSize) {
+    // A file that is mostly not on the disc (a scene's loading screen, a movie's .SRT), looked up
+    // once at the drive's speed: resolveEntryBlocking would take each miss for a junk read and go
+    // round again at single speed and back, two speed changes for each.
+    uint8_t* LoadFileSyncIfThere(const char* filename, int& outSize) override {
         outSize = 0;
         uint32_t fileLBA = 0, fileSize = 0;
         if (!m_gpu || !resolveOnce(filename, fileLBA, fileSize)) return nullptr;

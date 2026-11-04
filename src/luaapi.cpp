@@ -4354,7 +4354,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
     if (request.rgb24 || request.thenScene >= 0 || request.behind()) request.overlay = false;  // nothing to lay it over
-    // Without a script to end it (Movie.Stop), a looping movie ends by the pad.
+    // No script runs to end a looping movie unless onUpdate does (Movie.Stop); behind, the scene's load does.
     if (request.loop && request.onUpdate == MoviePlayer::c_noRef && !request.behind()) request.skippable = true;
 
     const bool queued = s_sceneManager->requestMovie(request);
