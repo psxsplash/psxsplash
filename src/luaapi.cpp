@@ -690,6 +690,29 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     RegisterCompiledOut(L, "Cutscene", "cutscene");
 #endif
 
+#if PSXSPLASH_FEATURE_MOVIE
+    // ========================================================================
+    // MOVIE API
+    // ========================================================================
+    L.newTable();
+
+    L.push(Movie_Play);
+    L.setField(-2, "Play");
+
+    L.push(Movie_IsPlaying);
+    L.setField(-2, "IsPlaying");
+
+    L.push(Movie_PlayOn);
+    L.setField(-2, "PlayOn");
+
+    L.push(Movie_StopOn);
+    L.setField(-2, "StopOn");
+
+    L.setGlobal("Movie");
+#else
+    RegisterCompiledOut(L, "Movie", "movie");
+#endif
+
 #if PSXSPLASH_FEATURE_CUTSCENE
     // ========================================================================
     // ANIMATION API
@@ -4215,6 +4238,145 @@ int LuaAPI::MemCard_FreeBlocks(lua_State* L) {
 }
 
 #endif
+#if PSXSPLASH_FEATURE_MOVIE
+// The disc holds MOVIES/<NAME>.STR, so a name is what an ISO 9660 file name can be.
+static bool copyMovieName(const char* name, char* out, size_t size) {
+    size_t i = 0;
+    for (; name[i]; i++) {
+        char c = name[i];
+        if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
+        if (i + 1 >= size || !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return false;
+        out[i] = c;
+    }
+    out[i] = 0;
+    return i > 0;
+}
+
+int LuaAPI::Movie_Play(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    MoviePlayer::Request request;
+    if (!s_sceneManager || !lua.isString(1) || !copyMovieName(lua.toString(1), request.name, sizeof request.name)) {
+        lua.push(false);
+        return 1;
+    }
+
+    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2,
+    // thenScene=n, rgb24=bool, onComplete=function}
+    bool rgb24Set = false;
+    if (lua.isTable(2)) {
+        lua.getField(2, "skip");
+        if (lua.isBoolean(-1)) request.skippable = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "loop");
+        if (lua.isBoolean(-1)) request.loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "overlay");
+        if (lua.isBoolean(-1)) request.overlay = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "speed");
+        if (lua.isNumber(-1)) request.speed = static_cast<uint8_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "x");
+        if (lua.isNumber(-1)) request.x = static_cast<int16_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "y");
+        if (lua.isNumber(-1)) request.y = static_cast<int16_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "thenScene");
+        if (lua.isNumber(-1)) request.thenScene = static_cast<int>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "rgb24");
+        if (lua.isBoolean(-1)) {
+            request.rgb24 = lua.toBoolean(-1);
+            rgb24Set = true;
+        }
+        lua.pop();
+
+        // A callback needs the scene's Lua, which a then-scene movie frees.
+        lua.getField(2, "onComplete");
+        if (lua.isFunction(-1) && request.thenScene < 0) {
+            request.onComplete = lua.ref();  // pops and stores in registry
+        } else {
+            lua.pop();
+        }
+    }
+
+    // In place the picture has to stay inside the framebuffers: 24 bits would
+    // run over the textures beside them, which the scene still needs.
+    if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
+    if (request.thenScene < 0) request.rgb24 = false;
+    if (request.rgb24 || request.thenScene >= 0) request.overlay = false;  // nothing to lay it over
+    if (request.loop) request.skippable = true;  // no script runs to end it
+
+    const bool queued = s_sceneManager->requestMovie(request);
+    if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+    lua.push(queued);
+    return 1;
+}
+
+int LuaAPI::Movie_IsPlaying(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && s_sceneManager->isMovieBusy());
+    return 1;
+}
+
+int LuaAPI::Movie_PlayOn(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    char name[9];
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+        lua.push(false);
+        return 1;
+    }
+    lua.getField(1, "__cpp_ptr");
+    auto target = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+    if (!target) {
+        lua.push(false);
+        return 1;
+    }
+
+    // Optional third argument: {fps=n, loop=bool, onComplete=function}
+    MovieTexture::Options options;
+    if (lua.isTable(3)) {
+        lua.getField(3, "fps");
+        if (lua.isNumber(-1)) options.fps = static_cast<uint8_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(3, "loop");
+        if (lua.isBoolean(-1)) options.loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(3, "onComplete");
+        if (lua.isFunction(-1)) {
+            options.onComplete = lua.ref();  // pops and stores in registry
+        } else {
+            lua.pop();
+        }
+    }
+
+    const bool started = s_sceneManager->playMovieOn(name, target, options);
+    if (!started && options.onComplete != MovieTexture::c_noRef) {
+        luaL_unref(L, LUA_REGISTRYINDEX, options.onComplete);
+    }
+    lua.push(started);
+    return 1;
+}
+
+int LuaAPI::Movie_StopOn(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->stopMovieOn();
+    return 0;
+}
+#endif
+
 #if PSXSPLASH_FEATURE_CUTSCENE
 // ============================================================================
 // CUTSCENE API IMPLEMENTATION

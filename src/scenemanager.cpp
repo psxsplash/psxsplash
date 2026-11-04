@@ -933,8 +933,18 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     NetworkManager::Get().postTick(*this, m_dt12);
 #endif
 
-    // Process pending scene transitions (at end of frame)
+#if PSXSPLASH_FEATURE_MOVIE
+    // Last, so the next flip's chain is the frame that shows it, and the chain
+    // running now is the one flip would have waited for anyway.
+    if (m_movieTexture.tick(gpu)) fireMovieComplete(m_movieTexture.takeOnComplete(), "ended");
+#endif
+
+    // Process pending scene transitions (at end of frame). A movie goes first:
+    // Movie.Play then Scene.Load in one frame means the movie, then the scene.
     pollHotReload();
+#if PSXSPLASH_FEATURE_MOVIE
+    if (!m_movie.pending())
+#endif
     processPendingSceneLoad();
 
 #ifdef PSXSPLASH_PROFILER
@@ -1418,6 +1428,150 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
     loadScene(gpu, targetIndex, /*isFirstScene=*/false);
 }
 
+#if defined(LOADER_CDROM)
+// CD-DA music keeps a CDRomDevice action active for the entire track (the
+// drive reports position and the end-of-track IRQ through it).  While that
+// action is pending, any blocking data read aborts with "readSectorsBlocking
+// called with pending action".  So the drive must be brought to idle before
+// loading any scene files or starting a movie - for a scene load this must
+// happen before the loading-screen read.
+//
+// Getting there safely is fiddly.  The device exposes only isIdle()
+// (state == 0), and psyqo's stopCDDA() accepts ONLY the steady PLAYING
+// state (100): calling it during CD-DA's startup handshake, or while a
+// pause/stop the scene's own Lua already issued is still draining, aborts
+// with "stopCDDA called while not playing".  And MusicManager::isPlayingCDDA()
+// can't be trusted alone: it's set from a deferred callback, so it lags the
+// hardware.  So do it in two phases:
+//   1. Pump until the drive settles into a definite state - either idle
+//      (a startup that failed, or an in-flight pause/stop that finished) or
+//      steady playback.  isPlayingCDDA() flips true from the callback that
+//      fires exactly when the PLAYING state is entered, so it is a reliable
+//      "safe to stop now" signal; combined with !isIdle() it means state==100.
+//   2. If it settled on playing, stop it and drain back to idle.
+void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
+    psyqo::CDRomDevice* cdrom = static_cast<psxsplash::FileLoaderCDRom&>(
+        psxsplash::FileLoader::Get()).getCDRomDevice();
+    while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
+        gpu.pumpCallbacks();
+    }
+    if (!cdrom->isIdle()) {
+        m_music.stopCDDA();
+        while (!cdrom->isIdle()) {
+            gpu.pumpCallbacks();
+        }
+    }
+}
+#endif
+
+#if PSXSPLASH_FEATURE_MOVIE
+void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
+    const MoviePlayer::Request& request = m_movie.takeRequest();
+#if defined(LOADER_CDROM)
+    // Gameplay reads and CD music have to let go of the drive first. A scene that
+    // stays keeps what it queued: its streamer is waiting on those reads.
+#if PSXSPLASH_FEATURE_STREAMING
+    if (request.thenScene >= 0) {
+        StreamReader::Get().drain();
+    } else {
+        while (StreamReader::Get().busy()) {
+            StreamReader::Get().update();
+            gpu.pumpCallbacks();
+        }
+    }
+#endif
+    CDRomHelper::WakeDrive();
+    settleDrive(gpu);
+    m_audio.stopAll();
+
+    // Then-a-scene: the scene goes now, so the movie fits with one of any size.
+    // Its replacement loads as a first scene would, with nothing left to clear.
+    if (request.thenScene >= 0) {
+        clearScene();
+        if (m_currentSceneData) {
+            FileLoader::Get().FreeFile(m_currentSceneData);
+            m_currentSceneData = nullptr;
+        }
+    }
+
+    if (m_movie.start(gpu, m_controls[0])) return;
+#endif
+    finishMovie(gpu, MoviePlayer::Result::FAILED);
+}
+
+bool psxsplash::SceneManager::playMovieOn(const char* name, const GameObject* target,
+                                          const MovieTexture::Options& options) {
+#if defined(LOADER_CDROM)
+    // Lua runs with the drive's interrupts off (SilenceDrive), and the read needs them.
+    CDRomHelper::WakeDrive();
+    const bool playing = m_movieTexture.play(name, target, options);
+    CDRomHelper::SilenceDrive();
+    return playing;
+#else
+    return false;
+#endif
+}
+
+void psxsplash::SceneManager::stopMovieOn() {
+    m_movieTexture.stop();
+    const int ref = m_movieTexture.takeOnComplete();
+    if (ref != MovieTexture::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+}
+
+bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
+    if (m_movie.pending()) {
+        // A frame after the one that asked, with its chain out: the player's first
+        // upload must not meet that chain, nor a 24-bit display show its picture.
+        gpu.waitChainIdle();
+        startMovie(gpu);
+        return true;
+    }
+    if (!m_movie.playing()) return false;
+    MoviePlayer::Result result;
+    if (m_movie.frame(m_controls[0], result)) finishMovie(gpu, result);
+    return true;
+}
+
+void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
+    const MoviePlayer::Request& request = m_movie.request();
+    // The game's tick did not run while the movie played: the button that skipped it is no press now.
+    m_controls[0].SettleButtonsPlayer1();
+    m_controls[1].SettleButtonsPlayer2();
+#if defined(LOADER_CDROM)
+    if (request.thenScene >= 0) {
+        m_movie.restoreDisplay();
+        loadScene(gpu, request.thenScene, /*isFirstScene=*/true);
+        return;
+    }
+    CDRomHelper::SilenceDrive();
+#endif
+    m_lastFrameTime = 0;  // the movie's length is not a frame's
+
+    fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
+                                          : result == MoviePlayer::Result::SKIPPED ? "skipped"
+                                                                                   : "failed");
+    // Its last picture stays up for a movie onComplete queued; otherwise the game's display comes back.
+    if (!m_movie.pending()) m_movie.restoreDisplay();
+}
+
+void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
+    if (ref == MoviePlayer::c_noRef) return;
+    lua_State* state = L.getState().getState();
+    psyqo::Lua lua(state);
+    lua.rawGetI(LUA_REGISTRYINDEX, ref);
+    if (lua.isFunction(-1)) {
+        lua.push(result);
+        if (lua.pcall(1, 0) != LUA_OK) {
+            printf("Lua error: %s\n", lua.toString(-1));
+            lua.pop();
+        }
+    } else {
+        lua.pop();
+    }
+    luaL_unref(state, LUA_REGISTRYINDEX, ref);
+}
+#endif
+
 void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool isFirstScene) {
     // Finish or drop gameplay stream reads while the scene that owns their
     // buffers is still alive; the blocking loads below need an idle drive.
@@ -1429,41 +1583,9 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #if defined(LOADER_CDROM)
     CDRomHelper::WakeDrive();
 
-    // CD-DA music keeps a CDRomDevice action active for the entire track (the
-    // drive reports position and the end-of-track IRQ through it).  While that
-    // action is pending, any blocking data read aborts with "readSectorsBlocking
-    // called with pending action".  So the drive must be brought to idle before
-    // loading any scene files - this must happen before the loading-screen read
-    // below.
-    //
-    // Getting there safely is fiddly.  The device exposes only isIdle()
-    // (state == 0), and psyqo's stopCDDA() accepts ONLY the steady PLAYING
-    // state (100): calling it during CD-DA's startup handshake, or while a
-    // pause/stop the scene's own Lua already issued is still draining, aborts
-    // with "stopCDDA called while not playing".  And MusicManager::isPlayingCDDA()
-    // can't be trusted alone: it's set from a deferred callback, so it lags the
-    // hardware.  So do it in two phases:
-    //   1. Pump until the drive settles into a definite state - either idle
-    //      (a startup that failed, or an in-flight pause/stop that finished) or
-    //      steady playback.  isPlayingCDDA() flips true from the callback that
-    //      fires exactly when the PLAYING state is entered, so it is a reliable
-    //      "safe to stop now" signal; combined with !isIdle() it means state==100.
-    //   2. If it settled on playing, stop it and drain back to idle.
     // The per-scene Lua VM (which owns music state) is torn down in clearScene()
     // and the next scene restarts its own track, so a full stop is correct.
-    {
-        psyqo::CDRomDevice* cdrom = static_cast<psxsplash::FileLoaderCDRom&>(
-            psxsplash::FileLoader::Get()).getCDRomDevice();
-        while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
-            gpu.pumpCallbacks();
-        }
-        if (!cdrom->isIdle()) {
-            m_music.stopCDDA();
-            while (!cdrom->isIdle()) {
-                gpu.pumpCallbacks();
-            }
-        }
-    }
+    settleDrive(gpu);
 #endif
 
     psyqo::Prim::FastFill ff(psyqo::Color{ .r = 0, .g = 0, .b = 0 });
@@ -1743,6 +1865,12 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
 }
 
 void psxsplash::SceneManager::clearScene() {
+#if PSXSPLASH_FEATURE_MOVIE
+    // Its target and its script go with the scene.
+    m_movieTexture.stop();
+    m_movieTexture.takeOnComplete();
+#endif
+
     // 0. Drop network replication state: actorIds refer to different objects in
     //    a new scene, so any mapping/registry must not carry over.
     //
