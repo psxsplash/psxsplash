@@ -60,6 +60,12 @@ class Controls {
     /// boot is not merely cheaper -- it is the correct lifetime.
     void Init();
 
+    /// Both ports every frame, or one. A full-screen movie ticks once per picture, so at
+    /// one a frame port 1 is read every 8 vblanks at 15 fps.
+    void setFastPolling(bool fast) {
+        m_input.setPollingMode(fast ? psyqo::AdvancedPad::PollingMode::Fast : psyqo::AdvancedPad::PollingMode::Normal);
+    }
+
     /// Per-player movement/look handling.
     /// Player 1 reads the controller in port 1 (Pad1a); player 2 reads port 2 (Pad2a).
     void HandleControlsPlayer1(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
@@ -70,6 +76,11 @@ class Controls {
     /// Update button state tracking - call before HandleControls* each frame. One per player.
     void UpdateButtonStatesPlayer1();
     void UpdateButtonStatesPlayer2();
+
+    /// Take the pad's live state as already seen, so a button held through a pause in the
+    /// game's tick (a full-screen movie) is no press when the game runs again. One per player.
+    void SettleButtonsPlayer1();
+    void SettleButtonsPlayer2();
     
     /// Set movement speeds from splashpack data (call once after scene load)
     void setMoveSpeed(psyqo::FixedPoint<12, uint16_t> speed) { m_moveSpeed.value = speed.value; }
@@ -195,6 +206,8 @@ class Controls {
     // Shared cores, operating on m_pad / m_port. The public PlayerN methods set
     // the identity and then delegate here.
     void updateButtonStates();
+    void settleButtons();
+    uint16_t readButtons() const;
     void handleControls(psyqo::Vec3 &playerPosition, psyqo::Angle &playerRotationX, psyqo::Angle &playerRotationY,
                         psyqo::Angle &playerRotationZ, bool freecam, int32_t dt12);
 

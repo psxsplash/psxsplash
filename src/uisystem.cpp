@@ -117,6 +117,7 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
             el.type    = static_cast<UIElementType>(*elemPtr++);
             uint8_t eFlags = *elemPtr++;
             el.visible = (eFlags & 0x01) != 0;
+            el.behindScene = false;
             uint8_t eNameLen = *elemPtr++;
             elemPtr++; // pad0
             uint32_t eNameOff = *reinterpret_cast<uint32_t*>(elemPtr); elemPtr += 4;
@@ -343,6 +344,7 @@ void UISystem::renderElement(UIElement& el,
     case UIElementType::Image: {
         psyqo::PrimPieces::TPageAttr tpage = makeTPage(el.image);
         psyqo::PrimPieces::ClutIndex clut(el.image.clutX, el.image.clutY);
+        const int32_t z = el.behindScene ? int32_t(ot.size()) - 1 : 0;  // the far end of the table
         psyqo::Color tint = {.r = el.colorR, .g = el.colorG, .b = el.colorB};
 
         // Triangle 0: top-left, top-right, bottom-left
@@ -360,7 +362,7 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.setColorB(tint);
             tri.primitive.setColorC(tint);
             tri.primitive.setOpaque();
-            ot.insert(tri, 0);
+            ot.insert(tri, z);
         }
         // Triangle 1: top-right, bottom-right, bottom-left
         {
@@ -377,7 +379,7 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.setColorB(tint);
             tri.primitive.setColorC(tint);
             tri.primitive.setOpaque();
-            ot.insert(tri, 0);
+            ot.insert(tri, z);
         }
         break;
     }
@@ -768,6 +770,10 @@ void UISystem::getProgressBgColor(int handle, uint8_t& r, uint8_t& g, uint8_t& b
 
 int UISystem::getCanvasCount() const {
     return m_canvasCount;
+}
+
+void UISystem::setBehindScene(int handle, bool behind) {
+    if (handle >= 0 && handle < m_elementCount) m_elements[handle].behindScene = behind;
 }
 
 const UIImageData* UISystem::getImageData(int handle) const {

@@ -70,6 +70,7 @@ struct UILineData {
 struct UIElement {
     UIElementType type;
     bool          visible;
+    bool          behindScene; // an image drawn before the 3D instead of over it
     const char*   name;        // points into splashpack data
     int16_t x, y, w, h;       // pixel rect / offset in PS1 screen space
     uint8_t anchorMinX, anchorMinY, anchorMaxX, anchorMaxY; // 8.8 fixed
@@ -144,6 +145,7 @@ public:
     /// Point a sheet-backed image at another cell of its sheet. No effect on any
     /// other element type, or on an image that was not authored from a sheet.
     void setFrame(int handle, uint8_t frame);
+    void setBehindScene(int handle, bool behind);
     /// Current cell of a sheet-backed image, or -1 when the element is not one.
     /// The -1 is what lets Lua ask "can I SetFrame this?" without a second call.
     int getFrame(int handle) const;

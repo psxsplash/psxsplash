@@ -8,7 +8,7 @@ includes("third_party/nugget/psyqo-lua")
 -- Engine subsystems and the sources each one adds, as in the Makefile and
 -- src/features.hh.
 local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "lights", "streaming",
-                      "memcard", "nav", "agents", "collision", "shadows"}
+                      "memcard", "nav", "agents", "collision", "shadows", "movie"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
     net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
@@ -23,6 +23,7 @@ local feature_srcs = {
     memcard = {"src/memorycardmanager.cpp", "src/luatableserializer.cpp"},
     collision = {"src/collision.cpp"},
     shadows = {"src/shadowrender.cpp"},
+    movie = {"src/movieplayer.cpp", "src/movietexture.cpp", "src/srt.cpp"},
 }
 
 option("features", {type = "string",
@@ -105,6 +106,12 @@ for _, variant in ipairs(variants) do
 
         if variant.cdrom then
             add_defines("LOADER_CDROM")
+            if features.movie then
+                -- psyqo-paths has no xmake target; the player and its decoder are all a movie needs.
+                add_files("third_party/nugget/psyqo-paths/src/str-player.cpp")
+                add_files("third_party/nugget/bsdec/bsdec.c", {cflags = "-O3"})
+                add_files("third_party/nugget/common/crt0/clz.c")
+            end
         else
             add_defines("PCDRV_SUPPORT=1")
         end
