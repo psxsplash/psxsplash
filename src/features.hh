@@ -45,6 +45,9 @@
 #ifndef PSXSPLASH_FEATURE_COLLISION
 #define PSXSPLASH_FEATURE_COLLISION 1  // object colliders and trigger boxes
 #endif
+#ifndef PSXSPLASH_FEATURE_MOVIE
+#define PSXSPLASH_FEATURE_MOVIE 1      // full-screen STR movies off the disc: Movie.*
+#endif
 #ifndef PSXSPLASH_FEATURE_SHADOWS
 #define PSXSPLASH_FEATURE_SHADOWS 1    // blob shadows under objects
 #endif
