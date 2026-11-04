@@ -610,6 +610,7 @@ private:
     // ========================================================================
     
     // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, behind=element, onComplete=fn(result, shown, dropped), onUpdate=fn(frame), thenScene=n, rgb24=bool}) -> queued
+    // With thenScene, onComplete and onUpdate are not called: the scene and its script are freed as the movie starts, to make room for it.
     static int Movie_Play(lua_State* L);
 
     // Movie.Stop() -> stopped
