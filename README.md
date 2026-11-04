@@ -14,24 +14,33 @@ You don't interact with this repo directly. SplashEdit downloads and compiles it
 
 ## Building
 
-Requires a MIPS cross-compiler (`mipsel-none-elf` on Windows, `mipsel-linux-gnu` on Linux) and GNU Make.
+Requires a MIPS cross-compiler (`mipsel-none-elf` on Windows, `mipsel-linux-gnu` on Linux) and [xmake](https://xmake.io).
 
 ```bash
-make all -j$(nproc)
+xmake
 ```
 
-Build options:
+This builds every engine into `build/psx/mipsel/release/`, each under its own name:
 
-| Flag | Description |
-|------|-------------|
-| `LOADER=cdrom` | CD-ROM backend (real hardware) |
-| `PCDRV_SUPPORT=1` | PCdrv backend (emulator, default) |
-| `NOPARSER=1` | Strip Lua parser, use precompiled bytecode |
-| `PSXSPLASH_MEMOVERLAY=1` | Runtime memory usage overlay |
-| `PSXSPLASH_FPSOVERLAY=1` | FPS counter overlay |
-| `OT_SIZE=N` | Ordering table size when a scene does not set one |
-| `BUMP_SIZE=N` | Bump allocator size when a scene does not set one |
-| `FEATURES=...` | Subsystems to compile in, space or comma separated, from `bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows` (`bootlogo` is the psxsplash logo animation shown before the first scene). Unset builds all of them; `FEATURES=none` builds the smallest engine. SplashEdit passes the set the exported scenes use. |
+| File | Use |
+|------|-----|
+| `psxsplash.ps-exe` | Loads scenes over PCdrv: pcsx-redux, or a console over a serial cable |
+| `psxsplash-cdrom.ps-exe` | Loads scenes from the CD: disc images |
+| `psxsplash-perf.ps-exe` | PCdrv, with the FPS counter and heap usage overlay |
+| `psxsplash-rooms.ps-exe` | PCdrv, with the room debug overlay |
+| `psxsplash-perf-rooms.ps-exe` | PCdrv, with both |
+
+`xmake build psxsplash-cdrom.ps-exe` builds one of them. Options, set with `xmake f` before building and applied to every engine:
+
+| Option | Description |
+|--------|-------------|
+| `--features=...` | Subsystems to compile in, comma separated, from `bootlogo,net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows` (`bootlogo` is the psxsplash logo animation shown before the first scene). Unset builds all of them; `none` builds the smallest engine. Without `bootlogo`, every file name ends in `-nologo`. |
+| `--noparser=y` | Strip the Lua parser; scripts must be precompiled bytecode |
+| `--ot_size=N` | Ordering table size when a scene does not set one |
+| `--bump_size=N` | Bump allocator size when a scene does not set one |
+| `--profiler=y` | Per-frame profiler overlay and PCSX variable export |
+
+The Makefile still builds one engine at a time (`make LOADER=cdrom`, `MEMOVERLAY=1`, `FPSOVERLAY=1`, `ROOMDEBUG=1`, `NOPARSER=1`, `FEATURES=...`), always as `psxsplash.ps-exe`, so each build replaces the last. CI builds with both.
 
 ## Contributing
 
