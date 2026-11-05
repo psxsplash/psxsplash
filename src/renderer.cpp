@@ -1,6 +1,7 @@
 #include "renderer.hh"
 
 #include "fade.hh"
+#include "palettecycler.hh"
 
 #include <EASTL/array.h>
 #include <EASTL/vector.h>
@@ -987,6 +988,8 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    // Last insert into the far bucket, so the CLUT uploads precede every primitive of the frame.
+    if (m_paletteCycler) m_paletteCycler->emit(ot, balloc, int32_t(m_otSize) - 1);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -1093,6 +1096,8 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    // Last insert into the far bucket, so the CLUT uploads precede every primitive of the frame.
+    if (m_paletteCycler) m_paletteCycler->emit(ot, balloc, int32_t(m_otSize) - 1);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -1807,6 +1812,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
+    // Last insert into the far bucket, so the CLUT uploads precede every primitive of the frame.
+    if (m_paletteCycler) m_paletteCycler->emit(ot, balloc, int32_t(m_otSize) - 1);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);

@@ -141,14 +141,6 @@ struct SPLASHPACKTextureAtlas {
     uint16_t x, y;
 };
 
-struct SPLASHPACKClut {
-    uint32_t clutOffset;
-    uint16_t clutPackingX;
-    uint16_t clutPackingY;
-    uint16_t length;
-    uint16_t pad;
-};
-
 void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup) {
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
@@ -324,10 +316,11 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         cursor += sizeof(psxsplash::SPLASHPACKTextureAtlas);
     }
 
-    // CLUT metadata - v20: CLUT data is in a separate .vram file.
-    for (uint16_t i = 0; i < header->clutCount; i++) {
-        cursor += sizeof(psxsplash::SPLASHPACKClut);
-    }
+    // CLUT metadata - v20: CLUT data is in a separate .vram file. The table is kept for
+    // palette cycling records.
+    setup.cluts = reinterpret_cast<const psxsplash::SPLASHPACKClut*>(cursor);
+    setup.clutCount = header->clutCount;
+    cursor += header->clutCount * sizeof(psxsplash::SPLASHPACKClut);
 
     if (header->nameTableOffset != 0) {
         uint8_t* nameData = data + header->nameTableOffset;

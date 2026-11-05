@@ -25,6 +25,7 @@
 namespace psxsplash {
 
 class UISystem; // Forward declaration
+class PaletteCycler; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
 class NavRegionSystem;
@@ -130,6 +131,7 @@ class Renderer final {
                     int16_t width, int16_t height);
 
     void SetUISystem(UISystem* ui) { m_uiSystem = ui; }
+    void SetPaletteCycler(PaletteCycler* cycler) { m_paletteCycler = cycler; }
     void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
     void SetTileSystem(TileSystem* tiles) { m_tileSystem = tiles; }
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -219,6 +221,7 @@ class Renderer final {
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
     UISystem* m_uiSystem = nullptr;
+    PaletteCycler* m_paletteCycler = nullptr;
     SpriteSystem* m_spriteSystem = nullptr;
     TileSystem* m_tileSystem = nullptr;
 #ifdef PSXSPLASH_MEMOVERLAY

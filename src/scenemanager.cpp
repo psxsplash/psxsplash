@@ -115,6 +115,14 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_loader.LoadSplashpack(splashpackData, sceneSetup);
     Renderer::GetInstance().Configure(sceneSetup.orderingTableSize, sceneSetup.bumpAllocatorSize);
 
+    m_paletteCycler.clear();
+    for (uint16_t i = 0; i < sceneSetup.clutCount; i++) {
+        const SPLASHPACKClut& c = sceneSetup.cluts[i];
+        m_paletteCycler.addClut(splashpackData, m_currentSceneSize, i, c.clutOffset, c.pad, c.clutPackingX,
+                                c.clutPackingY, c.length);
+    }
+    Renderer::GetInstance().SetPaletteCycler(m_paletteCycler.count() ? &m_paletteCycler : nullptr);
+
     if (loading && loading->isActive()) loading->updateProgress(gpu, 40);
 
     m_luaFiles = std::move(sceneSetup.luaFiles);
@@ -559,6 +567,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
         }
         m_lastFrameTime = now;
     }
+
+    // Palette cycling advances with the frame's time; the renderer uploads what changed.
+    m_paletteCycler.tick(m_dt12);
 
     // Networking: pump the link and apply any remote state BEFORE this frame's
     // game logic, so scripts and movement see fresh peer state. No-op (and never
@@ -1488,9 +1499,13 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
         // Free old splashpack data BEFORE loading the new one.
         // This avoids having both scene buffers in the heap simultaneously.
+        // The cycler reads its base words out of that buffer.
+        m_paletteCycler.clear();
+        Renderer::GetInstance().SetPaletteCycler(nullptr);
         if (m_currentSceneData) {
             FileLoader::Get().FreeFile(m_currentSceneData);
             m_currentSceneData = nullptr;
+            m_currentSceneSize = 0;
         }
     }
 
@@ -1604,6 +1619,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     psyqo::Angle keptRotX = playerRotationX, keptRotY = playerRotationY, keptRotZ = playerRotationZ;
 
     m_currentSceneData = newData;
+    m_currentSceneSize = uint32_t(fileSize);
     m_currentSceneIndex = sceneIndex;
 
     // Initialize with new data (creates fresh Lua VM inside).
