@@ -13,6 +13,9 @@ namespace psxsplash {
   // The texture is a paletted cutout (palette entry 0 is the transparent texel),
   // so the fog pass can draw through the fog mask CLUT and skip its holes.
   static constexpr uint16_t CUTOUT_FLAG = 0x2;
+  // A decal: the exporter clipped it onto the surface under it, so it is drawn
+  // kDecalDepthBias buckets in front of its own depth (otdepth.hh).
+  static constexpr uint16_t DECAL_FLAG = 0x8;
   // Set by the renderer only, on the children of a split triangle, whose
   // corner colours already carry the point lights. Never in a splashpack.
   static constexpr uint16_t SPLIT_LIT_FLAG = 0x8000;

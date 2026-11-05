@@ -1,6 +1,7 @@
 #include "renderer.hh"
 
 #include "fade.hh"
+#include "otdepth.hh"
 
 #include <EASTL/array.h>
 #include <EASTL/vector.h>
@@ -607,6 +608,10 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
     // triangle wholly before the fade start pays one compare.
     int32_t fogIR[3] = {0, 0, 0};
     if (zIndex > m_fadeStartSZ) fadeTriangle(sz[0], sz[1], sz[2], fogFarSZ, m_edgeSZ, fogIR);
+    // A decal goes in front of the surface it lies on (whose children, when the
+    // surface was split, are nearer than it): every path ends here, so this is
+    // the one place the bias is applied, after the fade test above.
+    if (tri.flags & DECAL_FLAG) zIndex = otdepth::decalBucket(zIndex, WORLD_DEPTH_MIN);
 
     psyqo::Color cA = tri.colorA, cB = tri.colorB, cC = tri.colorC;
 #if PSXSPLASH_FEATURE_LIGHTS

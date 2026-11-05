@@ -8,6 +8,7 @@
 #include <psyqo/primitives/control.hh>
 
 #include "navregion.hh"
+#include "otdepth.hh"
 
 using namespace psyqo::GTE;
 
@@ -22,7 +23,7 @@ using namespace psyqo::GTE;
 // The bucket is the centre's depth less kShadowDepthBias: in front of the
 // floor under it, so the floor is drawn first, and level with the caster's
 // feet.
-static constexpr int32_t kShadowDepthBias = 8;
+using psxsplash::otdepth::kShadowDepthBias;  // otdepth.hh, next to the decal bias
 
 void psxsplash::Renderer::renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
                                         int32_t fogFarSZ, OT& ot, Balloc& balloc) {
