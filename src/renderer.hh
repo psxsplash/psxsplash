@@ -15,6 +15,7 @@
 
 #include "bvh.hh"
 #include "camera.hh"
+#include "capturetag.hh"
 #include "gameobject.hh"
 #include "features.hh"
 #include "lightmath.hh"
@@ -262,6 +263,31 @@ class Renderer final {
     TriangleRef* m_visibleRefs = nullptr;
     uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
+
+    // Capture tags (capturetag.hh). m_tagOn is latched from g_captureTag once
+    // per frame; the rest is the object being drawn, set per object only while
+    // it is on. m_tagRoot is the triangle a split triangle's pieces came from.
+    bool m_tagOn = false;
+    uint16_t m_tagObj = 0;
+    uint16_t m_tagPolyCount = 0;
+    uint16_t m_tagRoot = 0;
+    const Tri* m_tagPolys = nullptr;
+    uint32_t m_tagCount = 0;
+    uint32_t m_tagSkipped = 0;
+    void beginCaptureTags();
+    void endCaptureTags();
+    // One predictable branch per object while off.
+    void tagObject(size_t index, const Tri* polys, uint16_t polyCount) {
+        if (__builtin_expect(m_tagOn, 0)) {
+            m_tagObj = index > 0xffff ? 0xffff : (uint16_t)index;
+            m_tagPolys = polys;
+            m_tagPolyCount = polyCount;
+        }
+    }
+    // Appends the tag words to frag, the last fragment allocated and just
+    // inserted at zIndex. Out of line: only reached while tagging.
+    __attribute__((noinline)) void appendCaptureTag(psyqo::Fragments::ChainEntry& frag, unsigned fragBytes,
+                                                    const Tri& tri, int32_t zIndex, unsigned kind, Balloc& balloc);
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
