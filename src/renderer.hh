@@ -345,6 +345,20 @@ class Renderer final {
                               Balloc& balloc,
                               const Frustum* frustum = nullptr);
 #endif
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+  public:
+    // While the perf map walks, reportPeaks prints nothing: its printf runs
+    // inside the measured rendering section. Peaks keep being tracked, so a
+    // peak that grew is printed at the first report after release.
+    void setReportsHeld(bool held) { m_reportsHeld = held; }
+
+  private:
+    bool m_reportsHeld = false;
+    bool reportsHeld() const { return m_reportsHeld; }
+#else
+    static constexpr bool reportsHeld() { return false; }
+#endif
 };
 
 }  // namespace psxsplash
