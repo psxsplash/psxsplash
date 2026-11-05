@@ -224,11 +224,14 @@ void CutscenePlayer::applyFrame() {
                 int skinIdx = (int)evt.skinMeshIndex;
                 if (skinIdx < m_sceneMgr->getSkinnedMeshCount()) {
                     SkinAnimState& state = m_sceneMgr->getSkinAnimState(skinIdx);
-                    state.currentClip  = evt.clipIndex;
-                    state.currentFrame = 0;
-                    state.subFrame     = 0;
-                    state.playing      = true;
-                    state.loop         = (evt.loop != 0);
+                    // A clip the skin does not have (past what this engine keeps) is ignored.
+                    if (evt.clipIndex < m_sceneMgr->getSkinAnimSet(skinIdx).clipCount) {
+                        state.currentClip  = evt.clipIndex;
+                        state.currentFrame = 0;
+                        state.subFrame     = 0;
+                        state.playing      = true;
+                        state.loop         = (evt.loop != 0);
+                    }
                 }
             }
 #endif

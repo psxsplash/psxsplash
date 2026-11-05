@@ -167,7 +167,9 @@ struct SplashpackSceneSetup {
     int animationCount = 0;
 
 #if PSXSPLASH_FEATURE_SKIN
-    SkinAnimSet loadedSkinAnimSets[MAX_SKINNED_MESHES];
+    /// MAX_SKINNED_MESHES sets to load into, owned by the caller (the
+    /// SceneManager's own array, so no copy of them sits on the stack).
+    SkinAnimSet* loadedSkinAnimSets = nullptr;
 #endif
     int skinnedMeshCount = 0;
 

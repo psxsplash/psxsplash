@@ -154,6 +154,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
     psyqo::Kernel::assert(__builtin_memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
     psyqo::Kernel::assert(header->version >= 20, "Splashpack version too old (need v20+): re-export from SplashEdit");
+    psyqo::Kernel::assert(header->version <= kSplashpackNewestVersion,
+                          "Splashpack version too new for this engine: update psxsplash");
 
     setup.playerStartPosition = header->playerStartPos;
     setup.playerStartRotation = header->playerStartRot;
@@ -603,13 +605,17 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             tablePtr += 3; // pad
             uint32_t nameOffset  = *reinterpret_cast<uint32_t*>(tablePtr); tablePtr += 4;
 
+            psyqo::Kernel::assert(setup.loadedSkinAnimSets != nullptr, "Skinned meshes loaded with no storage");
             SkinAnimSet& animSet = setup.loadedSkinAnimSets[si];
 
             // Parse SkinData block
             uint8_t* skinPtr = data + dataOffset;
             animSet.gameObjectIndex = *reinterpret_cast<uint16_t*>(skinPtr); skinPtr += 2;
             animSet.boneCount       = *skinPtr++;
-            animSet.clipCount       = *skinPtr++;
+            const uint8_t packClipCount = *skinPtr++;
+            // Clips past the slots are walked over, not kept, so the v26
+            // tail after the last clip is still found where it is.
+            animSet.clipCount = packClipCount > SKINMESH_MAX_CLIPS ? SKINMESH_MAX_CLIPS : packClipCount;
 
             // Bone indices: polyCount x 3 bytes
             uint16_t polyCount = 0;
@@ -624,9 +630,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             skinPtr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
 
             // Parse clips
-            if (animSet.clipCount > SKINMESH_MAX_CLIPS) animSet.clipCount = SKINMESH_MAX_CLIPS;
-            for (uint8_t ci = 0; ci < animSet.clipCount; ci++) {
-                SkinAnimClip& clip = animSet.clips[ci];
+            for (uint8_t ci = 0; ci < packClipCount; ci++) {
+                SkinAnimClip skipped;
+                SkinAnimClip& clip = ci < animSet.clipCount ? animSet.clips[ci] : skipped;
 
                 uint8_t clipNameLen = *skinPtr++;
                 // Null-terminate the name in place
