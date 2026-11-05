@@ -441,6 +441,42 @@ private:
 
     // Camera.SetH(h) -> nil (set projection H register, clamped 1-1024)
     static int Camera_SetH(lua_State* L);
+
+    // ========================================================================
+    // SCREEN API - fades, flash, shake, letterbox and trail
+    // ========================================================================
+
+    // Screen.FadeOut(r, g, b, frames)
+    // Fades the whole screen, UI and text included, to the colour r, g, b (0-255 each) over frames
+    // (30 per second; 0 is at once). The screen stays that colour until Screen.FadeIn.
+    static int Screen_FadeOut(lua_State* L);
+
+    // Screen.FadeIn(frames)
+    // Fades back from the fade colour to the picture over frames (30 per second; 0 is at once).
+    static int Screen_FadeIn(lua_State* L);
+
+    // Screen.Flash(r, g, b, frames)
+    // Adds the colour r, g, b (0-255 each) to the whole screen and lets it die away over frames.
+    static int Screen_Flash(lua_State* L);
+
+    // Screen.Shake(amplitude, frames)
+    // Shakes the 3D view by up to amplitude pixels (0-64), dying away over frames. The camera does not move.
+    static int Screen_Shake(lua_State* L);
+
+    // Screen.Letterbox(height, frames)
+    // Slides black bars height pixels tall over the top and bottom of the 3D view over frames.
+    // Letterbox(0, frames) removes them. The UI stays above the bars.
+    static int Screen_Letterbox(lua_State* L);
+
+    // Screen.Trail(strength)
+    // Motion trail: blends the previous frame back in, half and half. Any nonzero strength turns it on
+    // (the blend is fixed; the value only says on or off), 0 turns it off. Not available in
+    // single-buffer display modes.
+    static int Screen_Trail(lua_State* L);
+
+    // Screen.IsFading() -> boolean
+    // True while a FadeOut or FadeIn is still running.
+    static int Screen_IsFading(lua_State* L);
     
     // ========================================================================
     // AUDIO API - Sound playback (placeholder for SPU)
