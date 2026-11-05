@@ -1464,6 +1464,11 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
             }
         }
     }
+
+    // Every file below opens through the root and this scene's directory;
+    // read those once for the whole load instead of once per file.
+    psxsplash::FileLoaderCDRom::DirBatch dirBatch(
+        static_cast<psxsplash::FileLoaderCDRom&>(psxsplash::FileLoader::Get()));
 #endif
 
     psyqo::Prim::FastFill ff(psyqo::Color{ .r = 0, .g = 0, .b = 0 });
