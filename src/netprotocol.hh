@@ -3,11 +3,13 @@
 #include <stdint.h>
 
 /**
- * PSXSplash serial network protocol - wire definitions.
+ * PSXSplash network protocol (PSNL) - wire definitions.
  *
  * This header is the single source of truth for the on-wire format. It is pure
  * data + a CRC helper (no engine or hardware dependencies) so the exact same
- * definitions can be mirrored by a future PC-side central server. Everything is
+ * definitions can be mirrored by the PC-side central server (psnl_server). The
+ * frames are a plain byte stream and travel unchanged over SIO1 or over a PCDRV
+ * TCP socket (see pcdrvsocket.hh); nothing here depends on which. Everything is
  * fixed-layout little-endian with static_assert size contracts, matching the
  * project's existing "hand-rolled binary + static_assert" convention.
  *

@@ -2204,7 +2204,7 @@ void LuaAPI::IncrementFrameCount() {
 
 #if PSXSPLASH_FEATURE_NET
 // ============================================================================
-// NET API IMPLEMENTATION (serial multiplayer over SIO1)
+// NET API IMPLEMENTATION (multiplayer over a PCDRV TCP socket or SIO1)
 // ============================================================================
 
 int LuaAPI::Net_Connect(lua_State* L) {
@@ -2229,7 +2229,12 @@ int LuaAPI::Net_Connect(lua_State* L) {
     // Host-election entropy: a hardware timer sample that differs per console.
     uint32_t seed = s_sceneManager->getFrameTimestamp() ^ (s_frameCount << 3) ^ SceneManager::m_random.rand();
 
-    // Net.Connect([baud[, rxMode]]).
+    // Net.Connect([baud[, rxMode[, server]]]) or Net.Connect(server).
+    //
+    // server: "host:port" for the PCDRV TCP socket, tried first whenever the host
+    // has networking (psxmon, or PCSX-Redux with -pcdrv -pcdrvnet); default
+    // PcdrvSocket::c_defaultServer, psnl_server's raw port on the same machine.
+    // baud and rxMode configure the SIO1 fallback and mean nothing to the socket.
     //
     // rxMode: 0/nil = Auto (polled under Redux, interrupt on hardware), 1 =
     // Polled, 2 = Interrupt. The override exists because Auto's hardware choice
@@ -2242,13 +2247,17 @@ int LuaAPI::Net_Connect(lua_State* L) {
     // a baud mismatch presents as a completely dead link with no diagnostic. One
     // number, one place.
     const uint32_t baud = lua.isNumber(1) ? static_cast<uint32_t>(lua.toNumber(1)) : Sio1::c_defaultBaud;
+    // isString is also true for a number, so the number test comes first.
+    const char* server = nullptr;
+    if (!lua.isNumber(1) && lua.isString(1)) server = lua.toString(1);
+    else if (!lua.isNumber(3) && lua.isString(3)) server = lua.toString(3);
     Sio1::RxMode rxMode = Sio1::RxMode::Auto;
     if (lua.isNumber(2)) {
         const int m = static_cast<int>(lua.toNumber(2));
         if (m == 1) rxMode = Sio1::RxMode::Polled;
         else if (m == 2) rxMode = Sio1::RxMode::Interrupt;
     }
-    NetworkManager::Get().begin(sceneHash, seed, baud, rxMode);
+    NetworkManager::Get().begin(sceneHash, seed, baud, rxMode, server);
     lua.push(true);
     return 1;
 }
@@ -2287,6 +2296,8 @@ int LuaAPI::Net_State(lua_State* L) {
 /// connecting" - which turned out to be a frozen frame, not a status.
 ///
 /// Reading the table, when the console will not connect:
+///   socket 1              -> the session runs over the PCDRV TCP socket; only
+///                            bytesRx/bytesTx and the frame counters apply
 ///   rxIrqs 0 + bytesRx 0  -> the RX interrupt never fired (event/mask problem)
 ///   bytesRx rising, frames 0 -> bytes arrive but no frame ever completes
 ///   frames rising, still connecting -> handshake rejected; check magic/version
@@ -2322,8 +2333,13 @@ int LuaAPI::Net_Stats(lua_State* L) {
         lua.pushNumber(static_cast<lua_Number>(v));
         lua.setField(-2, name);
     };
-    field("bytesRx", sio.bytesReceived());
-    field("bytesTx", sio.bytesSent());
+    // Over the socket the byte counts are the socket's; everything else in this
+    // table describes SIO1 and stays at rest.
+    const bool socket = NetworkManager::Get().usingSocket();
+    const auto& sock = NetworkManager::Get().socket();
+    field("socket", socket ? 1 : 0);
+    field("bytesRx", socket ? sock.bytesReceived() : sio.bytesReceived());
+    field("bytesTx", socket ? sock.bytesSent() : sio.bytesSent());
     field("rxIrqs", sio.rxInterrupts());
     field("rxOverflows", sio.rxOverflows());
     // Early warning where rxOverflows is a post-mortem: this is how close the ring

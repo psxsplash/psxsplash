@@ -34,6 +34,7 @@ STREAM_BIN := $(BUILD)/stream_tests
 FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 JUMP_BIN   := $(BUILD)/jump_tests
+PCNET_BIN  := $(BUILD)/pcdrvsocket_tests
 GEN_BIN    := $(BUILD)/gen_vectors
 
 .PHONY: all test vectors clean
@@ -66,12 +67,17 @@ $(SHADOW_BIN): test_shadow.cpp testing.hh compat.hh $(SRC_DIR)/shadowmath.hh $(S
 $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_jump.cpp
 
+$(PCNET_BIN): test_pcdrvsocket.cpp mocktransport.hh testing.hh compat.hh $(NET_SRCS) $(SRC_DIR)/pcdrvsocket.cpp $(SRC_DIR)/pcdrvsocket.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_pcdrvsocket.cpp $(SRC_DIR)/pcdrvsocket.cpp $(NET_SRCS)
+
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(PCNET_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
+	@echo "== pcdrvsocket =="
+	@$(PCNET_BIN)
 	@echo "== sprite =="
 	@$(SPRITE_BIN)
 	@echo "== tile =="
