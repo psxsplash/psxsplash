@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "uiblend.hh"
 #include "vram_config.h"
 #include "renderer.hh"
 #include <psyqo/font.hh>
@@ -74,6 +75,7 @@ struct UIElement {
     int16_t x, y, w, h;       // pixel rect / offset in PS1 screen space
     uint8_t anchorMinX, anchorMinY, anchorMaxX, anchorMaxY; // 8.8 fixed
     uint8_t colorR, colorG, colorB;
+    UIBlend blend;             // Box, Progress, Line only; see uiblend.hh
     union { UIImageData image; UIProgressData progress; UITextData textData; UILineData lineData;  };
     char textBuf[UI_TEXT_BUF]; // UIText: mutable, starts with default
 };
@@ -185,6 +187,9 @@ private:
     void renderElement(UIElement& el,
                        Renderer::OT& ot,
                        Renderer::Balloc& balloc);
+    void insertBlendMode(UIBlend blend, int z,
+                         Renderer::OT& ot,
+                         Renderer::Balloc& balloc);
 
     void renderProportionalText(int fontIdx, int16_t x, int16_t y,
                                 uint8_t r, uint8_t g, uint8_t b,

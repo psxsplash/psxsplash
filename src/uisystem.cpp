@@ -117,6 +117,7 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
             el.type    = static_cast<UIElementType>(*elemPtr++);
             uint8_t eFlags = *elemPtr++;
             el.visible = (eFlags & 0x01) != 0;
+            el.blend   = uiblend::fromFlags(eFlags);
             uint8_t eNameLen = *elemPtr++;
             elemPtr++; // pad0
             uint32_t eNameOff = *reinterpret_cast<uint32_t*>(elemPtr); elemPtr += 4;
@@ -299,6 +300,21 @@ psyqo::PrimPieces::TPageAttr UISystem::makeTPage(const UIImageData& img) {
 // Render a single element into the OT
 // ============================================================================
 
+// An untextured primitive takes its semi-transparency mode from the GPU's
+// draw mode (GP0 E1), which every textured primitive and every text TPage
+// overwrites. So a blended element sets the mode itself, with a TPage inserted
+// AFTER its primitive in the same bucket: insertion is LIFO, so the TPage draws
+// first. Images and text stay opaque: a textured primitive only blends texels
+// whose bit 15 is set, and the UI atlas does not set it.
+void UISystem::insertBlendMode(UIBlend blend, int z,
+                               Renderer::OT& ot,
+                               Renderer::Balloc& balloc) {
+    auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
+    tp.primitive.attr.set(
+        static_cast<psyqo::Prim::TPageAttr::SemiTrans>(uiblend::gpuMode(blend)));
+    ot.insert(tp, z);
+}
+
 void UISystem::renderElement(UIElement& el,
                              Renderer::OT& ot,
                              Renderer::Balloc& balloc) {
@@ -311,8 +327,14 @@ void UISystem::renderElement(UIElement& el,
         frag.primitive.setColor(psyqo::Color{.r = el.colorR, .g = el.colorG, .b = el.colorB});
         frag.primitive.position = {.x = x, .y = y};
         frag.primitive.size = {.x = w, .y = h};
-        frag.primitive.setOpaque();
-        ot.insert(frag, 0);
+        if (el.blend == UIBlend::Opaque) {
+            frag.primitive.setOpaque();
+            ot.insert(frag, 0);
+        } else {
+            frag.primitive.setSemiTrans();
+            ot.insert(frag, 0);
+            insertBlendMode(el.blend, 0, ot, balloc);
+        }
         break;
     }
 
@@ -322,8 +344,14 @@ void UISystem::renderElement(UIElement& el,
         bgFrag.primitive.setColor(psyqo::Color{.r = el.progress.bgR, .g = el.progress.bgG, .b = el.progress.bgB});
         bgFrag.primitive.position = {.x = x, .y = y};
         bgFrag.primitive.size = {.x = w, .y = h};
-        bgFrag.primitive.setOpaque();
-        ot.insert(bgFrag, 1);
+        if (el.blend == UIBlend::Opaque) {
+            bgFrag.primitive.setOpaque();
+            ot.insert(bgFrag, 1);
+        } else {
+            bgFrag.primitive.setSemiTrans();
+            ot.insert(bgFrag, 1);
+            insertBlendMode(el.blend, 1, ot, balloc);
+        }
 
         // Fill: partial width
         int fillW = (int)el.progress.value * w / 100;
@@ -334,8 +362,14 @@ void UISystem::renderElement(UIElement& el,
             fillFrag.primitive.setColor(psyqo::Color{.r = el.colorR, .g = el.colorG, .b = el.colorB});
             fillFrag.primitive.position = {.x = x, .y = y};
             fillFrag.primitive.size = {.x = (int16_t)fillW, .y = h};
-            fillFrag.primitive.setOpaque();
-            ot.insert(fillFrag, 0);
+            if (el.blend == UIBlend::Opaque) {
+                fillFrag.primitive.setOpaque();
+                ot.insert(fillFrag, 0);
+            } else {
+                fillFrag.primitive.setSemiTrans();
+                ot.insert(fillFrag, 0);
+                insertBlendMode(el.blend, 0, ot, balloc);
+            }
         }
         break;
     }
@@ -407,9 +441,14 @@ void UISystem::renderElement(UIElement& el,
         lineEl.primitive.setColor(psyqo::Color{ .r = el.colorR, .g = el.colorG, .b = el.colorB });
         lineEl.primitive.pointA = psyqo::Vertex{ .x = el.lineData.x1, .y = el.lineData.y1 };
         lineEl.primitive.pointB = psyqo::Vertex{ .x = el.lineData.x2, .y = el.lineData.y2 };
-        lineEl.primitive.setOpaque();
-
-        ot.insert(lineEl, 0);
+        if (el.blend == UIBlend::Opaque) {
+            lineEl.primitive.setOpaque();
+            ot.insert(lineEl, 0);
+        } else {
+            lineEl.primitive.setSemiTrans();
+            ot.insert(lineEl, 0);
+            insertBlendMode(el.blend, 0, ot, balloc);
+        }
     }
     break;
 
