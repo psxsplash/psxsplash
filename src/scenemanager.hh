@@ -464,6 +464,10 @@ namespace psxsplash {
         // Public accessors for Lua API
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
+        // Player 1..8 (inputmap::slotForPlayer), nullptr for anything else.
+        Controls* getControls(int player) {
+            return (player >= 1 && player <= inputmap::MAX_PLAYERS) ? &m_controls[player - 1] : nullptr;
+        }
         Camera& getCamera() { return m_currentCamera; }
         Lua& getLua() { return L; }
         AudioManager& getAudio() { return m_audio; }
@@ -476,15 +480,17 @@ namespace psxsplash {
         void setControlsEnabledPlayer2(bool enabled) { m_controlsEnabled[1] = enabled; }
         bool isControlsEnabledPlayer2() const { return m_controlsEnabled[1]; }
 
-        // Actor-parented input: bind a controller (player 0/1) to any actor.
-        // Default is the player actor, so binding to PLAYER_ACTOR_ID reproduces
-        // the classic behaviour (full locomotion: gravity/jump/nav). Binding to
-        // another actor drives that actor's transform directly.
+        // Actor-parented input: bind a controller (player 0..7) to any actor.
+        // Players 0 and 1 default to the player actor, so binding to
+        // PLAYER_ACTOR_ID reproduces the classic behaviour (full locomotion:
+        // gravity/jump/nav). Binding to another actor drives that actor's
+        // transform directly. Players 2..7 (multitap slots) drive nothing until
+        // bound (0xFFFF, no actor).
         void setControlBoundActor(int player, uint16_t actorId) {
-            if (player >= 0 && player < 2) m_controlBoundActor[player] = actorId;
+            if (player >= 0 && player < inputmap::MAX_PLAYERS) m_controlBoundActor[player] = actorId;
         }
         uint16_t getControlBoundActor(int player) const {
-            return (player >= 0 && player < 2) ? m_controlBoundActor[player] : PLAYER_ACTOR_ID;
+            return (player >= 0 && player < inputmap::MAX_PLAYERS) ? m_controlBoundActor[player] : PLAYER_ACTOR_ID;
         }
 
         // enable/disable (Lua-driven)
@@ -628,7 +634,7 @@ namespace psxsplash {
         MemOverlay m_memOverlay;
 #endif
 
-        psxsplash::Controls m_controls[2];
+        psxsplash::Controls m_controls[inputmap::MAX_PLAYERS];  // m_controls[i] reads player i + 1
 
         psxsplash::Camera m_currentCamera;
 
@@ -651,7 +657,11 @@ namespace psxsplash {
 
         bool freecam = false;
         bool m_controlsEnabled[2] = { true, true };    // Lua can disable all player input
-        uint16_t m_controlBoundActor[2] = { PLAYER_ACTOR_ID, PLAYER_ACTOR_ID }; // actor each controller drives
+        // actor each controller drives
+        uint16_t m_controlBoundActor[inputmap::MAX_PLAYERS] = {
+            PLAYER_ACTOR_ID, PLAYER_ACTOR_ID, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+        // Whether any enabled controller drives the player actor.
+        bool playerDrivenByController() const;
         bool m_cameraFollowsPlayer = true; // False when scene has no nav regions (freecam/cutscene mode)
         uint16_t m_cameraFollowActor = PLAYER_ACTOR_ID; // Which actor the camera follows (default: player)
 

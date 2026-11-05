@@ -551,14 +551,14 @@ void psxsplash::Lua::OnDisable(GameObject* go) {
     onDisableMethodWrapper.callMethod(*this, go);
 }
 
-void psxsplash::Lua::OnButtonPress(GameObject* go, int button) {
+void psxsplash::Lua::OnButtonPress(GameObject* go, int button, int player) {
     if (!hasEvent(go, EVENT_ON_BUTTON_PRESS)) return;
-    onButtonPressMethodWrapper.callMethod(*this, go, button);
+    onButtonPressMethodWrapper.callMethod(*this, go, button, player);
 }
 
-void psxsplash::Lua::OnButtonRelease(GameObject* go, int button) {
+void psxsplash::Lua::OnButtonRelease(GameObject* go, int button, int player) {
     if (!hasEvent(go, EVENT_ON_BUTTON_RELEASE)) return;
-    onButtonReleaseMethodWrapper.callMethod(*this, go, button);
+    onButtonReleaseMethodWrapper.callMethod(*this, go, button, player);
 }
 
 void psxsplash::Lua::OnUpdate(GameObject* go, int32_t dt12) {

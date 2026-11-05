@@ -372,6 +372,41 @@ private:
     // Returns analog stick values (-128 to 127)
     static int Input_GetAnalogPlayer1(lua_State* L);
     static int Input_GetAnalogPlayer2(lua_State* L);
+
+    // Input.IsPressed(player, button) -> boolean
+    // True only on the frame the button was pressed. player is 1..8: 1 and 2 are
+    // ports 1 and 2, 3-5 port 1's multitap slots B-D, 6-8 port 2's. An unknown
+    // player gives false.
+    static int Input_IsPressed(lua_State* L);
+
+    // Input.IsReleased(player, button) -> boolean
+    // True only on the frame the button was released. player is 1..8, as in
+    // Input.IsPressed; an unknown player gives false.
+    static int Input_IsReleased(lua_State* L);
+
+    // Input.IsHeld(player, button) -> boolean
+    // True while the button is held down. player is 1..8, as in Input.IsPressed;
+    // an unknown player gives false. On a mouse use Input.MOUSE_LEFT and
+    // Input.MOUSE_RIGHT.
+    static int Input_IsHeld(lua_State* L);
+
+    // Input.GetAnalog(player, [stick]) -> x, y
+    // Stick 0 (left, the default) or 1 (right), about -1.0 to 1.0 per axis. Only
+    // an analog pad has sticks; a digital pad's D-pad stands in for the left
+    // stick and L1/R1 for the right stick's x; a mouse gives 0, 0.
+    static int Input_GetAnalog(lua_State* L);
+
+    // Input.GetDevice(player) -> string
+    // What is plugged in for the player: "none", "pad" (digital), "analog",
+    // "mouse" or "other" (a gun, a NegCon...). An unknown player gives "none".
+    static int Input_GetDevice(lua_State* L);
+
+    // Input.GetMouse(player) -> dx, dy
+    // The mouse's motion over the last frame in its own counts (integers, right
+    // and down positive), every report since the previous frame summed. 0, 0
+    // when the player has no mouse.
+    static int Input_GetMouse(lua_State* L);
+
     static int Input_BindToActor(lua_State* L);
     static int Input_GetBoundActor(lua_State* L);
     

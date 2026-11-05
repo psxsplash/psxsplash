@@ -34,6 +34,7 @@ STREAM_BIN := $(BUILD)/stream_tests
 FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 JUMP_BIN   := $(BUILD)/jump_tests
+INPUT_BIN  := $(BUILD)/input_tests
 GEN_BIN    := $(BUILD)/gen_vectors
 
 .PHONY: all test vectors clean
@@ -65,11 +66,14 @@ $(SHADOW_BIN): test_shadow.cpp testing.hh compat.hh $(SRC_DIR)/shadowmath.hh $(S
 # jumpmath.hh is header-only.
 $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_jump.cpp
+# inputmap.hh is header-only.
+$(INPUT_BIN): test_input.cpp testing.hh compat.hh $(SRC_DIR)/inputmap.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_input.cpp
 
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(INPUT_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -86,6 +90,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(FADE_BI
 	@$(SHADOW_BIN)
 	@echo "== jump =="
 	@$(JUMP_BIN)
+	@echo "== input =="
+	@$(INPUT_BIN)
 
 vectors: $(GEN_BIN)
 	@mkdir -p $(VEC_DIR)

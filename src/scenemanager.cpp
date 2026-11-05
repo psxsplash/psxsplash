@@ -403,10 +403,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     m_playerHeight = sceneSetup.playerHeight;
 
-    m_controls[0].setMoveSpeed(sceneSetup.moveSpeed);
-    m_controls[0].setSprintSpeed(sceneSetup.sprintSpeed);
-    m_controls[1].setMoveSpeed(sceneSetup.moveSpeed);
-    m_controls[1].setSprintSpeed(sceneSetup.sprintSpeed);
+    for (int i = 0; i < inputmap::MAX_PLAYERS; i++) {
+        m_controls[i].setPlayer(i + 1);
+        m_controls[i].setMoveSpeed(sceneSetup.moveSpeed);
+        m_controls[i].setSprintSpeed(sceneSetup.sprintSpeed);
+    }
     m_playerRadius = (int32_t)sceneSetup.playerRadius.value;
     if (m_playerRadius == 0) m_playerRadius = PLAYER_RADIUS;
     // Both exporters write the jump velocity per second and gravity per second^2.
@@ -483,26 +484,24 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
             m_gameObjects.size());
     }
 
-    // THE ORDER OF THESE FIVE CALLS IS THE FIX, not decoration.
+    // THE ORDER OF THESE FOUR CALLS IS THE FIX, not decoration.
     //
-    // Init() hands SIO0 to psyqo's AdvancedPad, which registers a per-frame pad
-    // poll on the kernel. That list is append-only -- nothing can remove an entry
-    // -- so Init() is guarded to run once per boot; without that guard every scene
-    // load permanently added two more blocking, bit-banged SIO0 transfers to every
-    // frame, and the console eventually hung inside one of them.
+    // Init() hands SIO0 to psyqo's AdvancedPad (one, shared by all eight
+    // players), which registers a per-frame pad poll on the kernel. That list is
+    // append-only -- nothing can remove an entry -- so Init() is guarded to run
+    // once per boot; without that guard every scene load permanently added more
+    // blocking, bit-banged SIO0 transfers to every frame, and the console
+    // eventually hung inside one of them.
     //
     // Shield{Begin,End} bracket those registrations so the SIO1 receive interrupt
     // is masked for the duration of the poll. Registration order IS execution
-    // order, so Begin must precede the Init()s and End must follow them. Swapping
+    // order, so Begin must precede Init() and End must follow it. Swapping
     // any of this silently disarms the shield: the callbacks still run, just not
     // around the thing they exist to protect. See Controls::ShieldPadPollBegin.
     Controls::ShieldPadPollBegin();
 
-    m_controls[0].forceAnalogMode();
-    m_controls[0].Init();
-
-    m_controls[1].forceAnalogMode();
-    m_controls[1].Init();
+    Controls::forceAnalogMode();
+    Controls::Init();
 
     Controls::ShieldPadPollEnd();
 
@@ -518,6 +517,16 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
 }
 
+bool psxsplash::SceneManager::playerDrivenByController() const {
+    // Players 1 and 2 count while enabled, whatever they are
+    // bound to; the others only when bound to the player.
+    if (m_controlsEnabled[0] || m_controlsEnabled[1]) return true;
+    for (int p = 2; p < inputmap::MAX_PLAYERS; p++) {
+        if (m_controlBoundActor[p] == PLAYER_ACTOR_ID) return true;
+    }
+    return false;
+}
+
 void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint16_t actorId) {
     if (!isValidActor(actorId)) return;
 
@@ -531,10 +540,8 @@ void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint
     // Reuse the player's movement handler on the bound actor's own transform.
     // A non-player actor moves freely here (gravity/nav are player-only, applied
     // later in GameTick); freecam=false keeps motion planar.
-    if (controllerIndex == 0)
-        m_controls[0].HandleControlsPlayer1(pos, rx, ry, rz, false, m_dt12);
-    else
-        m_controls[1].HandleControlsPlayer2(pos, rx, ry, rz, false, m_dt12);
+    if (controllerIndex < 0 || controllerIndex >= inputmap::MAX_PLAYERS) return;
+    m_controls[controllerIndex].HandleControls(pos, rx, ry, rz, false, m_dt12);
 
     setActorPosition(actorId, pos);
     psyqo::Vec3 newRot;
@@ -708,62 +715,36 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
     uint32_t controlsStart = gpu.now();
 
-    // Update button state tracking first
-    m_controls[0].UpdateButtonStatesPlayer1();
-    m_controls[1].UpdateButtonStatesPlayer2();
+    // Update button state tracking first, for all eight players (a slot with
+    // nothing in it reads no buttons).
+    for (auto& c : m_controls) c.UpdateButtonStates();
 
     // Update interaction system (checks for interact button press)
     updateInteractionSystem();
 
-    // Dispatch button events to all objects
-    uint16_t pressed1 = m_controls[0].getButtonsPressed();
-    uint16_t released1 = m_controls[0].getButtonsReleased();
-
-    uint16_t pressed2 = m_controls[1].getButtonsPressed();
-    uint16_t released2 = m_controls[1].getButtonsReleased();
-
-    if (pressed1 || released1) {
+    // Dispatch button events to all objects, player by player; the player
+    // number (1..8) is the callbacks' third argument.
+    for (int p = 0; p < inputmap::MAX_PLAYERS; p++) {
+        uint16_t pressed = m_controls[p].getButtonsPressed();
+        uint16_t released = m_controls[p].getButtonsReleased();
+        if (!pressed && !released) continue;
         // Only iterate objects if there are button events
         for (auto* go : m_gameObjects) {
             if (!go || !go->isActive()) continue;
 
-            if (pressed1) {
+            if (pressed) {
                 // Dispatch press events for each pressed button
                 for (int btn = 0; btn < 16; btn++) {
-                    if (pressed1 & (1 << btn)) {
-                        L.OnButtonPress(go, btn);
+                    if (pressed & (1 << btn)) {
+                        L.OnButtonPress(go, btn, p + 1);
                     }
                 }
             }
-            if (released1) {
+            if (released) {
                 // Dispatch release events for each released button
                 for (int btn = 0; btn < 16; btn++) {
-                    if (released1 & (1 << btn)) {
-                        L.OnButtonRelease(go, btn);
-                    }
-                }
-            }
-        }
-    }
-
-    if (pressed2 || released2) {
-        // Only iterate objects if there are button events
-        for (auto* go : m_gameObjects) {
-            if (!go || !go->isActive()) continue;
-
-            if (pressed2) {
-                // Dispatch press events for each pressed button
-                for (int btn = 0; btn < 16; btn++) {
-                    if (pressed2 & (1 << btn)) {
-                        L.OnButtonPress(go, btn);
-                    }
-                }
-            }
-            if (released2) {
-                // Dispatch release events for each released button
-                for (int btn = 0; btn < 16; btn++) {
-                    if (released2 & (1 << btn)) {
-                        L.OnButtonRelease(go, btn);
+                    if (released & (1 << btn)) {
+                        L.OnButtonRelease(go, btn, p + 1);
                     }
                 }
             }
@@ -773,31 +754,21 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Save position BEFORE movement for collision detection
     psyqo::Vec3 oldPlayerPosition = m_playerPosition;
 
-    if (m_controlsEnabled[0]) {
-        if (m_controlBoundActor[0] == PLAYER_ACTOR_ID) {
-            m_controls[0].HandleControlsPlayer1(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
+    // Players 1 and 2 can be switched off from Lua; the multitap slots, which
+    // drive nothing until bound, cannot.
+    for (int p = 0; p < inputmap::MAX_PLAYERS; p++) {
+        if (p < 2 && !m_controlsEnabled[p]) continue;
+        uint16_t bound = m_controlBoundActor[p];
+        if (bound == PLAYER_ACTOR_ID) {
+            m_controls[p].HandleControls(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
 
             // Jump input: Cross button triggers jump when grounded
-            if (m_isGrounded && m_controls[0].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
+            if (m_isGrounded && m_controls[p].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
                 jumpmath::launch(m_vertical, m_jumpVelocityPerSec);  // Negative = upward (PSX Y-down)
                 m_isGrounded = false;
             }
         } else {
-            driveActorWithController(0, m_controlBoundActor[0]);
-        }
-    }
-
-    if (m_controlsEnabled[1]) {
-        if (m_controlBoundActor[1] == PLAYER_ACTOR_ID) {
-            m_controls[1].HandleControlsPlayer2(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
-
-            // Jump input: Cross button triggers jump when grounded
-            if (m_isGrounded && m_controls[1].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
-                jumpmath::launch(m_vertical, m_jumpVelocityPerSec);  // Negative = upward (PSX Y-down)
-                m_isGrounded = false;
-            }
-        } else {
-            driveActorWithController(1, m_controlBoundActor[1]);
+            driveActorWithController(p, bound);
         }
     }
 
@@ -1191,7 +1162,7 @@ void psxsplash::SceneManager::tickAgents() {
         }
         if (!isValidActor(actorId)) continue;
         // Don't run agent AI on the player while any controller drives it.
-        if (actorId == PLAYER_ACTOR_ID && (m_controlsEnabled[0] || m_controlsEnabled[1])) continue;
+        if (actorId == PLAYER_ACTOR_ID && playerDrivenByController()) continue;
 
         // Tick state timer
         if (agent.stateTimer < 0xFFFF) ++agent.stateTimer;
