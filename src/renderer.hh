@@ -307,12 +307,16 @@ class Renderer final {
     // pixels from the screen midpoint where it belongs. An edge further off
     // than m_splitQ quarter pixels is split at its model-space midpoint,
     // decided from its two endpoints alone, so both triangles sharing it agree;
-    // down to SPLIT_DEPTH levels. Measured on the courtyard, lamplighter and
-    // the walk worlds: 8 pixels (SPLIT_ERR_Q) and 3 levels clear the near
-    // chevrons; 4 pixels or a fourth level cost frames without a visible
-    // difference near the camera.
+    // down to SPLIT_DEPTH levels. 8 pixels (SPLIT_ERR_Q) clear the near
+    // chevrons; 4 pixels cost frames without a visible difference near the
+    // camera. One level: an edge crossing the near plane warps by hundreds of
+    // pixels and qualifies at any threshold, so only the depth bounds how far
+    // those are cut. In the courtyard walk the first level keeps the near
+    // pillars and walls straight where the unsplit triangle bends them; two
+    // or three levels redraw about 3% of the pixels at the heaviest poses,
+    // for 1.9 to 2.3 times the splits.
     static constexpr int32_t SPLIT_ERR_Q = 32;
-    static constexpr int SPLIT_DEPTH = 3;
+    static constexpr int SPLIT_DEPTH = 1;
     // Only edges with an end nearer than SPLIT_NEAR halves of H are split:
     // the corners the GTE cannot project, the warp the old near-plane
     // subdivision hid. Each child there is a clipped triangle, and 2H or 4H
