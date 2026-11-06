@@ -12,7 +12,6 @@
 #include <psyqo-paths/archive-manager.hh>
 
 #include "cdromhelper.hh"
-#include "pcdrv_handler.hh"
 
 #ifndef PSXSPLASH_ARCHIVE_IMAGE
 #define PSXSPLASH_ARCHIVE_IMAGE "psxsplash.bin"
@@ -27,9 +26,9 @@ namespace psxsplash {
  * archive index at LBA 23 of a raw (2352 bytes per sector) image. The same
  * image is read one of two ways, picked once at boot:
  *
- *   - PCdrv answers (emulator, or psxmon) and PSXSPLASH_ARCHIVE_IMAGE opens on
- *     the host: psyqo::CDRomPCDrv reads the image's sectors over PCdrv.
- *   - otherwise: psyqo::CDRomDevice reads the disc in the drive.
+ *   - psyqo::CDRomDevice, when the disc in the drive carries the archive;
+ *   - otherwise psyqo::CDRomPCDrv, which reads PSXSPLASH_ARCHIVE_IMAGE's
+ *     sectors over PCdrv from the host. There is no CD-DA then.
  *
  * File names are the archive keys (scene_0.splashpack, ...); the index holds
  * their DJB2 hashes, so there is no directory to walk. Entries are UCL-NRV2E
@@ -47,8 +46,9 @@ class FileLoaderArchive final : public FileLoader {
         return psyqo::TaskQueue::Task([this](psyqo::TaskQueue::Task* task) {
             m_initTask = task;
             psyqo::paths::ArchiveManager::registerUCL_NRV2EDecompressor();
-            // The drive goes first: a PCdrv call traps when nothing serves it
-            // (PCSX-Redux with PCdrv off), and there is no way to ask first.
+            // The disc goes first. Without one the game can only be running over
+            // PCdrv, so PCdrv is set up only then; with no driver at all that
+            // first call faults, and there would have been nothing to load anyway.
             useDevice(true);
             m_initQueue.reset();
             m_initQueue.startWith(m_device.scheduleReset())
@@ -58,8 +58,8 @@ class FileLoaderArchive final : public FileLoader {
                     initDone(true);
                 })
                 .butCatch([this](psyqo::TaskQueue*) {
-                    if (!pcdrv_uses_break() || !m_pcdrvImage.ensureOpen()) {
-                        printf("FileLoader: no PCdrv image " PSXSPLASH_ARCHIVE_IMAGE " either\n");
+                    if (!openPcdrvImage()) {
+                        printf("FileLoader: no disc, and no " PSXSPLASH_ARCHIVE_IMAGE " over PCdrv\n");
                         initDone(false);
                         return;
                     }
@@ -158,6 +158,10 @@ class FileLoaderArchive final : public FileLoader {
     }
 
   private:
+    // ensureOpen() inlines PCinit(), whose asm does not list the v1 the host
+    // overwrites; out of line, nothing is live there across the break.
+    __attribute__((noinline)) bool openPcdrvImage() { return m_pcdrvImage.ensureOpen(); }
+
     void useDevice(bool device) {
         m_usingDevice = device;
         m_cd = device ? static_cast<psyqo::CDRom*>(&m_device) : &m_pcdrvImage;

@@ -17,7 +17,7 @@ namespace psxsplash {
  * FileLoader - abstract interface for loading files on PS1.
  *
  * Three compile-time backends:
- *   - FileLoaderPCdrv: PCdrv protocol (emulator break instructions OR SIO1 serial)
+ *   - FileLoaderPCdrv: loose files over PCdrv, from whatever serves its break calls
  *   - FileLoaderCDRom: CD-ROM via psyqo CDRomDevice + ISO9660Parser
  *   - FileLoaderArchive: one psyqo-paths archive, from the drive or over PCdrv
  *
@@ -43,7 +43,7 @@ class FileLoader {
     /**
      * Returns a Task that initialises the loader.
      *
-     * PCdrv: calls pcdrv_sio1_init() + pcdrv_init(), resolves immediately.
+     * PCdrv: calls PCinit(), resolves immediately.
      * CDRom: chains CDRomDevice::scheduleReset + ISO9660Parser::scheduleInitialize.
      */
     virtual psyqo::TaskQueue::Task scheduleInit() = 0;

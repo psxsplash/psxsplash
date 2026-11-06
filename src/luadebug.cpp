@@ -1,6 +1,8 @@
 #include "luadebug.hh"
 
-#if !defined(LOADER_CDROM)
+#include "fileloader.hh"
+
+#if !PSXSPLASH_DISC
 
 #include <psyqo-lua/lua.hh>
 #include <psyqo/xprintf.h>
@@ -8,7 +10,7 @@
 #include "common/hardware/counters.h"
 #include "common/syscalls/syscalls.h"
 #include "luadebugmath.hh"
-#include "pcdrv_handler.hh"
+#include "common/kernel/pcdrv.h"
 
 namespace {
 
@@ -28,10 +30,10 @@ char* s_file = nullptr;
 
 // Reads `name` from the PCdrv directory into `buf`; -1 when it does not exist.
 int readSmall(const char* name, char* buf, int cap) {
-    int fd = pcdrv_open(name, 0, 0);
+    int fd = PCopen(name, 0, 0);
     if (fd < 0) return -1;
-    int n = pcdrv_read(fd, buf, cap);
-    pcdrv_close(fd);
+    int n = PCread(fd, buf, cap);
+    PCclose(fd);
     return n < 0 ? 0 : n;
 }
 
@@ -292,7 +294,7 @@ void psxsplash::LuaDebugger::stop(lua_State* L, lua_Debug* ar) {
     m_inStop = false;
 }
 
-#else  // LOADER_CDROM: no PCdrv, no debugger.
+#else  // A disc build (cdrom, archive): no PCdrv assumed, no debugger.
 
 psxsplash::LuaDebugger& psxsplash::LuaDebugger::Get() {
     static LuaDebugger instance;
