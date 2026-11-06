@@ -57,10 +57,14 @@ SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 feature_uc = $(subst a,A,$(subst b,B,$(subst c,C,$(subst d,D,$(subst e,E,$(subst g,G,$(subst h,H,$(subst i,I,$(subst k,K,$(subst l,L,$(subst m,M,$(subst n,N,$(subst o,O,$(subst p,P,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(subst v,V,$(subst w,W,$(1)))))))))))))))))))))
 CPPFLAGS += $(foreach f,$(ALL_FEATURES),-DPSXSPLASH_FEATURE_$(call feature_uc,$(f))=$(if $(filter $(f),$(FEATURES)),1,0))
 
-# LOADER=cdrom  → CD-ROM backend (for ISO builds on real hardware)
-# LOADER=pcdrv  → PCdrv backend (default, emulator + SIO1)
+# LOADER=cdrom   → CD-ROM backend (for ISO builds on real hardware)
+# LOADER=archive → one psyqo-paths archive in a Redux `authoring` image, read
+#                  from the drive, or over PCdrv when the image is on the host
+# LOADER=pcdrv   → PCdrv backend (default, emulator + SIO1)
 ifeq ($(LOADER),cdrom)
 CPPFLAGS += -DLOADER_CDROM
+else ifeq ($(LOADER),archive)
+CPPFLAGS += -DLOADER_ARCHIVE
 else
 CPPFLAGS += -DPCDRV_SUPPORT=1
 endif
@@ -126,6 +130,11 @@ CPPFLAGS += -DBUMP_SIZE=$(BUMP_SIZE)
 endif
 
 include third_party/nugget/psyqo-lua/psyqo-lua.mk
+ifeq ($(LOADER),archive)
+include third_party/nugget/psyqo-paths/psyqo-paths.mk
+# psyqo-paths calls into libpsyqo, so it has to come first on the link line.
+LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-paths.a,$(LIBRARIES))
+endif
 include third_party/nugget/psyqo/psyqo.mk
 
 # Redirect Lua's allocator through our OOM-guarded wrapper

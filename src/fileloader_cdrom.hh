@@ -186,6 +186,11 @@ class FileLoaderCDRom final : public FileLoader {
 
     psyqo::CDRomDevice* getCDRomDevice() { return &m_cdrom; }
 
+    /** Raw sector read, blocking. */
+    bool readSectorsBlocking(uint32_t lba, uint32_t count, void* buffer) {
+        return m_gpu && m_cdrom.readSectorsBlocking(lba, count, buffer, *m_gpu);
+    }
+
     /** Blocking directory lookup; the drive must be awake (scene loading). */
     bool resolveBlocking(const char* path, uint32_t& outLBA, uint32_t& outSize) {
         return resolveEntryBlocking(path, outLBA, outSize);

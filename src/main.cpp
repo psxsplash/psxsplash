@@ -26,8 +26,8 @@ extern volatile uint32_t g_netTestFailed;
 }
 #endif
 
-#if defined(LOADER_CDROM)
-#include "fileloader_cdrom.hh"
+#if PSXSPLASH_DISC
+#include "fileloader_disc.hh"
 #endif
 
 namespace {
@@ -109,9 +109,9 @@ void PSXSplash::prepare() {
     psxsplash::Sio1::Get().init();
 #endif
 
-#if defined(LOADER_CDROM)
-    // The CD-ROM backend needs a GPU pointer for LoadFileSync's spin loop.
-    static_cast<psxsplash::FileLoaderCDRom&>(
+#if PSXSPLASH_DISC
+    // The disc backends need a GPU pointer for LoadFileSync's spin loop.
+    static_cast<psxsplash::DiscLoader&>(
         psxsplash::FileLoader::Get()).setGPU(&gpu());
 #endif
 }
