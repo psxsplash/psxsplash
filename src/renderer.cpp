@@ -1874,21 +1874,10 @@ void psxsplash::Renderer::renderSkinnedObjects(
         if (!SkinMesh_CurrentFrames(animSet, animState, &boneMatricesA, &boneMatricesB, &sf)) continue;
         const BakedBoneMatrix* boneMatrices = boneMatricesA;
 
-        // Interpolate between frames
-        if (boneMatricesB) {
-            for (int bi = 0; bi < animSet.boneCount && bi < SKINMESH_MAX_BONES; bi++) {
-                const BakedBoneMatrix& bA = boneMatricesA[bi];
-                const BakedBoneMatrix& bB = boneMatricesB[bi];
-                BakedBoneMatrix& out = lerpedBones[bi];
-                for (int k = 0; k < 9; k++) {
-                    int32_t a = bA.r[k], b = bB.r[k];
-                    out.r[k] = (int16_t)(a + (((b - a) * sf) >> 12));
-                }
-                for (int k = 0; k < 3; k++) {
-                    int32_t a = bA.t[k], b = bB.t[k];
-                    out.t[k] = (int16_t)(a + (((b - a) * sf) >> 12));
-                }
-            }
+        // Interpolate between frames and/or crossfade from the previous clip.
+        // A single baked frame with no fade is drawn in place (zero copy).
+        if (boneMatricesB || SkinPose_Fading(animState)) {
+            SkinPose_Compute(animSet, animState, lerpedBones);
             boneMatrices = lerpedBones;
         }
 
