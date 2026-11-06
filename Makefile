@@ -145,6 +145,9 @@ ifeq ($(LOADER),archive)
 include third_party/nugget/psyqo-paths/psyqo-paths.mk
 # psyqo-paths calls into libpsyqo, so it has to come first on the link line.
 LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-paths.a,$(LIBRARIES))
+# common.mk read the link rule's prerequisites when psyqo-lua.mk pulled it in,
+# before this library was on the list, so name it as one here.
+$(BINDIR)$(TARGET).elf: $(PSYQOPATHSDIR)libpsyqo-paths.a
 endif
 include third_party/nugget/psyqo/psyqo.mk
 
