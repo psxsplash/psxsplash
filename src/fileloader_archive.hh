@@ -59,6 +59,7 @@ class FileLoaderArchive final : public FileLoader {
                 })
                 .butCatch([this](psyqo::TaskQueue*) {
                     if (!pcdrv_uses_break() || !m_pcdrvImage.ensureOpen()) {
+                        printf("FileLoader: no PCdrv image " PSXSPLASH_ARCHIVE_IMAGE " either\n");
                         initDone(false);
                         return;
                     }
