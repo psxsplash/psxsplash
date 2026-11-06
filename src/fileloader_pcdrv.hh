@@ -1,17 +1,17 @@
 #pragma once
 
 #include "fileloader.hh"
-#include "pcdrv_handler.hh"
+#include "common/kernel/pcdrv.h"
 
 namespace psxsplash {
 
 /**
  * FileLoaderPCdrv - loads files via the PCdrv protocol.
  *
- * Works transparently in two modes (handled by pcdrv_handler.hh):
- *   - break instructions, served by PCSX-Redux or by the host of psxmon
- *   - otherwise on real hardware: psxsplash's own SIO1 protocol (SIO1 set
- *     up by pcdrv_sio1_init)
+ * Whatever serves PCdrv's break calls (an emulator, a monitor such as psxmon
+ * or Unirom, a development kit) also carries the TTY, so nothing here sets up
+ * a link of its own. With no driver the first call faults, which is the right
+ * outcome: there would be no files to load either.
  */
 class FileLoaderPCdrv final : public FileLoader {
   public:
@@ -21,10 +21,7 @@ class FileLoaderPCdrv final : public FileLoader {
     // -- scheduleInit ----------------------------------------------
     psyqo::TaskQueue::Task scheduleInit() override {
         return psyqo::TaskQueue::Task([this](psyqo::TaskQueue::Task* task) {
-
-            pcdrv_sio1_init();
-
-            m_available = (pcdrv_init() == 0);
+            m_available = (pcInit() == 0);
             task->resolve();
         });
     }
@@ -53,23 +50,27 @@ class FileLoaderPCdrv final : public FileLoader {
   private:
     bool m_available = false;
 
+    // PCinit()'s asm does not list v1, which the host overwrites; kept out of
+    // line so the compiler holds nothing live there across the break.
+    __attribute__((noinline)) static int pcInit() { return PCinit(); }
+
     uint8_t* doLoad(const char* filename, int& outSize) {
         outSize = 0;
         if (!m_available) return nullptr;
 
-        int fd = pcdrv_open(filename, 0, 0);
+        int fd = PCopen(filename, 0, 0);
         if (fd < 0) return nullptr;
 
-        int size = pcdrv_seek(fd, 0, 2);   // SEEK_END
-        if (size <= 0) { pcdrv_close(fd); return nullptr; }
-        pcdrv_seek(fd, 0, 0);              // SEEK_SET
+        int size = PClseek(fd, 0, 2);   // SEEK_END
+        if (size <= 0) { PCclose(fd); return nullptr; }
+        PClseek(fd, 0, 0);              // SEEK_SET
 
         // 4-byte aligned for safe struct casting
         int aligned = (size + 3) & ~3;
         uint8_t* buf = new uint8_t[aligned];
 
-        int read = pcdrv_read(fd, buf, size);
-        pcdrv_close(fd);
+        int read = PCread(fd, buf, size);
+        PCclose(fd);
 
         if (read != size) { delete[] buf; return nullptr; }
         outSize = size;
