@@ -481,11 +481,6 @@ double rowLen(const BakedBoneMatrix& b, int row) {
     double x = b.r[row * 3], y = b.r[row * 3 + 1], z = b.r[row * 3 + 2];
     return sqrt(x * x + y * y + z * z);
 }
-double colDot(const BakedBoneMatrix& b, int c0, int c1) {
-    double d = 0;
-    for (int r = 0; r < 3; r++) d += (double)b.r[r * 3 + c0] * b.r[r * 3 + c1];
-    return d / 4096.0;
-}
 // R * v + t in double, v in the bind units.
 void apply(const BakedBoneMatrix& b, const double v[3], double out[3]) {
     for (int i = 0; i < 3; i++)
@@ -494,45 +489,60 @@ void apply(const BakedBoneMatrix& b, const double v[3], double out[3]) {
 
 }  // namespace
 
-TEST(fade_rotation_stays_unit_at_135_degrees) {
-    // The e2e case: "raise" -> "bend", about 135 degrees apart.
-    BakedBoneMatrix prev = rot(0.3, 0.2, 1.0, 10.0);
-    BakedBoneMatrix cur = rot(0.3, 0.2, 1.0, 145.0);
-    double worstLen = 0, worstDot = 0;
-    for (int w = 1; w < 4096; w += 31) {
-        BakedBoneMatrix o;
-        SkinPose_FadeBone(prev, cur, w, nullptr, &o);
-        for (int i = 0; i < 3; i++) {
-            worstLen = fmax(worstLen, fabs(colLen(o, i) - 4096.0));
-            worstLen = fmax(worstLen, fabs(rowLen(o, i) - 4096.0));
-        }
-        worstDot = fmax(worstDot, fabs(colDot(o, 0, 1)));
-        worstDot = fmax(worstDot, fabs(colDot(o, 0, 2)));
-        worstDot = fmax(worstDot, fabs(colDot(o, 1, 2)));
-        // Right-handed: col2 == col0 x col1 (never a reflection).
-        double x = ((double)o.r[3] * o.r[7] - (double)o.r[6] * o.r[4]) / 4096.0;
-        if (!CHECK(x * o.r[2] >= -4096.0)) return;
-    }
-    printf("    worst |len - 1| %.2f LSB, worst axis dot %.2f LSB\n", worstLen, worstDot);
-    CHECK(worstLen <= 4.0);
-    CHECK(worstDot <= 4.0);
-    // About a coordinate axis (the e2e arm bends about one), the midpoint is
-    // the halfway rotation, 77.5 deg, within a few LSB.
-    BakedBoneMatrix o, want = rot(0, 0, 1, 77.5);
-    SkinPose_FadeBone(rot(0, 0, 1, 10.0), rot(0, 0, 1, 145.0), 2048, nullptr, &o);
-    printf("    z-axis midpoint vs 77.5 deg: %d LSB\n", maxDiff(&o, &want, 1));
-    CHECK(maxDiff(&o, &want, 1) <= 4);
-    // About an oblique axis it is still a rigid rotation (checked above) but
-    // NOT the halfway one: lerp + Gram-Schmidt leaves the geodesic. Measured
-    // here, not asserted; see the report.
-    want = rot(0.3, 0.2, 1.0, 77.5);
-    SkinPose_FadeBone(prev, cur, 2048, nullptr, &o);
-    double tr = 0;
+namespace {
+// Angle in degrees of the rotation A^T B, as atan2(|skew part|, (trace-1)/2):
+// acos of the trace alone is swamped by 4.12 quantisation near zero.
+double angleDeg(const BakedBoneMatrix& A, const BakedBoneMatrix& B) {
+    double M[3][3];
     for (int i = 0; i < 3; i++)
-        for (int k = 0; k < 3; k++) tr += (double)o.r[k * 3 + i] * want.r[k * 3 + i];
-    tr /= 4096.0 * 4096.0;
-    printf("    oblique-axis midpoint off the halfway rotation by %.1f deg\n",
-           acos(fmin(1.0, fmax(-1.0, (tr - 1) / 2))) * 180.0 / M_PI);
+        for (int j = 0; j < 3; j++) {
+            double v = 0;
+            for (int k = 0; k < 3; k++) v += (double)A.r[k * 3 + i] * B.r[k * 3 + j];
+            M[i][j] = v / (4096.0 * 4096.0);
+        }
+    double sx = (M[2][1] - M[1][2]) / 2, sy = (M[0][2] - M[2][0]) / 2, sz = (M[1][0] - M[0][1]) / 2;
+    double c = (M[0][0] + M[1][1] + M[2][2] - 1) / 2;
+    return atan2(sqrt(sx * sx + sy * sy + sz * sz), c) * 180.0 / M_PI;
+}
+}  // namespace
+
+TEST(fade_midpoint_is_true_halfway_on_shortest_path) {
+    // Start at 100 degrees so the end (190..270) converts to a quaternion on
+    // the other hemisphere: the blend only takes the short way via the sign flip.
+    const double axes[2][3] = {{0, 0, 1}, {1, 1, 1}};
+    const double spans[3] = {90, 135, 170};
+    int worstLsb = 0;
+    double worstMidDeg = 0, worstOffPath = 0, worstLen = 0;
+    for (const auto& ax : axes) {
+        for (double d : spans) {
+            BakedBoneMatrix prev = rot(ax[0], ax[1], ax[2], 100.0);
+            BakedBoneMatrix cur = rot(ax[0], ax[1], ax[2], 100.0 + d);
+            BakedBoneMatrix o, want = rot(ax[0], ax[1], ax[2], 100.0 + d / 2);
+            SkinPose_FadeBone(prev, cur, 2048, nullptr, &o);
+            int lsb = maxDiff(&o, &want, 1);
+            double deg = angleDeg(o, want);
+            worstLsb = lsb > worstLsb ? lsb : worstLsb;
+            worstMidDeg = fmax(worstMidDeg, deg);
+            if (!CHECK(lsb <= 4)) printf("    axis (%g,%g,%g) span %g: %d LSB, %.2f deg\n", ax[0], ax[1], ax[2], d, lsb, deg);
+            // Every blend on the way lies on the short arc and is a rotation.
+            for (int w = 128; w < 4096; w += 256) {
+                SkinPose_FadeBone(prev, cur, w, nullptr, &o);
+                double best = 1e9;
+                for (int i = 0; i <= 720; i++)
+                    best = fmin(best, angleDeg(o, rot(ax[0], ax[1], ax[2], 100.0 + d * i / 720.0)));
+                worstOffPath = fmax(worstOffPath, best);
+                for (int i = 0; i < 3; i++) {
+                    worstLen = fmax(worstLen, fabs(colLen(o, i) - 4096.0));
+                    worstLen = fmax(worstLen, fabs(rowLen(o, i) - 4096.0));
+                }
+            }
+        }
+    }
+    printf("    midpoint vs true halfway: worst %d LSB, %.3f deg; worst off the short arc %.3f deg;"
+           " worst |len - 1| %.2f LSB\n", worstLsb, worstMidDeg, worstOffPath, worstLen);
+    CHECK(worstMidDeg <= 0.2);
+    CHECK(worstOffPath <= 0.2);  // the arc is sampled every 0.25 deg at most
+    CHECK(worstLen <= 4.0);
 }
 
 TEST(fade_joint_moves_on_straight_line_and_limb_stays_rigid) {
@@ -587,21 +597,36 @@ TEST(fade_compute_uses_bind_positions) {
     CHECK(memcmp(&got.t, &flat.t, sizeof(got.t)) != 0);  // the bind path differs from the plain t lerp
 }
 
-TEST(fade_near_180_degrees_takes_nearer_pose) {
+TEST(fade_near_180_degrees_stays_a_rotation) {
+    // Exactly opposite about z: either way round is shortest; the midpoint
+    // must be a quarter turn about z, one way or the other, never a collapse.
     BakedBoneMatrix prev = rot(0, 0, 1, 0.0, 100, 0, 0);
     BakedBoneMatrix cur = rot(0, 0, 1, 180.0, -100, 0, 0);
     BakedBoneMatrix o;
-    SkinPose_FadeBone(prev, cur, 2047, nullptr, &o);
-    CHECK_MEM(o.r, prev.r, sizeof(o.r));
     SkinPose_FadeBone(prev, cur, 2048, nullptr, &o);
-    CHECK_MEM(o.r, cur.r, sizeof(o.r));
+    BakedBoneMatrix plus = rot(0, 0, 1, 90.0), minus = rot(0, 0, 1, -90.0);
+    CHECK(maxDiff(&o, &plus, 1) <= 4 || maxDiff(&o, &minus, 1) <= 4);
     CHECK_EQ(o.t[0], 0);
-    // 179 degrees apart: also guarded, never a huge or zero matrix.
-    cur = rot(0, 0, 1, 179.0);
+    // 179 degrees apart, oblique: a unit rotation all the way.
+    prev = rot(1, 1, 1, 0.0);
+    cur = rot(1, 1, 1, 179.0);
     for (int w = 1; w < 4096; w += 7) {
         SkinPose_FadeBone(prev, cur, w, nullptr, &o);
         for (int i = 0; i < 3; i++) {
-            if (!CHECK(fabs(colLen(o, i) - 4096.0) <= 6.0)) return;
+            if (!CHECK(fabs(colLen(o, i) - 4096.0) <= 4.0)) return;
+        }
+    }
+}
+
+TEST(fade_non_rotation_input_is_safe) {
+    // A corrupt (all-zero) matrix still converts to a half-length quaternion;
+    // the blend must come out a unit rotation, not garbage or a crash.
+    BakedBoneMatrix zero{}, cur = rot(1, 0, 0, 40.0);
+    for (int w = 1; w < 4096; w += 97) {
+        BakedBoneMatrix o;
+        SkinPose_FadeBone(zero, cur, w, nullptr, &o);
+        for (int i = 0; i < 3; i++) {
+            if (!CHECK(fabs(colLen(o, i) - 4096.0) <= 4.0)) return;
         }
     }
 }

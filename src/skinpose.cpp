@@ -102,37 +102,98 @@ static uint32_t isqrt32(uint32_t v) {
     return r;
 }
 
-// A blended axis shorter than 1/8 (squared, in 8.24) is too close to the
-// poses being opposite to normalise: take the nearer pose's rotation.
-static constexpr uint32_t kMinAxisLenSq = (4096u * 4096u) / 64u;
+// Quaternions in 2.14 (16384 = 1.0), order w, x, y, z.
+static constexpr int32_t kQ1 = 16384;
 
-// Scale v (4.12) to unit length. One rsqrt: an integer sqrt and one divide.
-// False when v is shorter than the guard (nothing written).
-static bool normalise(int32_t v[3]) {
-    uint32_t lenSq = 0;
-    for (int i = 0; i < 3; i++) {
-        uint32_t m = (uint32_t)(v[i] < 0 ? -v[i] : v[i]);  // < 2^16, so the sum < 2^32
-        lenSq += m * m;
+static inline int32_t clampQ(int32_t v) { return v > 2 * kQ1 ? 2 * kQ1 : (v < -2 * kQ1 ? -2 * kQ1 : v); }
+
+// round(a * b / 2^sh) for the constant shifts used here, halves away from
+// zero. Constant 64-bit shifts inline; variable ones would need libgcc.
+static inline int32_t mulShift16(int32_t a, int32_t b) {
+    int64_t p = (int64_t)a * b;
+    return (int32_t)(p >= 0 ? (p + 32768) >> 16 : -((-p + 32768) >> 16));
+}
+static inline int32_t mulShift31(int64_t a, int32_t b) {
+    int64_t p = a * b;
+    return (int32_t)(p >= 0 ? (p + (1ll << 30)) >> 31 : -((-p + (1ll << 30)) >> 31));
+}
+
+// Rotation matrix (4.12, row-major, applied as R * v) to a unit quaternion.
+// The largest of w, x, y, z comes from the trace or the largest diagonal
+// entry (one integer sqrt), the other three from off-diagonal sums divided
+// by four times it (one divide, as a reciprocal). False when no component
+// reaches 1/4, which a rotation always has: the matrix is not one.
+static bool matToQuat(const int16_t* m, int32_t q[4]) {
+    int32_t m00 = m[0], m01 = m[1], m02 = m[2];
+    int32_t m10 = m[3], m11 = m[4], m12 = m[5];
+    int32_t m20 = m[6], m21 = m[7], m22 = m[8];
+    int32_t t = m00 + m11 + m22;
+    int big;
+    int32_t r;  // 4.12: 1 + trace, or 1 + one diagonal entry - the other two
+    if (t > 0) {
+        big = 0; r = 4096 + t;
+    } else if (m00 >= m11 && m00 >= m22) {
+        big = 1; r = 4096 + m00 - m11 - m22;
+    } else if (m11 >= m22) {
+        big = 2; r = 4096 + m11 - m00 - m22;
+    } else {
+        big = 3; r = 4096 + m22 - m00 - m11;
     }
-    if (lenSq < kMinAxisLenSq) return false;
-    // Scale lenSq up by 4^sh first so the integer sqrt keeps sh extra bits:
-    // a short blended axis (down to 1/8) would otherwise lose up to 8 LSB.
-    int sh = 0;
-    while (sh < 6 && lenSq < (1u << 30)) {
-        lenSq <<= 2;
-        sh++;
+    if (r <= 0) return false;
+    // The big component sqrt(r) / 2 in 2.14 is sqrt(r_4.12 * 2^14); r < 2^17.
+    int32_t c = (int32_t)isqrt32((uint32_t)r << 14);
+    if (c < kQ1 / 4) return false;
+    // The others are d / (4 c): in 2.14 that is d_4.12 * 2^14 / c_2.14.
+    int32_t inv = (1 << 30) / c;
+    switch (big) {
+        case 0:
+            q[0] = c;
+            q[1] = mulShift16(m21 - m12, inv);
+            q[2] = mulShift16(m02 - m20, inv);
+            q[3] = mulShift16(m10 - m01, inv);
+            break;
+        case 1:
+            q[1] = c;
+            q[0] = mulShift16(m21 - m12, inv);
+            q[2] = mulShift16(m01 + m10, inv);
+            q[3] = mulShift16(m02 + m20, inv);
+            break;
+        case 2:
+            q[2] = c;
+            q[0] = mulShift16(m02 - m20, inv);
+            q[1] = mulShift16(m01 + m10, inv);
+            q[3] = mulShift16(m12 + m21, inv);
+            break;
+        default:
+            q[3] = c;
+            q[0] = mulShift16(m10 - m01, inv);
+            q[1] = mulShift16(m02 + m20, inv);
+            q[2] = mulShift16(m12 + m21, inv);
+            break;
     }
-    uint32_t len = isqrt32(lenSq);       // 4.12 length * 2^sh, >= 2^15 when sh > 0
-    uint32_t inv = (1u << 31) / len;
-    int shift = 19 - sh;                 // v * inv >> shift = v * 4096 / (len / 2^sh)
-    uint32_t half = 1u << (shift - 1);
-    for (int i = 0; i < 3; i++) {
-        // |v[i]| * 2^sh <= len, so the magnitude product is <= 2^31 and stays
-        // in 32 bits (no 64-bit shifts: there is no libgcc for them here).
-        uint32_t m = (uint32_t)(v[i] < 0 ? -v[i] : v[i]) * inv;
-        int32_t r = (int32_t)((m + half) >> shift);
-        v[i] = v[i] < 0 ? -r : r;
-    }
+    for (int i = 0; i < 4; i++) q[i] = clampQ(q[i]);
+    return true;
+}
+
+// Quaternion (2.14, any non-zero length n) to a 4.12 rotation matrix, same
+// convention. Dividing the products by n folds the normalisation in: no sqrt,
+// one divide. False when |q|^2 < 1/8 (degenerate).
+static bool quatToMat(const int32_t q[4], int16_t* m) {
+    int64_t w = q[0], x = q[1], y = q[2], z = q[3];
+    int64_t n = w * w + x * x + y * y + z * z;  // 4.28
+    int32_t nq = (int32_t)(n >> 14);            // 2.14
+    if (nq < kQ1 / 8) return false;
+    int32_t rcp = (1 << 30) / nq;
+    // entry_4.12 = 4096 * 2P/n = P_4.28 * rcp >> 31.
+    m[0] = clamp16(4096 - mulShift31(y * y + z * z, rcp));
+    m[1] = clamp16(mulShift31(x * y - w * z, rcp));
+    m[2] = clamp16(mulShift31(x * z + w * y, rcp));
+    m[3] = clamp16(mulShift31(x * y + w * z, rcp));
+    m[4] = clamp16(4096 - mulShift31(x * x + z * z, rcp));
+    m[5] = clamp16(mulShift31(y * z - w * x, rcp));
+    m[6] = clamp16(mulShift31(x * z - w * y, rcp));
+    m[7] = clamp16(mulShift31(y * z + w * x, rcp));
+    m[8] = clamp16(4096 - mulShift31(x * x + y * y, rcp));
     return true;
 }
 
@@ -151,33 +212,23 @@ void SkinPose_FadeBone(const BakedBoneMatrix& prev, const BakedBoneMatrix& cur, 
     if (w <= 0) { *out = prev; return; }
     if (w >= 4096) { *out = cur; return; }
 
-    // Rotation: lerp, then rebuild an orthonormal basis. R maps a vertex as
-    // R * v (renderer.cpp loads r row-major into Matrix33 for the GTE), so the
-    // bone's axes are R's COLUMNS. Gram-Schmidt on columns 0 and 1, column 2
-    // their cross product, signed to agree with the lerped column 2.
-    int32_t c[3][3];  // c[col][row]
-    for (int col = 0; col < 3; col++)
-        for (int row = 0; row < 3; row++)
-            c[col][row] = fadeLerp(prev.r[row * 3 + col], cur.r[row * 3 + col], w);
-
-    bool ok = normalise(c[0]);
+    // Rotation: quaternion nlerp. Both poses to unit quaternions, the second
+    // negated if needed so the blend takes the shortest path (this is also
+    // what keeps poses near 180 degrees apart well defined), lerp, and back to
+    // a matrix with the normalisation folded in. Stays on the great arc for
+    // any rotation axis.
+    int32_t qa[4], qb[4], q[4];
+    bool ok = matToQuat(prev.r, qa) && matToQuat(cur.r, qb);
     if (ok) {
-        int32_t d = round12(c[1][0] * c[0][0] + c[1][1] * c[0][1] + c[1][2] * c[0][2]);
-        for (int i = 0; i < 3; i++) c[1][i] -= round12(d * c[0][i]);
-        ok = normalise(c[1]);
+        int64_t dot = 0;
+        for (int i = 0; i < 4; i++) dot += (int64_t)qa[i] * qb[i];
+        if (dot < 0)
+            for (int i = 0; i < 4; i++) qb[i] = -qb[i];
+        for (int i = 0; i < 4; i++) q[i] = fadeLerp(qa[i], qb[i], w);
+        ok = quatToMat(q, out->r);
     }
-    if (ok) {
-        int32_t x[3] = {
-            round12(c[0][1] * c[1][2] - c[0][2] * c[1][1]),
-            round12(c[0][2] * c[1][0] - c[0][0] * c[1][2]),
-            round12(c[0][0] * c[1][1] - c[0][1] * c[1][0]),
-        };
-        int32_t s = x[0] * c[2][0] + x[1] * c[2][1] + x[2] * c[2][2];
-        for (int i = 0; i < 3; i++) c[2][i] = s < 0 ? -x[i] : x[i];
-        for (int col = 0; col < 3; col++)
-            for (int row = 0; row < 3; row++) out->r[row * 3 + col] = clamp16(c[col][row]);
-    } else {
-        // Near-opposite poses: no meaningful blend axis. Hold the nearer pose's
+    if (!ok) {
+        // Not rotations (or a degenerate blend): hold the nearer pose's
         // rotation; the translation below still moves the joint smoothly.
         const BakedBoneMatrix& near = w < 2048 ? prev : cur;
         for (int k = 0; k < 9; k++) out->r[k] = near.r[k];

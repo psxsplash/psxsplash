@@ -104,9 +104,9 @@ inline bool SkinPose_Fading(const SkinAnimState& state) { return state.fadeLengt
 uint16_t SkinPose_FadeWeight(const SkinAnimState& state);
 
 /// One bone of the crossfade, weight w (0 = prev, 4096 = cur). The rotation
-/// is lerped and re-orthonormalised (Gram-Schmidt on the bone's axes, R's
-/// columns), so the bone keeps its length; near-opposite poses take the
-/// nearer pose's rotation. With bind (the bone's bind joint, 3 x int16) the
+/// is a quaternion nlerp on the shortest path, so the bone keeps its length
+/// and stays on the great arc for any axis; matrices that are not rotations
+/// take the nearer pose's rotation. With bind (the bone's bind joint, 3 x int16) the
 /// joint R*j+t moves on a straight line; without it t is lerped. Both lerps
 /// round to nearest. The ends (w 0 / 4096) return the poses unchanged.
 void SkinPose_FadeBone(const BakedBoneMatrix& prev, const BakedBoneMatrix& cur, int32_t w,
