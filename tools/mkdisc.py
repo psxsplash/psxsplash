@@ -34,7 +34,12 @@ def main():
         for kind in KINDS:
             name = f"scene_{scene}.{kind}"
             if os.path.exists(os.path.join(export, name)):
-                files.append({"path": os.path.join(export, name), "name": name})
+                entry = {"path": os.path.join(export, name), "name": name}
+                # StreamReader reads streamed geometry sector by sector, so it stays
+                # stored (needs an authoring tool with the per-file "compress" flag).
+                if kind == "geo":
+                    entry["compress"] = False
+                files.append(entry)
         scene += 1
     if scene == 0:
         sys.exit(f"mkdisc: no scene_0.splashpack in {export}")
