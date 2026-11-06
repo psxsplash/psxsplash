@@ -31,8 +31,8 @@ namespace psxsplash {
  *     sectors over PCdrv from the host. There is no CD-DA then.
  *
  * File names are the archive keys (scene_0.splashpack, ...); the index holds
- * their DJB2 hashes, so there is no directory to walk. Entries are UCL-NRV2E
- * compressed or stored; StreamReader can only stream stored ones.
+ * their DJB2 hashes, so there is no directory to walk. Entries are UCL-NRV2E or
+ * LZ4 compressed, or stored; StreamReader can only stream stored ones.
  */
 class FileLoaderArchive final : public FileLoader {
   public:
@@ -45,7 +45,8 @@ class FileLoaderArchive final : public FileLoader {
     psyqo::TaskQueue::Task scheduleInit() override {
         return psyqo::TaskQueue::Task([this](psyqo::TaskQueue::Task* task) {
             m_initTask = task;
-            psyqo::paths::ArchiveManager::registerUCL_NRV2EDecompressor();
+            // authoring writes UCL-NRV2E; the editor's MIT-licensed writer uses LZ4.
+            psyqo::paths::ArchiveManager::registerAllDecompressors();
             // The disc goes first. Without one the game can only be running over
             // PCdrv, so PCdrv is set up only then; with no driver at all that
             // first call faults, and there would have been nothing to load anyway.
@@ -58,7 +59,7 @@ class FileLoaderArchive final : public FileLoader {
                     initDone(true);
                 })
                 .butCatch([this](psyqo::TaskQueue*) {
-                    if (!openPcdrvImage()) {
+                    if (!m_pcdrvImage.ensureOpen()) {
                         printf("FileLoader: no disc, and no " PSXSPLASH_ARCHIVE_IMAGE " over PCdrv\n");
                         initDone(false);
                         return;
@@ -158,10 +159,6 @@ class FileLoaderArchive final : public FileLoader {
     }
 
   private:
-    // ensureOpen() inlines PCinit(), whose asm does not list the v1 the host
-    // overwrites; out of line, nothing is live there across the break.
-    __attribute__((noinline)) bool openPcdrvImage() { return m_pcdrvImage.ensureOpen(); }
-
     void useDevice(bool device) {
         m_usingDevice = device;
         m_cd = device ? static_cast<psyqo::CDRom*>(&m_device) : &m_pcdrvImage;

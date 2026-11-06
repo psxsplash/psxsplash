@@ -21,7 +21,7 @@ class FileLoaderPCdrv final : public FileLoader {
     // -- scheduleInit ----------------------------------------------
     psyqo::TaskQueue::Task scheduleInit() override {
         return psyqo::TaskQueue::Task([this](psyqo::TaskQueue::Task* task) {
-            m_available = (pcInit() == 0);
+            m_available = (PCinit() == 0);
             task->resolve();
         });
     }
@@ -49,10 +49,6 @@ class FileLoaderPCdrv final : public FileLoader {
 
   private:
     bool m_available = false;
-
-    // PCinit()'s asm does not list v1, which the host overwrites; kept out of
-    // line so the compiler holds nothing live there across the break.
-    __attribute__((noinline)) static int pcInit() { return PCinit(); }
 
     uint8_t* doLoad(const char* filename, int& outSize) {
         outSize = 0;
