@@ -71,13 +71,15 @@ end
 
 -- Every build is its own target with its own file, so building one never
 -- overwrites another: psxsplash (PCdrv, for emulators and SIO1),
--- psxsplash-cdrom (disc images), and the PCdrv builds with on-screen
+-- psxsplash-cdrom (disc images), psxsplash-archive (a Redux `authoring` image,
+-- from the drive or over PCdrv), and the PCdrv builds with on-screen
 -- overlays, -perf (FPS counter and heap bar), -rooms (room wireframe) and
 -- -perf-rooms. Without the bootlogo feature each name ends in -nologo.
 -- `xmake` builds them all; `xmake build psxsplash-cdrom.ps-exe` builds one.
 local variants = {
     {name = "psxsplash"},
     {name = "psxsplash-cdrom", cdrom = true},
+    {name = "psxsplash-archive", archive = true},
     {name = "psxsplash-perf", perf = true},
     {name = "psxsplash-rooms", rooms = true},
     {name = "psxsplash-perf-rooms", perf = true, rooms = true},
@@ -119,6 +121,10 @@ for _, variant in ipairs(variants) do
                 add_files("third_party/nugget/bsdec/bsdec.c", {cflags = "-O3"})
                 add_files("third_party/nugget/common/crt0/clz.c")
             end
+        elseif variant.archive then
+            add_defines("LOADER_ARCHIVE")
+            add_files("third_party/nugget/psyqo-paths/src/archive-manager.cpp",
+                      "third_party/nugget/ucl-demo/n2e-d.S")
         else
             add_defines("PCDRV_SUPPORT=1")
         end
