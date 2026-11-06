@@ -3,16 +3,25 @@
 #include <stdint.h>
 #include <psyqo/task.hh>
 
+// A disc backend is in use: the CD-ROM one, or the archive one (which may read
+// its image over PCdrv instead, see fileloader_archive.hh).
+#if defined(LOADER_CDROM) || defined(LOADER_ARCHIVE)
+#define PSXSPLASH_DISC 1
+#else
+#define PSXSPLASH_DISC 0
+#endif
+
 namespace psxsplash {
 
 /**
  * FileLoader - abstract interface for loading files on PS1.
  *
- * Two compile-time backends:
+ * Three compile-time backends:
  *   - FileLoaderPCdrv: PCdrv protocol (emulator break instructions OR SIO1 serial)
  *   - FileLoaderCDRom: CD-ROM via psyqo CDRomDevice + ISO9660Parser
+ *   - FileLoaderArchive: one psyqo-paths archive, from the drive or over PCdrv
  *
- * Build with LOADER=pcdrv (default) or LOADER=cdrom to select the backend.
+ * Build with LOADER=pcdrv (default), LOADER=cdrom or LOADER=archive.
  *
  * Both backends expose the same task-based API following the psyqo TaskQueue
  * pattern (see nugget/psyqo/examples/task-demo). For PCdrv the tasks resolve
@@ -46,7 +55,7 @@ class FileLoader {
      * and *outSize contains the size in bytes.
      * On reject, *outBuffer == nullptr and *outSize == 0.
      *
-     * PCdrv filenames: relative paths like "scene_0.splashpack".
+     * PCdrv and archive filenames: names like "scene_0.splashpack".
      * CDRom filenames: ISO9660 names like "SCENE_0.SPK;1".
      *
      * Use BuildSceneFilename / BuildLoadingFilename helpers to get the

@@ -593,7 +593,7 @@ namespace psxsplash {
         // The scene's video mode while a movie plays in its place at 320x240.
         uint8_t m_movieSceneVideoMode = VIDEO_MODE_320x240;
 #endif
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
         void settleDrive(psyqo::GPU& gpu);
 #endif
 

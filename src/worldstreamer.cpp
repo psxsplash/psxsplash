@@ -4,7 +4,7 @@
 
 #include "fileloader.hh"
 
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
 #include "cdromhelper.hh"
 #endif
 
@@ -21,13 +21,13 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
     char name[32];
     FileLoader::BuildGeoFilename(sceneIndex, name, sizeof(name));
 
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     // InitializeScene runs after loadScene has silenced the drive.
     CDRomHelper::WakeDrive();
 #endif
     if (!StreamReader::Open(name, m_file)) {
         printf("WorldStreamer: %s missing, streamed geometry will not draw\n", name);
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
         CDRomHelper::SilenceDrive();
 #endif
         return;
@@ -46,7 +46,7 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
         printf("WorldStreamer: no RAM for %u KB of streaming slots, streamed geometry will not draw\n",
                poolBytes / 1024);
         shutdown();
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
         CDRomHelper::SilenceDrive();
 #endif
         return;
@@ -72,7 +72,7 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
         attach(region, off);
     }
 
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     CDRomHelper::SilenceDrive();
 #endif
 }

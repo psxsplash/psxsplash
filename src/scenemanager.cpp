@@ -21,9 +21,9 @@
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
 #include "cdromhelper.hh"
-#include "fileloader_cdrom.hh"
+#include "fileloader_disc.hh"
 #endif
 
 #if PSXSPLASH_FEATURE_STREAMING
@@ -90,8 +90,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // IRQs), so a second psyqo::SPU::initialize() would only reset the voices
     // and rewrite the 16-byte dummy sample at 0x1000 again.
 
-#ifdef LOADER_CDROM
-    m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(
+#if PSXSPLASH_DISC
+    m_music.setCDRomDevice(static_cast<psxsplash::DiscLoader&>(
         psxsplash::FileLoader::Get()).getCDRomDevice());
 #endif
 
@@ -1484,7 +1484,7 @@ void psxsplash::SceneManager::requestSceneLoad(int sceneIndex) {
 }
 
 bool psxsplash::SceneManager::readHotReloadTag(uint8_t* tag, uint8_t& len) {
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     return false;
 #else
     int size = 0;
@@ -1526,7 +1526,7 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
     loadScene(gpu, targetIndex, /*isFirstScene=*/false);
 }
 
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
 // CD-DA music keeps a CDRomDevice action active for the entire track (the
 // drive reports position and the end-of-track IRQ through it).  While that
 // action is pending, any blocking data read aborts with "readSectorsBlocking
@@ -1548,8 +1548,10 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
 //      "safe to stop now" signal; combined with !isIdle() it means state==100.
 //   2. If it settled on playing, stop it and drain back to idle.
 void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
-    psyqo::CDRomDevice* cdrom = static_cast<psxsplash::FileLoaderCDRom&>(
+    // Null when the archive backend reads its image over PCdrv: no drive, no CD-DA.
+    psyqo::CDRomDevice* cdrom = static_cast<psxsplash::DiscLoader&>(
         psxsplash::FileLoader::Get()).getCDRomDevice();
+    if (!cdrom) return;
     while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
         gpu.pumpCallbacks();
     }
@@ -1792,17 +1794,19 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #endif
 
     // Restore CD-ROM controller and CPU IRQ state for file loading.
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     CDRomHelper::WakeDrive();
 
     // The per-scene Lua VM (which owns music state) is torn down in clearScene()
     // and the next scene restarts its own track, so a full stop is correct.
     settleDrive(gpu);
 
+#if defined(LOADER_CDROM)
     // Every file below opens through the root and this scene's directory;
     // read those once for the whole load instead of once per file.
     psxsplash::FileLoaderCDRom::DirBatch dirBatch(
         static_cast<psxsplash::FileLoaderCDRom&>(psxsplash::FileLoader::Get()));
+#endif
 #endif
 
     // Loading runs at 320x240: the loading screen draws into the two 320x240
@@ -1934,7 +1938,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #endif
 
     // Stop the CD-ROM motor and mask all interrupts for gameplay.
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     CDRomHelper::SilenceDrive();
 #endif
 

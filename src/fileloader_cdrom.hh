@@ -191,6 +191,11 @@ class FileLoaderCDRom final : public FileLoader {
     /** What the disc is set to, whatever a bad read has since slowed the drive to. */
     static bool discDoubleSpeed() { return g_discReadSpeed[c_discReadSpeedDigit] != '1'; }
 
+    /** Raw sector read, blocking. */
+    bool readSectorsBlocking(uint32_t lba, uint32_t count, void* buffer) {
+        return m_gpu && m_cdrom.readSectorsBlocking(lba, count, buffer, *m_gpu);
+    }
+
     /** Blocking directory lookup; the drive must be awake (scene loading). */
     bool resolveBlocking(const char* path, uint32_t& outLBA, uint32_t& outSize) {
         return resolveEntryBlocking(path, outLBA, outSize);
