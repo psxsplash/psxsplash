@@ -103,6 +103,15 @@ inline bool SkinPose_Fading(const SkinAnimState& state) { return state.fadeLengt
 /// The crossfade weight, 0 (all previous clip) .. 4096 (all current clip).
 uint16_t SkinPose_FadeWeight(const SkinAnimState& state);
 
+/// One bone of the crossfade, weight w (0 = prev, 4096 = cur). The rotation
+/// is lerped and re-orthonormalised (Gram-Schmidt on the bone's axes, R's
+/// columns), so the bone keeps its length; near-opposite poses take the
+/// nearer pose's rotation. With bind (the bone's bind joint, 3 x int16) the
+/// joint R*j+t moves on a straight line; without it t is lerped. Both lerps
+/// round to nearest. The ends (w 0 / 4096) return the poses unchanged.
+void SkinPose_FadeBone(const BakedBoneMatrix& prev, const BakedBoneMatrix& cur, int32_t w,
+                       const int16_t* bind, BakedBoneMatrix* out);
+
 /// The drawn pose: writes boneCount (capped at SKINMESH_MAX_BONES) matrices,
 /// the current clip's frame lerp, blended from the previous clip's while a
 /// crossfade runs. Returns false when there is nothing to draw.

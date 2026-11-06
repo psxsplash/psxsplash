@@ -76,6 +76,130 @@ static inline void lerpBone(const BakedBoneMatrix& bA, const BakedBoneMatrix& bB
     }
 }
 
+// ---------------------------------------------------------------------------
+// The crossfade blend. Poses up to ~180 degrees apart, so a plain matrix lerp
+// would shrink the bone (a 135 degree fade collapses a forearm to a stub).
+// ---------------------------------------------------------------------------
+
+// x / 4096 rounded to nearest, halves away from zero.
+static inline int32_t round12(int32_t x) { return x >= 0 ? (x + 2048) >> 12 : -((-x + 2048) >> 12); }
+
+static inline int32_t fadeLerp(int32_t a, int32_t b, int32_t w) { return a + round12((b - a) * w); }
+
+static inline int16_t clamp16(int32_t v) { return (int16_t)(v > 32767 ? 32767 : (v < -32768 ? -32768 : v)); }
+
+// floor(sqrt(v)), shift-subtract, 16 iterations, no multiply or divide.
+static uint32_t isqrt32(uint32_t v) {
+    uint32_t r = 0;
+    for (uint32_t bit = 1u << 30; bit; bit >>= 2) {
+        if (v >= r + bit) {
+            v -= r + bit;
+            r = (r >> 1) + bit;
+        } else {
+            r >>= 1;
+        }
+    }
+    return r;
+}
+
+// A blended axis shorter than 1/8 (squared, in 8.24) is too close to the
+// poses being opposite to normalise: take the nearer pose's rotation.
+static constexpr uint32_t kMinAxisLenSq = (4096u * 4096u) / 64u;
+
+// Scale v (4.12) to unit length. One rsqrt: an integer sqrt and one divide.
+// False when v is shorter than the guard (nothing written).
+static bool normalise(int32_t v[3]) {
+    uint32_t lenSq = 0;
+    for (int i = 0; i < 3; i++) {
+        uint32_t m = (uint32_t)(v[i] < 0 ? -v[i] : v[i]);  // < 2^16, so the sum < 2^32
+        lenSq += m * m;
+    }
+    if (lenSq < kMinAxisLenSq) return false;
+    // Scale lenSq up by 4^sh first so the integer sqrt keeps sh extra bits:
+    // a short blended axis (down to 1/8) would otherwise lose up to 8 LSB.
+    int sh = 0;
+    while (sh < 6 && lenSq < (1u << 30)) {
+        lenSq <<= 2;
+        sh++;
+    }
+    uint32_t len = isqrt32(lenSq);       // 4.12 length * 2^sh, >= 2^15 when sh > 0
+    uint32_t inv = (1u << 31) / len;
+    int shift = 19 - sh;                 // v * inv >> shift = v * 4096 / (len / 2^sh)
+    uint32_t half = 1u << (shift - 1);
+    for (int i = 0; i < 3; i++) {
+        // |v[i]| * 2^sh <= len, so the magnitude product is <= 2^31 and stays
+        // in 32 bits (no 64-bit shifts: there is no libgcc for them here).
+        uint32_t m = (uint32_t)(v[i] < 0 ? -v[i] : v[i]) * inv;
+        int32_t r = (int32_t)((m + half) >> shift);
+        v[i] = v[i] < 0 ? -r : r;
+    }
+    return true;
+}
+
+// Posed joint R * j + t, in the bone's model space. 64-bit sums: a corrupt
+// (non-rotation) matrix must not overflow.
+static inline int32_t round12_64(int64_t x) { return (int32_t)(x >= 0 ? (x + 2048) >> 12 : -((-x + 2048) >> 12)); }
+static inline void posedJoint(const int16_t r[9], const int32_t t[3], const int16_t* j, int32_t out[3]) {
+    for (int i = 0; i < 3; i++)
+        out[i] = round12_64((int64_t)r[i * 3] * j[0] + (int64_t)r[i * 3 + 1] * j[1] +
+                            (int64_t)r[i * 3 + 2] * j[2]) + t[i];
+}
+
+void SkinPose_FadeBone(const BakedBoneMatrix& prev, const BakedBoneMatrix& cur, int32_t w,
+                       const int16_t* bind, BakedBoneMatrix* out) {
+    // The ends are the poses themselves, untouched.
+    if (w <= 0) { *out = prev; return; }
+    if (w >= 4096) { *out = cur; return; }
+
+    // Rotation: lerp, then rebuild an orthonormal basis. R maps a vertex as
+    // R * v (renderer.cpp loads r row-major into Matrix33 for the GTE), so the
+    // bone's axes are R's COLUMNS. Gram-Schmidt on columns 0 and 1, column 2
+    // their cross product, signed to agree with the lerped column 2.
+    int32_t c[3][3];  // c[col][row]
+    for (int col = 0; col < 3; col++)
+        for (int row = 0; row < 3; row++)
+            c[col][row] = fadeLerp(prev.r[row * 3 + col], cur.r[row * 3 + col], w);
+
+    bool ok = normalise(c[0]);
+    if (ok) {
+        int32_t d = round12(c[1][0] * c[0][0] + c[1][1] * c[0][1] + c[1][2] * c[0][2]);
+        for (int i = 0; i < 3; i++) c[1][i] -= round12(d * c[0][i]);
+        ok = normalise(c[1]);
+    }
+    if (ok) {
+        int32_t x[3] = {
+            round12(c[0][1] * c[1][2] - c[0][2] * c[1][1]),
+            round12(c[0][2] * c[1][0] - c[0][0] * c[1][2]),
+            round12(c[0][0] * c[1][1] - c[0][1] * c[1][0]),
+        };
+        int32_t s = x[0] * c[2][0] + x[1] * c[2][1] + x[2] * c[2][2];
+        for (int i = 0; i < 3; i++) c[2][i] = s < 0 ? -x[i] : x[i];
+        for (int col = 0; col < 3; col++)
+            for (int row = 0; row < 3; row++) out->r[row * 3 + col] = clamp16(c[col][row]);
+    } else {
+        // Near-opposite poses: no meaningful blend axis. Hold the nearer pose's
+        // rotation; the translation below still moves the joint smoothly.
+        const BakedBoneMatrix& near = w < 2048 ? prev : cur;
+        for (int k = 0; k < 9; k++) out->r[k] = near.r[k];
+    }
+
+    if (!bind) {
+        for (int k = 0; k < 3; k++) out->t[k] = clamp16(fadeLerp(prev.t[k], cur.t[k], w));
+        return;
+    }
+    // Translation: move the joint on the straight line between its two posed
+    // positions and hang the rotated bone from it, so the limb stays rigid.
+    int32_t tp[3] = {prev.t[0], prev.t[1], prev.t[2]};
+    int32_t tc[3] = {cur.t[0], cur.t[1], cur.t[2]};
+    int32_t zero[3] = {0, 0, 0};
+    int32_t pp[3], pc[3], rj[3];
+    posedJoint(prev.r, tp, bind, pp);
+    posedJoint(cur.r, tc, bind, pc);
+    posedJoint(out->r, zero, bind, rj);
+    for (int k = 0; k < 3; k++)
+        out->t[k] = clamp16(pp[k] + round12_64((int64_t)(pc[k] - pp[k]) * w) - rj[k]);
+}
+
 static bool computeRange(const SkinAnimSet& set, const SkinAnimState& state, int first, int end,
                          BakedBoneMatrix* out) {
     const BakedBoneMatrix* a;
@@ -105,7 +229,7 @@ static bool computeRange(const SkinAnimSet& set, const SkinAnimState& state, int
         else cur = a[bi];
         if (pb) lerpBone(pa[bi], pb[bi], psf, prev);
         else prev = pa[bi];
-        lerpBone(prev, cur, w, o);
+        SkinPose_FadeBone(prev, cur, w, set.bindPositions ? &set.bindPositions[bi * 3] : nullptr, &o);
     }
     return true;
 }

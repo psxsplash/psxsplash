@@ -4,6 +4,7 @@
 
 #include "skinpose.hh"
 
+#include <math.h>
 #include <stdlib.h>
 
 #include "testing.hh"
@@ -275,14 +276,23 @@ TEST(halfway_is_midpoint_within_one_lsb) {
     CHECK(SkinPose_Compute(set, st, got));
     clipPose(set, 0, 0, 3000, false, prev);
     clipPose(set, 1, 1, 1000, false, cur);
+    // Translation (no bind positions here: the plain lerp). The rotation is
+    // no longer a plain midpoint since the fade re-orthonormalises it; see
+    // fade_rotation_* below.
+    (void)mid;
+    int dMid = 0, dPrev = 0, dCur = 0;
     for (int bi = 0; bi < kBones; bi++) {
-        for (int k = 0; k < 9; k++) mid[bi].r[k] = (int16_t)((prev[bi].r[k] + cur[bi].r[k]) / 2);
-        for (int k = 0; k < 3; k++) mid[bi].t[k] = (int16_t)((prev[bi].t[k] + cur[bi].t[k]) / 2);
+        for (int k = 0; k < 3; k++) {
+            int m = (prev[bi].t[k] + cur[bi].t[k]) / 2;
+            dMid = abs(got[bi].t[k] - m) > dMid ? abs(got[bi].t[k] - m) : dMid;
+            dPrev = abs(got[bi].t[k] - prev[bi].t[k]) > dPrev ? abs(got[bi].t[k] - prev[bi].t[k]) : dPrev;
+            dCur = abs(got[bi].t[k] - cur[bi].t[k]) > dCur ? abs(got[bi].t[k] - cur[bi].t[k]) : dCur;
+        }
     }
-    CHECK(maxDiff(got, mid, kBones) <= 1);
+    CHECK(dMid <= 1);
     // And it really is between the two, not equal to either.
-    CHECK(maxDiff(got, prev, kBones) > 1);
-    CHECK(maxDiff(got, cur, kBones) > 1);
+    CHECK(dPrev > 1);
+    CHECK(dCur > 1);
 }
 
 TEST(compute_bone_matches_compute_mid_fade) {
@@ -440,6 +450,182 @@ TEST(no_fade_from_nothing_drawn) {
     SkinAnimState st = makeState(&set, 0, 0, 0);
     play(set, st, 1, false, 8);
     CHECK(!SkinPose_Fading(st));
+}
+
+// ---------------------------------------------------------------------------
+// The fade blend between real rotations (FadeBone)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Rotation by deg about a unit axis (Rodrigues), quantised to 4.12 like the
+// exporter's baked matrices. Row-major, applied as R * v.
+BakedBoneMatrix rot(double ax, double ay, double az, double deg, int tx = 0, int ty = 0, int tz = 0) {
+    double n = sqrt(ax * ax + ay * ay + az * az);
+    ax /= n; ay /= n; az /= n;
+    double a = deg * M_PI / 180.0, c = cos(a), s = sin(a), C = 1 - c;
+    double m[9] = {c + ax * ax * C,      ax * ay * C - az * s, ax * az * C + ay * s,
+                   ay * ax * C + az * s, c + ay * ay * C,      ay * az * C - ax * s,
+                   az * ax * C - ay * s, az * ay * C + ax * s, c + az * az * C};
+    BakedBoneMatrix b{};
+    for (int k = 0; k < 9; k++) b.r[k] = (int16_t)lround(m[k] * 4096.0);
+    b.t[0] = (int16_t)tx; b.t[1] = (int16_t)ty; b.t[2] = (int16_t)tz;
+    return b;
+}
+
+double colLen(const BakedBoneMatrix& b, int col) {
+    double x = b.r[col], y = b.r[3 + col], z = b.r[6 + col];
+    return sqrt(x * x + y * y + z * z);
+}
+double rowLen(const BakedBoneMatrix& b, int row) {
+    double x = b.r[row * 3], y = b.r[row * 3 + 1], z = b.r[row * 3 + 2];
+    return sqrt(x * x + y * y + z * z);
+}
+double colDot(const BakedBoneMatrix& b, int c0, int c1) {
+    double d = 0;
+    for (int r = 0; r < 3; r++) d += (double)b.r[r * 3 + c0] * b.r[r * 3 + c1];
+    return d / 4096.0;
+}
+// R * v + t in double, v in the bind units.
+void apply(const BakedBoneMatrix& b, const double v[3], double out[3]) {
+    for (int i = 0; i < 3; i++)
+        out[i] = (b.r[i * 3] * v[0] + b.r[i * 3 + 1] * v[1] + b.r[i * 3 + 2] * v[2]) / 4096.0 + b.t[i];
+}
+
+}  // namespace
+
+TEST(fade_rotation_stays_unit_at_135_degrees) {
+    // The e2e case: "raise" -> "bend", about 135 degrees apart.
+    BakedBoneMatrix prev = rot(0.3, 0.2, 1.0, 10.0);
+    BakedBoneMatrix cur = rot(0.3, 0.2, 1.0, 145.0);
+    double worstLen = 0, worstDot = 0;
+    for (int w = 1; w < 4096; w += 31) {
+        BakedBoneMatrix o;
+        SkinPose_FadeBone(prev, cur, w, nullptr, &o);
+        for (int i = 0; i < 3; i++) {
+            worstLen = fmax(worstLen, fabs(colLen(o, i) - 4096.0));
+            worstLen = fmax(worstLen, fabs(rowLen(o, i) - 4096.0));
+        }
+        worstDot = fmax(worstDot, fabs(colDot(o, 0, 1)));
+        worstDot = fmax(worstDot, fabs(colDot(o, 0, 2)));
+        worstDot = fmax(worstDot, fabs(colDot(o, 1, 2)));
+        // Right-handed: col2 == col0 x col1 (never a reflection).
+        double x = ((double)o.r[3] * o.r[7] - (double)o.r[6] * o.r[4]) / 4096.0;
+        if (!CHECK(x * o.r[2] >= -4096.0)) return;
+    }
+    printf("    worst |len - 1| %.2f LSB, worst axis dot %.2f LSB\n", worstLen, worstDot);
+    CHECK(worstLen <= 4.0);
+    CHECK(worstDot <= 4.0);
+    // About a coordinate axis (the e2e arm bends about one), the midpoint is
+    // the halfway rotation, 77.5 deg, within a few LSB.
+    BakedBoneMatrix o, want = rot(0, 0, 1, 77.5);
+    SkinPose_FadeBone(rot(0, 0, 1, 10.0), rot(0, 0, 1, 145.0), 2048, nullptr, &o);
+    printf("    z-axis midpoint vs 77.5 deg: %d LSB\n", maxDiff(&o, &want, 1));
+    CHECK(maxDiff(&o, &want, 1) <= 4);
+    // About an oblique axis it is still a rigid rotation (checked above) but
+    // NOT the halfway one: lerp + Gram-Schmidt leaves the geodesic. Measured
+    // here, not asserted; see the report.
+    want = rot(0.3, 0.2, 1.0, 77.5);
+    SkinPose_FadeBone(prev, cur, 2048, nullptr, &o);
+    double tr = 0;
+    for (int i = 0; i < 3; i++)
+        for (int k = 0; k < 3; k++) tr += (double)o.r[k * 3 + i] * want.r[k * 3 + i];
+    tr /= 4096.0 * 4096.0;
+    printf("    oblique-axis midpoint off the halfway rotation by %.1f deg\n",
+           acos(fmin(1.0, fmax(-1.0, (tr - 1) / 2))) * 180.0 / M_PI);
+}
+
+TEST(fade_joint_moves_on_straight_line_and_limb_stays_rigid) {
+    const int16_t bind[3] = {120, -900, 40};       // the elbow, bind space
+    const double tip[3] = {120, -2900, 40};        // a forearm point 2000 units out
+    BakedBoneMatrix prev = rot(0.0, 0.0, 1.0, 20.0, 300, -150, 12);
+    BakedBoneMatrix cur = rot(0.0, 0.0, 1.0, 155.0, -420, 610, -30);
+    double j[3] = {(double)bind[0], (double)bind[1], (double)bind[2]};
+    double pp[3], pc[3], tp[3], tc[3];
+    apply(prev, j, pp);
+    apply(cur, j, pc);
+    apply(prev, tip, tp);
+    apply(cur, tip, tc);
+    double limb = sqrt((tp[0] - pp[0]) * (tp[0] - pp[0]) + (tp[1] - pp[1]) * (tp[1] - pp[1]) +
+                       (tp[2] - pp[2]) * (tp[2] - pp[2]));
+    double worstPath = 0, worstLimb = 0;
+    for (int w = 1; w < 4096; w += 17) {
+        BakedBoneMatrix o;
+        SkinPose_FadeBone(prev, cur, w, bind, &o);
+        double p[3], t[3];
+        apply(o, j, p);
+        apply(o, tip, t);
+        for (int i = 0; i < 3; i++) worstPath = fmax(worstPath, fabs(p[i] - (pp[i] + (pc[i] - pp[i]) * w / 4096.0)));
+        double l = sqrt((t[0] - p[0]) * (t[0] - p[0]) + (t[1] - p[1]) * (t[1] - p[1]) + (t[2] - p[2]) * (t[2] - p[2]));
+        worstLimb = fmax(worstLimb, fabs(l - limb));
+    }
+    printf("    worst joint off the line %.2f, worst limb length error %.2f of %.0f\n", worstPath, worstLimb, limb);
+    CHECK(worstPath <= 2.0);
+    CHECK(worstLimb <= 4.0);  // 0.2%; a plain lerp loses ~70% here
+}
+
+TEST(fade_compute_uses_bind_positions) {
+    // Through SkinPose_Compute: a set with bind positions gets the joint path.
+    static BakedBoneMatrix a[1], b[1];
+    static const int16_t bind[3] = {0, -800, 0};
+    a[0] = rot(1, 0, 0, 0.0, 10, 20, 30);
+    b[0] = rot(1, 0, 0, 120.0, -50, 0, 70);
+    SkinAnimSet set{};
+    set.clipCount = 2;
+    set.boneCount = 1;
+    set.bindPositions = bind;
+    set.clips[0] = {"a", a, 1, 0, 30, 1, {}};
+    set.clips[1] = {"b", b, 1, 0, 30, 1, {}};
+    SkinAnimState st = makeState(&set, 0, 0, 0);
+    play(set, st, 1, false, 10);
+    SkinPose_TickFade(&st, 4096 * 3);
+    BakedBoneMatrix got, want, flat;
+    CHECK(SkinPose_Compute(set, st, &got));
+    SkinPose_FadeBone(a[0], b[0], SkinPose_FadeWeight(st), bind, &want);
+    SkinPose_FadeBone(a[0], b[0], SkinPose_FadeWeight(st), nullptr, &flat);
+    CHECK_MEM(&got, &want, sizeof(got));
+    CHECK(memcmp(&got.t, &flat.t, sizeof(got.t)) != 0);  // the bind path differs from the plain t lerp
+}
+
+TEST(fade_near_180_degrees_takes_nearer_pose) {
+    BakedBoneMatrix prev = rot(0, 0, 1, 0.0, 100, 0, 0);
+    BakedBoneMatrix cur = rot(0, 0, 1, 180.0, -100, 0, 0);
+    BakedBoneMatrix o;
+    SkinPose_FadeBone(prev, cur, 2047, nullptr, &o);
+    CHECK_MEM(o.r, prev.r, sizeof(o.r));
+    SkinPose_FadeBone(prev, cur, 2048, nullptr, &o);
+    CHECK_MEM(o.r, cur.r, sizeof(o.r));
+    CHECK_EQ(o.t[0], 0);
+    // 179 degrees apart: also guarded, never a huge or zero matrix.
+    cur = rot(0, 0, 1, 179.0);
+    for (int w = 1; w < 4096; w += 7) {
+        SkinPose_FadeBone(prev, cur, w, nullptr, &o);
+        for (int i = 0; i < 3; i++) {
+            if (!CHECK(fabs(colLen(o, i) - 4096.0) <= 6.0)) return;
+        }
+    }
+}
+
+TEST(fade_ends_are_the_poses_exactly) {
+    const int16_t bind[3] = {30, -700, 5};
+    BakedBoneMatrix prev = rot(1, 1, 0, 33.0, 5, 6, 7), cur = rot(0, 1, 1, 140.0, -8, 9, 10);
+    BakedBoneMatrix o;
+    SkinPose_FadeBone(prev, cur, 0, bind, &o);
+    CHECK_MEM(&o, &prev, sizeof(o));
+    SkinPose_FadeBone(prev, cur, 4096, bind, &o);
+    CHECK_MEM(&o, &cur, sizeof(o));
+}
+
+TEST(fade_lerp_rounds_to_nearest) {
+    BakedBoneMatrix prev = rot(0, 0, 1, 0.0, 0, 0, 0);
+    BakedBoneMatrix cur = rot(0, 0, 1, 0.0, 31, -31, 1);
+    BakedBoneMatrix o;
+    SkinPose_FadeBone(prev, cur, 100, nullptr, &o);  // 31 * 100 / 4096 = 0.757
+    CHECK_EQ(o.t[0], 1);
+    CHECK_EQ(o.t[1], -1);
+    CHECK_EQ(o.t[2], 0);
+    SkinPose_FadeBone(prev, cur, 2048, nullptr, &o);  // 0.5 rounds away from zero
+    CHECK_EQ(o.t[2], 1);
 }
 
 int main() { return psxsplash::test::runAll(); }
