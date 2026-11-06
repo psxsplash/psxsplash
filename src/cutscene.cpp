@@ -229,6 +229,7 @@ void CutscenePlayer::applyFrame() {
                     state.subFrame     = 0;
                     state.playing      = true;
                     state.loop         = (evt.loop != 0);
+                    state.fadeLength   = 0;  // events snap; drop any Lua crossfade
                 }
             }
 #endif
