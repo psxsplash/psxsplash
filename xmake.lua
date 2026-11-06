@@ -110,7 +110,7 @@ for _, variant in ipairs(variants) do
         elseif variant.archive then
             add_defines("LOADER_ARCHIVE")
             add_files("third_party/nugget/psyqo-paths/src/archive-manager.cpp",
-                      "third_party/nugget/ucl-demo/n2e-d.S")
+                      "third_party/nugget/ucl-demo/n2e-d.S", "third_party/nugget/lz4/lz4.c")
         else
             add_defines("PCDRV_SUPPORT=1")
         end
