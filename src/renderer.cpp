@@ -1,5 +1,9 @@
 #include "renderer.hh"
 
+#if PSXSPLASH_FEATURE_PARTICLES
+#include "particlesystem.hh"
+#endif
+
 #include "fade.hh"
 #include "otdepth.hh"
 #include "palettecycler.hh"
@@ -1282,6 +1286,11 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #if PSXSPLASH_FEATURE_BACKGROUNDS
     if (m_backgroundSystem) m_backgroundSystem->renderOT(ot, balloc, m_otSize);
 #endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    if (m_particleSystem)
+        m_particleSystem->renderOT(m_currentCamera->GetRotation(), cameraPosition, screenProjH(),
+                                   m_nearSZ, (int32_t)m_otSize, fogFarSZ, ot, balloc);
+#endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
     ScreenFx::get().drawWorld(ot, balloc, parity, m_otSize);
@@ -1400,6 +1409,11 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
     renderShadows(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    if (m_particleSystem)
+        m_particleSystem->renderOT(m_currentCamera->GetRotation(), cameraPosition, screenProjH(),
+                                   m_nearSZ, (int32_t)m_otSize, fogFarSZ, ot, balloc);
 #endif
 
     // After the world: in a shared bucket the last insert draws first, so a
@@ -2138,6 +2152,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
     renderShadows(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    if (m_particleSystem)
+        m_particleSystem->renderOT(m_currentCamera->GetRotation(), cameraPosition, screenProjH(),
+                                   m_nearSZ, (int32_t)m_otSize, fogFarSZ, ot, balloc);
 #endif
 
     // After the world: in a shared bucket the last insert draws first, so a

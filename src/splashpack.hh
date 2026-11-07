@@ -230,6 +230,10 @@ struct SplashpackSceneSetup {
     // --- v30 ---
     /// The shine table (shinemath.hh), or nullptr when nothing shines.
     const uint8_t* shineTable = nullptr;
+
+    // --- v32 ---
+    // Particle emitter table (v32+, particlemath.hh), or nullptr.
+    const uint8_t* particleTable = nullptr;
 };
 
 class SplashPackLoader {

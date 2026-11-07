@@ -31,6 +31,7 @@ class UISystem; // Forward declaration
 class PaletteCycler; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
+class ParticleSystem; // Forward declaration
 class NavRegionSystem;
 class BackgroundSystem;
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -157,6 +158,8 @@ class Renderer final {
     void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
     void SetTileSystem(TileSystem* tiles) { m_tileSystem = tiles; }
     void SetBackgroundSystem(BackgroundSystem* bg) { m_backgroundSystem = bg; }
+    /// Billboard particles (particlesystem.hh), drawn among the 3D geometry.
+    void SetParticleSystem(ParticleSystem* particles) { m_particleSystem = particles; }
 #ifdef PSXSPLASH_MEMOVERLAY
     void SetMemOverlay(MemOverlay* overlay) { m_memOverlay = overlay; }
 #endif
@@ -265,6 +268,7 @@ class Renderer final {
     SpriteSystem* m_spriteSystem = nullptr;
     TileSystem* m_tileSystem = nullptr;
     BackgroundSystem* m_backgroundSystem = nullptr;
+    ParticleSystem* m_particleSystem = nullptr;
 #ifdef PSXSPLASH_MEMOVERLAY
     MemOverlay* m_memOverlay = nullptr;
 #endif

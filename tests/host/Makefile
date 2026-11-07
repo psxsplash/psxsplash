@@ -45,6 +45,7 @@ INPUT_BIN  := $(BUILD)/input_tests
 SCREENFX_BIN := $(BUILD)/screenfx_tests
 DECAL_BIN  := $(BUILD)/decal_tests
 REVERB_BIN := $(BUILD)/reverb_tests
+PARTICLE_BIN := $(BUILD)/particle_tests
 GEN_BIN    := $(BUILD)/gen_vectors
 
 .PHONY: all test vectors clean
@@ -103,10 +104,14 @@ $(SCREENFX_BIN): test_screenfx.cpp testing.hh compat.hh $(SRC_DIR)/screenfxmath.
 $(REVERB_BIN): test_reverb.cpp testing.hh compat.hh $(SRC_DIR)/reverb.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_reverb.cpp
 
+# particlemath.hh is header-only.
+$(PARTICLE_BIN): test_particle.cpp testing.hh compat.hh $(SRC_DIR)/particlemath.hh $(SRC_DIR)/splashpackversion.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_particle.cpp
+
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -141,6 +146,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(DECAL_BIN)
 	@echo "== reverb =="
 	@$(REVERB_BIN)
+	@echo "== particle =="
+	@$(PARTICLE_BIN)
 
 vectors: $(GEN_BIN)
 	@mkdir -p $(VEC_DIR)

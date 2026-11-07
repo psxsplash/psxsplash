@@ -36,6 +36,7 @@
 #endif
 #include "tilesystem.hh"
 #include "backgroundsystem.hh"
+#include "particlesystem.hh"
 #include "uisystem.hh"
 #include "palettecycler.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
@@ -663,6 +664,9 @@ namespace psxsplash {
         bool m_bgFollowWas = false;
         int32_t m_bgHWas = 0;
         bool showBackgroundIndex(int i);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+        ParticleSystem m_particleSystem;
 #endif
         uint32_t m_authoredSceneHash = 0;
 

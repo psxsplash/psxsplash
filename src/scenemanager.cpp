@@ -100,6 +100,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     UISystem* uiSystem = nullptr;
     SpriteSystem* spriteSystem = nullptr;
     TileSystem* tileSystem = nullptr;
+    ParticleSystem* particleSystem = nullptr;
 #if PSXSPLASH_FEATURE_CUTSCENE
     cutscenePlayer = &m_cutscenePlayer;
     animationPlayer = &m_animationPlayer;
@@ -111,8 +112,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     spriteSystem = &m_spriteSystem;
     tileSystem = &m_tileSystem;
 #endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    particleSystem = &m_particleSystem;
+#endif
     LuaAPI::RegisterAll(L.getState(), this, cutscenePlayer, animationPlayer, uiSystem, spriteSystem,
-                        tileSystem);
+                        tileSystem, particleSystem);
 
 #ifdef PSXSPLASH_PROFILER
     debug::Profiler::getInstance().initialize(s_font);
@@ -341,6 +345,17 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_backgrounds.init();
     m_backgrounds.load(splashpackData, sceneSetup.backgroundTableOffset, &m_gameObjects);
     Renderer::GetInstance().SetBackgroundSystem(sceneSetup.backgroundTableOffset ? &m_backgrounds : nullptr);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    // Particle emitters (v32+): their pool is allocated here, once, from the
+    // pack's sizes. They draw from the sprite sheets loaded just above.
+    m_particleSystem.unload();
+    if (sceneSetup.particleTable != nullptr && sceneSetup.spriteSheetCount > 0) {
+        m_particleSystem.load(splashpackData, sceneSetup.particleTable, &m_spriteSystem, m_gameObjects);
+        Renderer::GetInstance().SetParticleSystem(&m_particleSystem);
+    } else {
+        Renderer::GetInstance().SetParticleSystem(nullptr);
+    }
 #endif
 
 #if PSXSPLASH_FEATURE_STREAMING
@@ -703,6 +718,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // pinned to.
 #if PSXSPLASH_FEATURE_SPRITES
     m_spriteSystem.update(m_dt12);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    m_particleSystem.update(m_dt12);
 #endif
 
 
@@ -1984,6 +2002,13 @@ void psxsplash::SceneManager::clearScene() {
     // The records and the object list are about to go away.
     Renderer::GetInstance().SetBackgroundSystem(nullptr);
     m_backgrounds.init();
+#endif
+
+#if PSXSPLASH_FEATURE_PARTICLES
+    // The emitters point into splashpack data and at the GameObjects: free
+    // the pool with them.
+    Renderer::GetInstance().SetParticleSystem(nullptr);
+    m_particleSystem.unload();
 #endif
 
     // Reset room/portal pointers (they point into splashpack data which is being freed)

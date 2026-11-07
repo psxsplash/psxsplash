@@ -36,16 +36,17 @@ TEST(header_size_per_version) {
 TEST(version_gate) {
     CHECK(!splashpackVersionSupported(19));
     CHECK(splashpackVersionSupported(20));
-    // Every format the loader has a reader for: v30 shine, and v31 (skins
-    // with more than 16 clips), which keeps the v30 header and is the newest.
+    // Every format the loader has a reader for: v30 shine, v31 (skins with
+    // more than 16 clips, the v30 header) and v32 particles, the newest.
     CHECK(splashpackVersionSupported(30));
     CHECK(splashpackVersionSupported(31));
-    CHECK_EQ(kSplashpackNewestVersion, 31);
+    CHECK(splashpackVersionSupported(32));
+    CHECK_EQ(kSplashpackNewestVersion, 32);
     CHECK_EQ(PSXSPLASH_SPLASHPACK_NEWEST, kSplashpackNewestVersion);
     // A pack from a newer editor is refused, not parsed with this header.
     CHECK(!splashpackVersionSupported(kSplashpackNewestVersion + 1));
     CHECK(!splashpackVersionSupported(0xFFFF));
-    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV30);
+    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV32);
 }
 
 namespace {

@@ -8,7 +8,8 @@ includes("third_party/nugget/psyqo-lua")
 -- Engine subsystems and the sources each one adds, as in the Makefile and
 -- src/features.hh.
 local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "lights", "streaming",
-                      "memcard", "nav", "agents", "collision", "shadows", "backgrounds", "shine"}
+                      "memcard", "nav", "agents", "collision", "shadows", "backgrounds", "shine",
+                      "particles"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
     net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
@@ -24,6 +25,7 @@ local feature_srcs = {
     collision = {"src/collision.cpp"},
     shadows = {"src/shadowrender.cpp"},
     backgrounds = {"src/backgroundsystem.cpp", "src/backgroundmath.cpp"},
+    particles = {"src/particlesystem.cpp"},
 }
 
 option("features", {type = "string",
@@ -61,6 +63,8 @@ local function selected_features()
     end
     -- Agents path along nav regions.
     if selected.agents then selected.nav = true end
+    -- Particles are cut from sprite sheets.
+    if selected.particles then selected.sprites = true end
     return selected
 end
 

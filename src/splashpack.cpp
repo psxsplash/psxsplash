@@ -129,6 +129,9 @@ struct SPLASHPACKFileHeader {
     // --- v30 (appended; the header grows from 164 to 168) ---
     // Offset to the shine table (shinemath.hh), or 0 if none.
     uint32_t shineTableOffset;
+    // --- v32 (appended; the header grows from 168 to 172) ---
+    // Offset to the particle emitter table, or 0 if none.
+    uint32_t particleTableOffset;
 };
 static_assert(sizeof(SPLASHPACKFileHeader) == splashpackHeaderSize(kSplashpackNewestVersion),
               "SPLASHPACKFileHeader must be the newest version's header size");
@@ -795,6 +798,16 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.shineTable = table;
 #else
         skipCompiledOut(table[0] | (table[1] << 8), "shiny objects", "shine");
+#endif
+    }
+
+    // Particle emitters (v32+). The word does not exist in older headers.
+    if (header->version >= 32 && header->particleTableOffset != 0) {
+        const uint8_t* table = data + header->particleTableOffset;
+#if PSXSPLASH_FEATURE_PARTICLES
+        setup.particleTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "particle emitters", "particles");
 #endif
     }
 
