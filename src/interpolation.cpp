@@ -130,8 +130,7 @@ bool findKfPairSub(CutsceneKeyframe* kf, uint8_t count, uint16_t frame, uint16_t
             return false;
         }
     }
-    if (frame > kf[count - 1].getFrame() ||
-        (frame == kf[count - 1].getFrame() && subFrame > 0)) {
+    if (frame >= kf[count - 1].getFrame()) {
         out[0] = kf[count - 1].values[0];
         out[1] = kf[count - 1].values[1];
         out[2] = kf[count - 1].values[2];
