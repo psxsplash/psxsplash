@@ -4,7 +4,9 @@
 // -- Backend selection --------------------------------------------
 // LOADER_CDROM is defined by the Makefile when LOADER=cdrom.
 // Default (including PCDRV_SUPPORT=1) selects the PCdrv backend.
-#if defined(LOADER_CDROM)
+#if defined(LOADER_ARCHIVE)
+#include "fileloader_archive.hh"
+#elif defined(LOADER_CDROM)
 #include "fileloader_cdrom.hh"
 #else
 #include "fileloader_pcdrv.hh"
@@ -14,7 +16,9 @@ namespace psxsplash {
 
 // -- Singleton ----------------------------------------------------
 FileLoader& FileLoader::Get() {
-#if defined(LOADER_CDROM)
+#if defined(LOADER_ARCHIVE)
+    static FileLoaderArchive instance;
+#elif defined(LOADER_CDROM)
     static FileLoaderCDRom instance;
 #else
     static FileLoaderPCdrv instance;
@@ -24,7 +28,7 @@ FileLoader& FileLoader::Get() {
 
 // -- Filename helpers ---------------------------------------------
 // PCdrv uses lowercase names matching the files SplashControlPanel
-// writes to PSXBuild/.  CDRom uses uppercase 8.3 ISO9660 names with
+// writes to PSXBuild/; the archive backend uses the same names as its keys.  CDRom uses uppercase 8.3 ISO9660 names with
 // the mandatory ";1" version suffix.
 //
 // The CDRom scene files live in a per-scene subdirectory: scene N's files

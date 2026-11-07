@@ -16,9 +16,9 @@
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
 #include "cdromhelper.hh"
-#include "fileloader_cdrom.hh"
+#include "fileloader_disc.hh"
 #endif
 
 #if PSXSPLASH_FEATURE_STREAMING
@@ -82,8 +82,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // IRQs), so a second psyqo::SPU::initialize() would only reset the voices
     // and rewrite the 16-byte dummy sample at 0x1000 again.
 
-#ifdef LOADER_CDROM
-    m_music.setCDRomDevice(static_cast<psxsplash::FileLoaderCDRom&>(
+#if PSXSPLASH_DISC
+    m_music.setCDRomDevice(static_cast<psxsplash::DiscLoader&>(
         psxsplash::FileLoader::Get()).getCDRomDevice());
 #endif
 
@@ -1376,7 +1376,7 @@ void psxsplash::SceneManager::requestSceneLoad(int sceneIndex) {
 }
 
 bool psxsplash::SceneManager::readHotReloadTag(uint8_t* tag, uint8_t& len) {
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     return false;
 #else
     int size = 0;
@@ -1426,7 +1426,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #endif
 
     // Restore CD-ROM controller and CPU IRQ state for file loading.
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     CDRomHelper::WakeDrive();
 
     // CD-DA music keeps a CDRomDevice action active for the entire track (the
@@ -1452,12 +1452,13 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     // The per-scene Lua VM (which owns music state) is torn down in clearScene()
     // and the next scene restarts its own track, so a full stop is correct.
     {
-        psyqo::CDRomDevice* cdrom = static_cast<psxsplash::FileLoaderCDRom&>(
+        // Null when the archive backend reads its image over PCdrv: no drive, no CD-DA.
+        psyqo::CDRomDevice* cdrom = static_cast<psxsplash::DiscLoader&>(
             psxsplash::FileLoader::Get()).getCDRomDevice();
-        while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
+        while (cdrom && !cdrom->isIdle() && !m_music.isPlayingCDDA()) {
             gpu.pumpCallbacks();
         }
-        if (!cdrom->isIdle()) {
+        if (cdrom && !cdrom->isIdle()) {
             m_music.stopCDDA();
             while (!cdrom->isIdle()) {
                 gpu.pumpCallbacks();
@@ -1592,7 +1593,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #endif
 
     // Stop the CD-ROM motor and mask all interrupts for gameplay.
-#if defined(LOADER_CDROM)
+#if PSXSPLASH_DISC
     CDRomHelper::SilenceDrive();
 #endif
 
