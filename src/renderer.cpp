@@ -1674,6 +1674,8 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         }
     }
 
+    m_lastCameraRoom = cameraRoom;
+
     uint32_t visited = 0;
     if (catchAllIdx < 32) visited = (1u << catchAllIdx);
     const auto& camRot = m_currentCamera->GetRotation();

@@ -39,10 +39,12 @@ struct SPLASHPACKTriggerBox {
     int32_t minX, minY, minZ;
     int32_t maxX, maxY, maxZ;
     int16_t luaFileIndex;
-    uint16_t padding;
+    uint8_t reverbPreset;  // reverb.hh preset id while the player is inside, 0 = not a reverb zone (was padding)
+    uint8_t padding;
     uint32_t padding2;
 };
 static_assert(sizeof(SPLASHPACKTriggerBox) == 32, "SPLASHPACKTriggerBox must be 32 bytes");
+static_assert(offsetof(SPLASHPACKTriggerBox, reverbPreset) == 26, "reverbPreset is the low byte of the old padding word");
 
 /**
  * Agent configuration stored in the splashpack binary.  Replaces the old
@@ -140,6 +142,8 @@ struct SplashpackSceneSetup {
     uint8_t fogR = 0, fogG = 0, fogB = 0;
     uint8_t fogDensity = 5;
     bool edgeFade = false;
+    uint8_t reverbDefault = 0;  // reverb.hh preset id, 0 = off
+    bool cdReverb = false;
     uint16_t fogMaskClut4 = 0, fogMaskClut8 = 0;
 
     const RoomData* rooms = nullptr;
