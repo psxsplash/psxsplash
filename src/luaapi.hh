@@ -839,6 +839,13 @@ private:
     // then have the user call another function to render them all.
     static int UI_DrawLine(lua_State* L);
     static int UI_DrawTriangle(lua_State* L);
+    // UI.DrawTexturedTriangle(sheet, p1, p2, p3, uv1, uv2, uv3 [, c1, c2, c3] [, blend])
+    // sheet: a sprite sheet's name or index. uv* are {u, v} texels from the
+    // sheet texture's top-left; c* {r, g, b} tints, all three or none (128 is
+    // the plain texture); blend "half", "add", "subtract", "addQuarter" or 1-4
+    // (omitted is opaque; textured blending needs the sheet's Semi-transparent
+    // option). An unknown sheet draws magenta and logs its name once.
+    static int UI_DrawTexturedTriangle(lua_State* L);
     
     // ========================================================================
     // PLAYER API - Controlling the PsxPlayer
