@@ -8,10 +8,11 @@ includes("third_party/nugget/psyqo-lua")
 -- Engine subsystems and the sources each one adds, as in the Makefile and
 -- src/features.hh.
 local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "lights", "streaming",
-                      "memcard", "nav", "agents", "collision", "shadows", "movie"}
+                      "memcard", "nav", "agents", "collision", "shadows", "backgrounds", "shine",
+                      "particles", "movie"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
-    net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
+    net = {"src/sio1.cpp", "src/pcdrvsocket.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
            "src/luatableserializer.cpp"},
     ui = {"src/uisystem.cpp", "src/loadingscreen.cpp"},
     sprites = {"src/spritesystem.cpp", "src/spritemath.cpp", "src/tilesystem.cpp", "src/tilemath.cpp"},
@@ -24,6 +25,8 @@ local feature_srcs = {
     collision = {"src/collision.cpp"},
     shadows = {"src/shadowrender.cpp"},
     movie = {"src/movieplayer.cpp", "src/movietexture.cpp", "src/srt.cpp"},
+    backgrounds = {"src/backgroundsystem.cpp", "src/backgroundmath.cpp"},
+    particles = {"src/particlesystem.cpp"},
 }
 
 option("features", {type = "string",
@@ -61,6 +64,8 @@ local function selected_features()
     end
     -- Agents path along nav regions.
     if selected.agents then selected.nav = true end
+    -- Particles are cut from sprite sheets.
+    if selected.particles then selected.sprites = true end
     return selected
 end
 
@@ -84,10 +89,12 @@ for _, variant in ipairs(variants) do
     local name = variant.name .. (nologo and "-nologo" or "")
     target(name, function()
         add_rules("psyqo-lua.app")
-        add_files("src/main.cpp", "src/renderer.cpp", "src/splashpack.cpp", "src/camera.cpp",
+        -- -O2 for the renderer, as in the Makefile.
+        add_files("src/renderer.cpp", {cxflags = "-O2", force = {cxflags = "-O2"}})
+        add_files("src/main.cpp", "src/screenfx.cpp", "src/palettecycler.cpp", "src/splashpack.cpp", "src/camera.cpp", "src/screenmode.cpp",
                   "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
-                  "src/lua.cpp", "src/luaapi.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
-                  "src/audiomanager.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",
+                  "src/lua.cpp", "src/luaapi.cpp", "src/luadebug.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
+                  "src/audiomanager.cpp", "src/reverb.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",
                   "src/memoverlay.cpp", "src/musicmanager.cpp", "src/loadbuffer_patch.cpp")
 
         local features = selected_features()

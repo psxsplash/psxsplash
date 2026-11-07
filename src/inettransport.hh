@@ -10,12 +10,14 @@ namespace psxsplash {
  * Everything above the hardware driver - framing, session, object replication -
  * only ever sees this interface. That is the seam that lets the exact same
  * networking code run whether the bytes travel to a peer PlayStation over a link
- * cable or to a PC hosting a central server: both are just bytes on the serial
- * port. The current implementation is Sio1; a loopback/mock transport can
- * implement the same interface for self-testing.
+ * cable or to a PC hosting a central server. The implementations are Sio1 (the
+ * serial port) and PcdrvSocket (a TCP stream through the PCDRV host); a
+ * loopback/mock transport can implement the same interface for self-testing.
  *
- * No method ever blocks. `poll()` services the hardware; the read/write calls
- * move data to/from internal buffers and report how much they actually moved.
+ * The read/write calls never block: they move data to/from internal buffers and
+ * report how much they actually moved. `poll()` services the hardware; on
+ * PcdrvSocket that includes a PCwrite, which the host completes before returning
+ * (bounded by its 5 s timeout).
  */
 class INetTransport {
   public:

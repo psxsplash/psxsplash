@@ -4,17 +4,22 @@ TYPE = ps-exe
 SRCS = \
 src/main.cpp \
 src/renderer.cpp \
+src/palettecycler.cpp \
+src/screenfx.cpp \
 src/splashpack.cpp \
 src/camera.cpp \
+src/screenmode.cpp \
 src/worldcollision.cpp \
 src/navregion.cpp \
 src/random.cpp\
 src/luautility.cpp\
 src/lua.cpp \
 src/luaapi.cpp \
+src/luadebug.cpp \
 src/scenemanager.cpp \
 src/fileloader.cpp \
 src/audiomanager.cpp \
+src/reverb.cpp \
 src/controls.cpp \
 src/profiler.cpp \
 src/bvh.cpp \
@@ -26,7 +31,7 @@ src/loadbuffer_patch.cpp
 #                comma separated. Unset builds all of them. SplashEdit passes
 #                the set the exported scenes use, e.g. FEATURES=ui,collision,nav.
 #                FEATURES= or FEATURES=none builds the smallest engine.
-ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows movie
+ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows backgrounds shine particles movie
 ifeq ($(origin FEATURES),undefined)
 FEATURES := $(ALL_FEATURES)
 endif
@@ -39,9 +44,12 @@ endif
 ifneq ($(filter agents,$(FEATURES)),)
 override FEATURES += nav
 endif
+ifneq ($(filter particles,$(FEATURES)),)
+override FEATURES += sprites
+endif
 
 FEATURE_SRCS_bootlogo = src/bootlogo.cpp
-FEATURE_SRCS_net = src/sio1.cpp src/netlink.cpp src/nettest.cpp src/networkmanager.cpp src/luatableserializer.cpp
+FEATURE_SRCS_net = src/sio1.cpp src/pcdrvsocket.cpp src/netlink.cpp src/nettest.cpp src/networkmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_ui = src/uisystem.cpp src/loadingscreen.cpp
 FEATURE_SRCS_sprites = src/spritesystem.cpp src/spritemath.cpp src/tilesystem.cpp src/tilemath.cpp
 FEATURE_SRCS_skin = src/skinmesh.cpp
@@ -52,6 +60,8 @@ FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
 FEATURE_SRCS_shadows = src/shadowrender.cpp
 FEATURE_SRCS_movie = src/movieplayer.cpp src/movietexture.cpp src/srt.cpp
+FEATURE_SRCS_backgrounds = src/backgroundsystem.cpp src/backgroundmath.cpp
+FEATURE_SRCS_particles = src/particlesystem.cpp
 
 SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 
@@ -138,6 +148,9 @@ LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-pat
 $(BINDIR)$(TARGET).elf: $(PSYQOPATHSDIR)libpsyqo-paths.a
 endif
 endif
+# The renderer's per-triangle code runs faster at -O2 than at -Os on a real
+# PS1 (about 15% less render time on a courtyard walk), for 13 KB of code.
+src/renderer.o: CPPFLAGS += -O2
 
 # Redirect Lua's allocator through our OOM-guarded wrapper
 LDFLAGS := $(subst luaI_realloc=libc_realloc,luaI_realloc=lua_oom_realloc,$(LDFLAGS))
