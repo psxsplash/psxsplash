@@ -8,6 +8,7 @@
 #include <psyqo/primitives/control.hh>
 
 #include "navregion.hh"
+#include "otdepth.hh"
 
 using namespace psyqo::GTE;
 
@@ -23,7 +24,7 @@ using namespace psyqo::GTE;
 // floor under it, so the floor is drawn first, and level with the caster's
 // feet. The caster's own triangles are capped one bucket in front of it
 // (setCasterCap), so the whole caster draws after its blob.
-static constexpr int32_t kShadowDepthBias = 8;
+using psxsplash::otdepth::kShadowDepthBias;  // otdepth.hh, next to the decal bias
 
 // A blob on the bounds-bottom fallback stands on the top face of whatever
 // object is there: its top within this of the caster's bottom.
