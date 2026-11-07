@@ -55,6 +55,18 @@ jobs:
       - name: Particle emitters
         run: |
           tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-particles 'BOOT OK: particles'
+      - name: Movies
+        # A cdrom build on a disc of the scene and two clips: Movie.Play full screen, then Movie.PlayOn on a crate. The
+        # script's line says both ended; the engine's own counts say they showed every frame.
+        run: |
+          make clean
+          make -j4 all LOADER=cdrom
+          f=tests/boot/fixture-movie
+          python3 tests/boot/mkdisc.py "$RUNNER_TEMP/movie.bin" SCENE0/SCENE_0.SPK=$f/scene_0.splashpack \
+            SCENE0/SCENE_0.VRM=$f/scene_0.vram SCENE0/SCENE_0.SPU=$f/scene_0.spu MOVIES/CLIP.STR=$f/CLIP.STR MOVIES/TV.SBS=$f/TV.SBS
+          BOOT_ISO="$RUNNER_TEMP/movie.cue" BOOT_LOG="$RUNNER_TEMP/movie.log" tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 $f 'BOOT OK: movies'
+          grep -F 'Movie CLIP: shown 12 dropped 0 rejected 0 read errors 0' "$RUNNER_TEMP/movie.log"
+          grep -F 'Movie TV: ended, 58 of 58 frames shown' "$RUNNER_TEMP/movie.log"
 
   xmake:
     runs-on: ubuntu-latest
@@ -77,7 +89,7 @@ jobs:
           done
       - name: Build every engine without the boot logo
         run: |
-          xmake f -y --features=net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows,backgrounds,shine,particles
+          xmake f -y --features=net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows,backgrounds,shine,particles,movie
           xmake -y -j 4
           for n in psxsplash psxsplash-cdrom psxsplash-perf psxsplash-rooms psxsplash-perf-rooms; do
             test -s build/psx/mipsel/release/$n-nologo.ps-exe

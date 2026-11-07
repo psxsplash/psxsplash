@@ -38,6 +38,8 @@
 #include "backgroundsystem.hh"
 #include "particlesystem.hh"
 #include "uisystem.hh"
+#include "movieplayer.hh"
+#include "movietexture.hh"
 #include "palettecycler.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -470,6 +472,16 @@ namespace psxsplash {
         void setObjectActive(GameObject* go, bool active);
 
         // Public accessors for Lua API
+#if PSXSPLASH_FEATURE_MOVIE
+        // Movie.Play: queues the movie for the end of this frame.
+        bool requestMovie(const MoviePlayer::Request& request) { return m_movie.request(request); }
+        bool isMovieBusy() const { return m_movie.busy(); }
+        // One frame of the movie playing, if there is one; false when there is none.
+        bool tickMovie(psyqo::GPU& gpu);
+        // Movie.PlayOn: a small movie on a mesh, the game carrying on.
+        bool playMovieOn(const char* name, const GameObject* target, const MovieTexture::Options& options);
+        void stopMovieOn();
+#endif
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
         // Player 1..8 (inputmap::slotForPlayer), nullptr for anything else.
@@ -557,6 +569,18 @@ namespace psxsplash {
 
         // Check and process pending scene load (called from GameTick)
         void processPendingSceneLoad();
+#if PSXSPLASH_FEATURE_MOVIE
+        void startMovie(psyqo::GPU& gpu);
+        void finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result);
+        void fireMovieComplete(int ref, const char* result);
+        MoviePlayer m_movie;
+        MovieTexture m_movieTexture;
+        // The scene's video mode while a movie plays in its place at 320x240.
+        uint8_t m_movieSceneVideoMode = VIDEO_MODE_320x240;
+#endif
+#if defined(LOADER_CDROM)
+        void settleDrive(psyqo::GPU& gpu);
+#endif
 
         // Hot reload for an editor driving a PCdrv build: when "reload.flag"
         // exists beside the scene at boot, its contents are re-read every few

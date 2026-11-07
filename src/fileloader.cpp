@@ -12,6 +12,10 @@
 
 namespace psxsplash {
 
+#if defined(LOADER_CDROM)
+volatile const char g_discReadSpeed[] = "psxsplash disc read speed 2";
+#endif
+
 // -- Singleton ----------------------------------------------------
 FileLoader& FileLoader::Get() {
 #if defined(LOADER_CDROM)

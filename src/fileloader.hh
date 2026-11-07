@@ -67,6 +67,12 @@ class FileLoader {
     virtual uint8_t* LoadFileSync(const char* filename, int& outSize) = 0;
 
     /**
+     * LoadFileSync for a file that is often not there (a scene's loading screen): a miss
+     * is a miss. The CD backend's LoadFileSync goes round again at single speed for one.
+     */
+    virtual uint8_t* LoadFileSyncIfThere(const char* filename, int& outSize) { return LoadFileSync(filename, outSize); }
+
+    /**
      * Optional progress-reporting variant of LoadFileSync.
      *
      * @param progress  If non-null, the backend may call progress->fn()
