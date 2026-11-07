@@ -177,6 +177,8 @@ struct SplashpackSceneSetup {
 
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
+    /// screenmode.hh VIDEO_MODE_*: 320x240 progressive or 640x480 interlaced.
+    uint8_t  videoMode = 0;
     uint32_t uiTableOffset = 0;
 
     // --- v22 ---
@@ -204,6 +206,14 @@ struct SplashpackSceneSetup {
     /// The shadow table (shadowmath.hh: u16 count, u16 pad, ShadowRecords),
     /// or nullptr when the scene has no shadows.
     const uint8_t* shadowTable = nullptr;
+
+    // --- v29 ---
+    /// Offset to the baked background table (backgroundmath.hh), or 0.
+    uint32_t backgroundTableOffset = 0;
+
+    // --- v30 ---
+    /// The shine table (shinemath.hh), or nullptr when nothing shines.
+    const uint8_t* shineTable = nullptr;
 };
 
 class SplashPackLoader {

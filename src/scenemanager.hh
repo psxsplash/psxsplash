@@ -16,6 +16,7 @@
 #include "collision.hh"
 #include "controls.hh"
 #include "gameobject.hh"
+#include "shinemath.hh"
 #include "lua.h"
 #include "splashpack.hh"
 #include "navregion.hh"
@@ -30,7 +31,11 @@
 #include "animation.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#include "perfmap.hh"
+#endif
 #include "tilesystem.hh"
+#include "backgroundsystem.hh"
 #include "uisystem.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
@@ -498,6 +503,15 @@ namespace psxsplash {
         }
         uint16_t getCameraFollowActor() const { return m_cameraFollowActor; }
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        // Baked backgrounds (Background.* in Lua). Showing one puts the camera
+        // at its pose and stops the camera following; hiding it restores the
+        // follow and H as they were before the first Show.
+        bool showBackground(const char* name);
+        void hideBackground();
+        const char* currentBackground() const { return m_backgrounds.name(m_backgrounds.current()); }
+#endif
+
         // Interactable access (for Lua API)
         Interactable* getInteractable(uint16_t index) {
             if (index < m_interactables.size()) return m_interactables[index];
@@ -541,6 +555,23 @@ namespace psxsplash {
         // frames and a change reloads the current scene, keeping the player
         // where they stand. Absent at boot, nothing is ever polled.
         void pollHotReload();
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+        // Performance map walk (src/perfmap.hh): with "perfmap.pos" beside the
+        // first scene, pins the player to each point and yaw in turn and prints
+        // the profiler's readings per pose.
+        void perfMapSceneStart(bool isFirstScene);
+        void perfMapPin();
+        void perfMapFrameEnded();
+        void perfMapPoseChanged();
+        uint8_t* m_perfMapData = nullptr;
+        perfmap::Walk m_perfMapWalk;
+        uint16_t m_perfMapRegion = NAV_NO_REGION;
+        // The scene's camera follow state at the start of the walk, which
+        // forces it to the player; put back after "perf done".
+        bool m_perfMapSavedFollows = true;
+        uint16_t m_perfMapSavedFollowActor = PLAYER_ACTOR_ID;
+#endif
 
         static Random m_random;
         static Random m_randomGenerator;
@@ -620,6 +651,12 @@ namespace psxsplash {
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
 #endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        BackgroundSystem m_backgrounds;
+        bool m_bgFollowWas = false;
+        int32_t m_bgHWas = 0;
+        bool showBackgroundIndex(int i);
+#endif
         uint32_t m_authoredSceneHash = 0;
 
 #if PSXSPLASH_FEATURE_LIGHTS
@@ -630,6 +667,11 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_SHADOWS
         ShadowRecord m_shadows[MAX_SCENE_SHADOWS];
         int m_shadowCount = 0;
+#endif
+#if PSXSPLASH_FEATURE_SHINE
+        // Shine record of each object by object index, nullptr for the dull
+        // ones; the records live in splashpack data.
+        eastl::vector<const ShineRecord*> m_shineByObject;
 #endif
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
