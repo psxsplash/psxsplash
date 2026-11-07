@@ -41,6 +41,7 @@ FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 SHINE_BIN  := $(BUILD)/shine_tests
 JUMP_BIN   := $(BUILD)/jump_tests
+BLEND_BIN  := $(BUILD)/uiblend_tests
 SRT_BIN    := $(BUILD)/srt_tests
 PCNET_BIN  := $(BUILD)/pcdrvsocket_tests
 LUADEBUG_BIN := $(BUILD)/luadebug_tests
@@ -94,6 +95,9 @@ $(SHINE_BIN): test_shine.cpp testing.hh compat.hh $(SRC_DIR)/shinemath.hh | $(BU
 # jumpmath.hh is header-only.
 $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_jump.cpp
+# uiblend.hh is header-only.
+$(BLEND_BIN): test_uiblend.cpp testing.hh compat.hh $(SRC_DIR)/uiblend.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_uiblend.cpp
 # luadebugmath.hh is header-only.
 $(LUADEBUG_BIN): test_luadebug.cpp testing.hh compat.hh $(SRC_DIR)/luadebugmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_luadebug.cpp
@@ -124,7 +128,7 @@ $(SRT_BIN): test_srt.cpp testing.hh compat.hh $(SRT_SRCS) $(SRC_DIR)/srt.hh | $(
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(BLEND_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== pcdrvsocket =="
@@ -151,6 +155,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(SHINE_BIN)
 	@echo "== jump =="
 	@$(JUMP_BIN)
+	@echo "== uiblend =="
+	@$(BLEND_BIN)
 	@echo "== srt =="
 	@$(SRT_BIN)
 	@echo "== luadebug =="
