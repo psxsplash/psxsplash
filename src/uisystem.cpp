@@ -341,9 +341,43 @@ void UISystem::renderElement(UIElement& el,
     }
 
     case UIElementType::Image: {
-        psyqo::PrimPieces::TPageAttr tpage = makeTPage(el.image);
-        psyqo::PrimPieces::ClutIndex clut(el.image.clutX, el.image.clutY);
+        const UIImageData& img = el.image;
+        psyqo::PrimPieces::TPageAttr tpage = makeTPage(img);
+        psyqo::PrimPieces::ClutIndex clut(img.clutX, img.clutY);
         psyqo::Color tint = {.r = el.colorR, .g = el.colorG, .b = el.colorB};
+
+        // u1/v1 are the LAST texel (inclusive). The GPU never fills a polygon's
+        // right column or bottom row, so triangles spanning w pixels with UVs
+        // u0..u1 step only w-1 texels: one column and one row repeat and the
+        // last texel is lost. At 1:1 draw a sprite instead, one texel per pixel.
+        const int tw = img.u1 - img.u0 + 1, th = img.v1 - img.v0 + 1;
+        if (w == tw && h == th) {
+            auto& spr = balloc.allocateFragment<psyqo::Prim::Sprite>();
+            spr.primitive.position = {.x = x, .y = y};
+            spr.primitive.size = {.x = w, .y = h};
+            spr.primitive.setColor(tint);
+            spr.primitive.setOpaque();
+            psyqo::PrimPieces::TexInfo texInfo;
+            texInfo.u = img.u0;
+            texInfo.v = img.v0;
+            texInfo.clut = clut;
+            spr.primitive.texInfo = texInfo;
+            ot.insert(spr, 0);
+            // A sprite takes its texpage from draw mode. The OT is LIFO, so the
+            // TPage inserted after the sprite runs before it.
+            auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
+            tp.primitive.attr = tpage;
+            ot.insert(tp, 0);
+            break;
+        }
+
+        // Scaled: the GPU rounds the interpolated UV to nearest. Ending one past
+        // the last texel shows every texel below 2x, but from 2x up the last
+        // pixel rounds onto the atlas neighbour, so there keep the inclusive end
+        // (every texel still shows, one a pixel wider, the last a pixel narrower).
+        // A UV is a byte: at u1/v1 == 255 stay inclusive, losing that last texel.
+        const uint8_t uR = (w < 2 * tw && img.u1 < 255) ? img.u1 + 1 : img.u1;
+        const uint8_t vB = (h < 2 * th && img.v1 < 255) ? img.v1 + 1 : img.v1;
 
         // Triangle 0: top-left, top-right, bottom-left
         {
@@ -351,9 +385,9 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.pointA.x = x;     tri.primitive.pointA.y = y;
             tri.primitive.pointB.x = x + w; tri.primitive.pointB.y = y;
             tri.primitive.pointC.x = x;     tri.primitive.pointC.y = y + h;
-            tri.primitive.uvA.u = el.image.u0; tri.primitive.uvA.v = el.image.v0;
-            tri.primitive.uvB.u = el.image.u1; tri.primitive.uvB.v = el.image.v0;
-            tri.primitive.uvC.u = el.image.u0; tri.primitive.uvC.v = el.image.v1;
+            tri.primitive.uvA.u = img.u0; tri.primitive.uvA.v = img.v0;
+            tri.primitive.uvB.u = uR;     tri.primitive.uvB.v = img.v0;
+            tri.primitive.uvC.u = img.u0; tri.primitive.uvC.v = vB;
             tri.primitive.tpage = tpage;
             tri.primitive.clutIndex = clut;
             tri.primitive.setColorA(tint);
@@ -368,9 +402,9 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.pointA.x = x + w; tri.primitive.pointA.y = y;
             tri.primitive.pointB.x = x + w; tri.primitive.pointB.y = y + h;
             tri.primitive.pointC.x = x;     tri.primitive.pointC.y = y + h;
-            tri.primitive.uvA.u = el.image.u1; tri.primitive.uvA.v = el.image.v0;
-            tri.primitive.uvB.u = el.image.u1; tri.primitive.uvB.v = el.image.v1;
-            tri.primitive.uvC.u = el.image.u0; tri.primitive.uvC.v = el.image.v1;
+            tri.primitive.uvA.u = uR;     tri.primitive.uvA.v = img.v0;
+            tri.primitive.uvB.u = uR;     tri.primitive.uvB.v = vB;
+            tri.primitive.uvC.u = img.u0; tri.primitive.uvC.v = vB;
             tri.primitive.tpage = tpage;
             tri.primitive.clutIndex = clut;
             tri.primitive.setColorA(tint);
