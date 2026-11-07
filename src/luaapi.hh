@@ -113,6 +113,20 @@ private:
     static int Light_SetIntensity(lua_State* L);
     static int Light_SetEnabled(lua_State* L);
 
+    // ========================================================================
+    // BACKGROUND API - baked fixed-camera backgrounds
+    // ========================================================================
+
+    // Background.Show(name)
+    // Shows the baked background of the Fixed camera named name: the camera jumps to its pose and stops following, and the objects baked into it are not drawn (they still collide). Returns true, or false when there is no such background.
+    static int Background_Show(lua_State* L);
+    // Background.Hide()
+    // Back to the 3D scene: the baked objects draw again and the camera follows as it did before the first Show.
+    static int Background_Hide(lua_State* L);
+    // Background.Current()
+    // The name of the background showing, or nil.
+    static int Background_Current(lua_State* L);
+
     // Tile API
     static int Tile_Walkable(lua_State* L);
     static int Tile_RayClear(lua_State* L);
@@ -372,6 +386,41 @@ private:
     // Returns analog stick values (-128 to 127)
     static int Input_GetAnalogPlayer1(lua_State* L);
     static int Input_GetAnalogPlayer2(lua_State* L);
+
+    // Input.IsPressed(player, button) -> boolean
+    // True only on the frame the button was pressed. player is 1..8: 1 and 2 are
+    // ports 1 and 2, 3-5 port 1's multitap slots B-D, 6-8 port 2's. An unknown
+    // player gives false.
+    static int Input_IsPressed(lua_State* L);
+
+    // Input.IsReleased(player, button) -> boolean
+    // True only on the frame the button was released. player is 1..8, as in
+    // Input.IsPressed; an unknown player gives false.
+    static int Input_IsReleased(lua_State* L);
+
+    // Input.IsHeld(player, button) -> boolean
+    // True while the button is held down. player is 1..8, as in Input.IsPressed;
+    // an unknown player gives false. On a mouse use Input.MOUSE_LEFT and
+    // Input.MOUSE_RIGHT.
+    static int Input_IsHeld(lua_State* L);
+
+    // Input.GetAnalog(player, [stick]) -> x, y
+    // Stick 0 (left, the default) or 1 (right), about -1.0 to 1.0 per axis. Only
+    // an analog pad has sticks; a digital pad's D-pad stands in for the left
+    // stick and L1/R1 for the right stick's x; a mouse gives 0, 0.
+    static int Input_GetAnalog(lua_State* L);
+
+    // Input.GetDevice(player) -> string
+    // What is plugged in for the player: "none", "pad" (digital), "analog",
+    // "mouse" or "other" (a gun, a NegCon...). An unknown player gives "none".
+    static int Input_GetDevice(lua_State* L);
+
+    // Input.GetMouse(player) -> dx, dy
+    // The mouse's motion over the last frame in its own counts (integers, right
+    // and down positive), every report since the previous frame summed. 0, 0
+    // when the player has no mouse.
+    static int Input_GetMouse(lua_State* L);
+
     static int Input_BindToActor(lua_State* L);
     static int Input_GetBoundActor(lua_State* L);
     
@@ -441,6 +490,42 @@ private:
 
     // Camera.SetH(h) -> nil (set projection H register, clamped 1-1024)
     static int Camera_SetH(lua_State* L);
+
+    // ========================================================================
+    // SCREEN API - fades, flash, shake, letterbox and trail
+    // ========================================================================
+
+    // Screen.FadeOut(r, g, b, frames)
+    // Fades the whole screen, UI and text included, to the colour r, g, b (0-255 each) over frames
+    // (30 per second; 0 is at once). The screen stays that colour until Screen.FadeIn.
+    static int Screen_FadeOut(lua_State* L);
+
+    // Screen.FadeIn(frames)
+    // Fades back from the fade colour to the picture over frames (30 per second; 0 is at once).
+    static int Screen_FadeIn(lua_State* L);
+
+    // Screen.Flash(r, g, b, frames)
+    // Adds the colour r, g, b (0-255 each) to the whole screen and lets it die away over frames.
+    static int Screen_Flash(lua_State* L);
+
+    // Screen.Shake(amplitude, frames)
+    // Shakes the 3D view by up to amplitude pixels (0-64), dying away over frames. The camera does not move.
+    static int Screen_Shake(lua_State* L);
+
+    // Screen.Letterbox(height, frames)
+    // Slides black bars height pixels tall over the top and bottom of the 3D view over frames.
+    // Letterbox(0, frames) removes them. The UI stays above the bars.
+    static int Screen_Letterbox(lua_State* L);
+
+    // Screen.Trail(strength)
+    // Motion trail: blends the previous frame back in, half and half. Any nonzero strength turns it on
+    // (the blend is fixed; the value only says on or off), 0 turns it off. Not available in
+    // single-buffer display modes.
+    static int Screen_Trail(lua_State* L);
+
+    // Screen.IsFading() -> boolean
+    // True while a FadeOut or FadeIn is still running.
+    static int Screen_IsFading(lua_State* L);
     
     // ========================================================================
     // AUDIO API - Sound playback (placeholder for SPU)

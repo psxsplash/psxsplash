@@ -44,6 +44,17 @@ public:
     }
   }
 
+  // Last completed frame, gpu.now() units.
+  uint32_t sectionTime(ProfilerSection section) const {
+    return section < PROFILER_SECTION_COUNT ? m_sectionTimes[section] : 0;
+  }
+  uint32_t totalFrameTime() const { return m_totalFrameTime; }
+  uint32_t otherTime() const { return m_otherTime; }
+
+  // Hidden: renderOT/renderText draw nothing, so the perf map walk does not
+  // measure the pie chart's own cost.
+  void setHidden(bool hidden) { m_hidden = hidden; }
+
 private:
   Profiler() = default;
   ~Profiler() = default;
@@ -60,6 +71,7 @@ private:
   uint32_t m_pendingSectionTimes[PROFILER_SECTION_COUNT] = {0};
   uint32_t m_totalFrameTime = 0;
   uint32_t m_otherTime = 0;
+  bool m_hidden = false;
 };
 
 } // namespace psxsplash::debug

@@ -41,8 +41,11 @@ class CDRomHelper {
             psyqo::Hardware::CDRom::Cause = 7;
         if (cause & 0x18)
             psyqo::Hardware::CDRom::Cause = 0x18;
-        while (psyqo::Hardware::CDRom::Ctrl.access() & 0x20)
-            psyqo::Hardware::CDRom::Response;  // drain FIFO
+        // Response.throwAway(), not a bare `Response;`: that compiles to no read at all, and
+        // this spun for ever on a byte the drive had left waiting, freezing the game on its
+        // last picture. Bounded, as the FIFO holds 16.
+        for (int i = 0; i < 32 && (psyqo::Hardware::CDRom::Ctrl.access() & 0x20); i++)
+            psyqo::Hardware::CDRom::Response.throwAway();
         // ackIrq(), NOT IReg.clear(): the latter is a read-modify-write on I_STAT,
         // which acknowledges every bit that was not already pending when it read -
         // including SIO1's, whose loss is permanent because I_STAT.8 is

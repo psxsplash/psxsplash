@@ -15,6 +15,7 @@
 #include "networkmanager.hh"
 
 #include "renderer.hh"
+#include "screenfx.hh"
 
 #include <psyqo/atan2.hh>
 #include <psyqo/gte-math.hh>
@@ -411,6 +412,21 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Input_GetAnalogPlayer2);
     L.setField(-2, "GetAnalogPlayer2");
 
+    // Any player, 1..8: 1 and 2 are ports 1 and 2, 3-5 and 6-8 the multitap
+    // slots B-D of port 1 and port 2.
+    L.push(Input_IsPressed);
+    L.setField(-2, "IsPressed");
+    L.push(Input_IsReleased);
+    L.setField(-2, "IsReleased");
+    L.push(Input_IsHeld);
+    L.setField(-2, "IsHeld");
+    L.push(Input_GetAnalog);
+    L.setField(-2, "GetAnalog");
+    L.push(Input_GetDevice);
+    L.setField(-2, "GetDevice");
+    L.push(Input_GetMouse);
+    L.setField(-2, "GetMouse");
+
     L.push(Input_BindToActor);
     L.setField(-2, "BindToActor");
     L.push(Input_GetBoundActor);
@@ -485,6 +501,34 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "SetH");
     
     L.setGlobal("Camera");
+
+    // ========================================================================
+    // SCREEN API - fades, flash, shake, letterbox and trail
+    // ========================================================================
+    L.newTable();
+
+    L.push(Screen_FadeOut);
+    L.setField(-2, "FadeOut");
+
+    L.push(Screen_FadeIn);
+    L.setField(-2, "FadeIn");
+
+    L.push(Screen_Flash);
+    L.setField(-2, "Flash");
+
+    L.push(Screen_Shake);
+    L.setField(-2, "Shake");
+
+    L.push(Screen_Letterbox);
+    L.setField(-2, "Letterbox");
+
+    L.push(Screen_Trail);
+    L.setField(-2, "Trail");
+
+    L.push(Screen_IsFading);
+    L.setField(-2, "IsFading");
+
+    L.setGlobal("Screen");
     
     // ========================================================================
     // AUDIO API (Placeholder)
@@ -927,6 +971,24 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Light");
 #else
     RegisterCompiledOut(L, "Light", "lights");
+#endif
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // ========================================================================
+    // BACKGROUND API
+    // ========================================================================
+    L.newTable();  // Background table
+
+    L.push(Background_Show);
+    L.setField(-2, "Show");
+    L.push(Background_Hide);
+    L.setField(-2, "Hide");
+    L.push(Background_Current);
+    L.setField(-2, "Current");
+
+    L.setGlobal("Background");
+#else
+    RegisterCompiledOut(L, "Background", "backgrounds");
 #endif
 
 #if PSXSPLASH_FEATURE_SPRITES
@@ -2031,6 +2093,89 @@ void LuaAPI::RegisterInputConstants(psyqo::Lua& L) {
     
     L.pushNumber(static_cast<lua_Number>(psyqo::AdvancedPad::Button::R3));
     L.setField(-2, "R3");
+
+    // A mouse's buttons, in the bits where a pad has R1 and L1.
+    L.pushNumber(static_cast<lua_Number>(inputmap::MOUSE_LEFT_BIT));
+    L.setField(-2, "MOUSE_LEFT");
+
+    L.pushNumber(static_cast<lua_Number>(inputmap::MOUSE_RIGHT_BIT));
+    L.setField(-2, "MOUSE_RIGHT");
+}
+
+// The Controls of the player number at idx (1..8), or nullptr when there is no
+// scene or it is not a number in range; the getters then answer "nothing held".
+static psxsplash::Controls* InputPlayer(psyqo::Lua& lua, int idx, psxsplash::SceneManager* sm) {
+    if (!sm || !lua.isNumber(idx)) return nullptr;
+    return sm->getControls(static_cast<int>(lua.toNumber(idx)));
+}
+
+int LuaAPI::Input_IsPressed(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->wasButtonPressed(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsReleased(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->wasButtonReleased(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsHeld(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->isButtonHeld(button));
+    return 1;
+}
+
+int LuaAPI::Input_GetAnalog(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 2;
+    }
+    int stick = lua.isNumber(2) ? static_cast<int>(lua.toNumber(2)) : 0;
+    int16_t x = stick == 1 ? c->getRightStickX() : c->getLeftStickX();
+    int16_t y = stick == 1 ? c->getRightStickY() : c->getLeftStickY();
+    // Same scale as GetAnalogPlayer1: stick range -127..+127 to about -1.0..1.0
+    lua.pushNumber(x * kFixedScale / 127);
+    lua.pushNumber(y * kFixedScale / 127);
+    return 2;
+}
+
+int LuaAPI::Input_GetDevice(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    lua.push(inputmap::deviceName(c ? c->device() : inputmap::Device::None));
+    return 1;
+}
+
+int LuaAPI::Input_GetMouse(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    // Raw counts, not scaled: the mouse's own units, summed over the frame.
+    lua.pushNumber(c ? c->mouseDeltaX() : 0);
+    lua.pushNumber(c ? c->mouseDeltaY() : 0);
+    return 2;
 }
 
 int LuaAPI::Input_IsPressedPlayer1(lua_State* L) {
@@ -2170,7 +2315,7 @@ int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
 
 int LuaAPI::Input_BindToActor(lua_State* L) {
     psyqo::Lua lua(L);
-    // Input.BindToActor(player, actor) - player is 1 or 2. Bind to the player
+    // Input.BindToActor(player, actor) - player is 1..8. Bind to the player
     // actor (Actor.GetPlayer()) to restore default player locomotion.
     int player = static_cast<int>(lua.checkNumber(1)) - 1;
     uint16_t actorId = ReadActorId(lua, 2);
@@ -2384,10 +2529,10 @@ int LuaAPI::Net_Stats(lua_State* L) {
     // PAD INITS, and it belongs beside heapKB for exactly the same reason: it is
     // the other thing that used to accumulate until the console died.
     //
-    // MUST READ 2 AND STAY THERE for the whole boot -- one per player, registered
-    // once. It is not a trend line, it is an assertion with a known answer, which
-    // is what makes it readable at a glance on a screen that is the only channel
-    // this machine has.
+    // MUST READ 1 AND STAY THERE for the whole boot -- one AdvancedPad for all
+    // players, registered once. It is not a trend line, it is an assertion with
+    // a known answer, which is what makes it readable at a glance on a screen
+    // that is the only channel this machine has.
     //
     // It used to read 2 x (scene loads). psyqo::AdvancedPad::initialize() appends a
     // readPad() callback to the kernel's per-frame list, nothing can remove one,
@@ -3453,6 +3598,62 @@ int LuaAPI::Camera_SetH(lua_State* L) {
 }
 
 // ============================================================================
+// SCREEN API IMPLEMENTATION
+// ============================================================================
+
+static uint8_t screenByte(psyqo::Lua& lua, int i) {
+    int32_t v = lua.isNumber(i) ? static_cast<int32_t>(lua.toNumber(i)) : 0;
+    return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
+}
+
+static int32_t screenInt(psyqo::Lua& lua, int i) {
+    return lua.isNumber(i) ? static_cast<int32_t>(lua.toNumber(i)) : 0;
+}
+
+int LuaAPI::Screen_FadeOut(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().fadeOut(screenByte(lua, 1), screenByte(lua, 2), screenByte(lua, 3), screenInt(lua, 4));
+    return 0;
+}
+
+int LuaAPI::Screen_FadeIn(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().fadeIn(screenInt(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Screen_Flash(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().startFlash(screenByte(lua, 1), screenByte(lua, 2), screenByte(lua, 3), screenInt(lua, 4));
+    return 0;
+}
+
+int LuaAPI::Screen_Shake(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().startShake(screenInt(lua, 1), screenInt(lua, 2));
+    return 0;
+}
+
+int LuaAPI::Screen_Letterbox(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto& fx = ScreenFx::get();
+    fx.state().startLetterbox(screenInt(lua, 1), screenInt(lua, 2), fx.height());
+    return 0;
+}
+
+int LuaAPI::Screen_Trail(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().trail(screenInt(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Screen_IsFading(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(ScreenFx::get().state().isFading());
+    return 1;
+}
+
+// ============================================================================
 // AUDIO API IMPLEMENTATION
 // ============================================================================
 
@@ -3777,8 +3978,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = ((vx * projH) / vz) + 160;
-    int32_t rawY = ((vy * projH) / vz) + 120;
+    int32_t rawX = ((vx * projH) / vz) + currentScreen().width / 2;
+    int32_t rawY = ((vy * projH) / vz) + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -3822,7 +4023,7 @@ int LuaAPI::Math_Convert3DTo2D(lua_State* L)
     auto& cam = s_sceneManager->getCamera();
     psyqo::Vec3 camPos = cam.GetPosition();
     psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
-    int32_t projH = cam.GetProjectionH();
+    int32_t projH = scaledProjectionH(cam.GetProjectionH(), currentScreen());
 
     int16_t screenX = 0;
     int16_t screenY = 0;
@@ -5538,6 +5739,33 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
     return 4;
 }
 
+
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+// ============================================================================
+// BACKGROUND API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Background_Show(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && lua.isString(1) && s_sceneManager->showBackground(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Background_Hide(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->hideBackground();
+    return 0;
+}
+
+int LuaAPI::Background_Current(lua_State* L) {
+    psyqo::Lua lua(L);
+    const char* name = s_sceneManager ? s_sceneManager->currentBackground() : nullptr;
+    if (name)
+        lua.push(name);
+    else
+        lua.push();
+    return 1;
+}
 
 #endif
 #if PSXSPLASH_FEATURE_LIGHTS

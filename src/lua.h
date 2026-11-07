@@ -106,8 +106,9 @@ class Lua {
     void OnDestroy(GameObject* go);
     void OnEnable(GameObject* go);
     void OnDisable(GameObject* go);
-    void OnButtonPress(GameObject* go, int button);
-    void OnButtonRelease(GameObject* go, int button);
+    // player is 1..8 (see inputmap::slotForPlayer), the callbacks' third argument.
+    void OnButtonPress(GameObject* go, int button, int player);
+    void OnButtonRelease(GameObject* go, int button, int player);
 
     // Agent state-machine event dispatchers
     // newState / oldState are integer AgentState values
