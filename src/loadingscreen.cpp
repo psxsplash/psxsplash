@@ -142,8 +142,8 @@ void LoadingScreen::drawRect(psyqo::GPU& gpu, int16_t x, int16_t y,
 }
 
 // ----------------------------------------------------------------
-// Draw a textured image (two triangles, sendPrimitive).
-// GouraudTexturedTriangle carries its own TPage attribute.
+// Draw a textured image (a sprite at 1:1, else two triangles; sendPrimitive).
+// The triangles carry their own TPage; the sprite needs a TPage sent first.
 // DrawingOffset shifts logical coordinates to the correct framebuffer.
 // ----------------------------------------------------------------
 void LoadingScreen::drawImage(psyqo::GPU& gpu, int handle,
@@ -166,6 +166,30 @@ void LoadingScreen::drawImage(psyqo::GPU& gpu, int handle,
     psyqo::PrimPieces::ClutIndex clut(img->clutX, img->clutY);
     psyqo::Color tint = {.r = r, .g = g, .b = b};
 
+    // Same as UISystem::renderElement: u1/v1 are inclusive, so a 1:1 image is
+    // a sprite (one texel per pixel) and a scaled one ends its UVs past the
+    // last texel below 2x. See the comments there.
+    const int tw = img->u1 - img->u0 + 1, th = img->v1 - img->v0 + 1;
+    if (w == tw && h == th) {
+        psyqo::Prim::TPage tp;
+        tp.attr = tpage;
+        gpu.sendPrimitive(tp);
+        psyqo::Prim::Sprite spr;
+        spr.position = {.x = x, .y = y};
+        spr.size = {.x = w, .y = h};
+        spr.setColor(tint);
+        spr.setOpaque();
+        psyqo::PrimPieces::TexInfo texInfo;
+        texInfo.u = img->u0;
+        texInfo.v = img->v0;
+        texInfo.clut = clut;
+        spr.texInfo = texInfo;
+        gpu.sendPrimitive(spr);
+        return;
+    }
+    const uint8_t uR = (w < 2 * tw && img->u1 < 255) ? img->u1 + 1 : img->u1;
+    const uint8_t vB = (h < 2 * th && img->v1 < 255) ? img->v1 + 1 : img->v1;
+
     // Triangle 0: top-left, top-right, bottom-left
     {
         psyqo::Prim::GouraudTexturedTriangle tri;
@@ -173,8 +197,8 @@ void LoadingScreen::drawImage(psyqo::GPU& gpu, int handle,
         tri.pointB.x = x + w;   tri.pointB.y = y;
         tri.pointC.x = x;       tri.pointC.y = y + h;
         tri.uvA.u = img->u0;    tri.uvA.v = img->v0;
-        tri.uvB.u = img->u1;    tri.uvB.v = img->v0;
-        tri.uvC.u = img->u0;    tri.uvC.v = img->v1;
+        tri.uvB.u = uR;         tri.uvB.v = img->v0;
+        tri.uvC.u = img->u0;    tri.uvC.v = vB;
         tri.tpage = tpage;
         tri.clutIndex = clut;
         tri.setColorA(tint);
@@ -189,9 +213,9 @@ void LoadingScreen::drawImage(psyqo::GPU& gpu, int handle,
         tri.pointA.x = x + w;   tri.pointA.y = y;
         tri.pointB.x = x + w;   tri.pointB.y = y + h;
         tri.pointC.x = x;       tri.pointC.y = y + h;
-        tri.uvA.u = img->u1;    tri.uvA.v = img->v0;
-        tri.uvB.u = img->u1;    tri.uvB.v = img->v1;
-        tri.uvC.u = img->u0;    tri.uvC.v = img->v1;
+        tri.uvA.u = uR;         tri.uvA.v = img->v0;
+        tri.uvB.u = uR;         tri.uvB.v = vB;
+        tri.uvC.u = img->u0;    tri.uvC.v = vB;
         tri.tpage = tpage;
         tri.clutIndex = clut;
         tri.setColorA(tint);
@@ -226,7 +250,7 @@ void LoadingScreen::drawCustomText(psyqo::GPU& gpu, int handle,
     gpu.sendPrimitive(tpCmd);
 
     // CLUT reference (same as renderProportionalText in UISystem)
-    psyqo::Vertex clutPos = {{.x = (int16_t)fd->vramX, .y = (int16_t)fd->vramY}};
+    psyqo::Vertex clutPos = {{.x = (int16_t)fd->vramX, .y = (int16_t)fd->clutY}};
     psyqo::PrimPieces::ClutIndex clutIdx(clutPos);
     psyqo::Color color = {.r = r, .g = g, .b = b};
 

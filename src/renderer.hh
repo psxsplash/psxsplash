@@ -15,11 +15,13 @@
 
 #include "bvh.hh"
 #include "camera.hh"
+#include "capturetag.hh"
 #include "gameobject.hh"
 #include "features.hh"
 #include "lightmath.hh"
 #include "screenmode.hh"
 #include "shadowmath.hh"
+#include "shinemath.hh"
 #include "skinmesh.hh"
 #include "triclip.hh"
 
@@ -29,6 +31,7 @@ class UISystem; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
 class NavRegionSystem;
+class BackgroundSystem;
 #ifdef PSXSPLASH_MEMOVERLAY
 class MemOverlay; // Forward declaration
 #endif
@@ -46,6 +49,12 @@ struct FogConfig {
     // textures: entry 0 transparent, every other entry white with STP set.
     uint16_t maskClut4 = 0;
     uint16_t maskClut8 = 0;
+};
+
+// A shiny triangle's reflection texture coordinates at its three corners
+// (shinemath.hh), carried through the split and the clipper with its UVs.
+struct EnvUV {
+    uint8_t u[3], v[3];
 };
 
 class Renderer final {
@@ -142,6 +151,7 @@ class Renderer final {
     void SetUISystem(UISystem* ui) { m_uiSystem = ui; }
     void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
     void SetTileSystem(TileSystem* tiles) { m_tileSystem = tiles; }
+    void SetBackgroundSystem(BackgroundSystem* bg) { m_backgroundSystem = bg; }
 #ifdef PSXSPLASH_MEMOVERLAY
     void SetMemOverlay(MemOverlay* overlay) { m_memOverlay = overlay; }
 #endif
@@ -164,11 +174,21 @@ class Renderer final {
 #if PSXSPLASH_FEATURE_SHADOWS
     /// The scene's blob shadows (shadowmath.hh). nullptr / 0 draws none.
     void SetShadows(const ShadowRecord* shadows, int count) {
-        m_shadows = shadows; m_shadowCount = count;
+        m_shadows = shadows; m_shadowCount = count; m_shadowDrawCount = 0;
     }
     /// The floor shadows land on. nullptr (or nav not loaded) puts each blob
     /// flat under its object's bounds.
     void SetShadowFloor(const NavRegionSystem* nav) { m_shadowNav = nav; }
+#endif
+
+#if PSXSPLASH_FEATURE_SHINE
+    /// Shine records by object index (byObject[i] for the object at
+    /// firstObject + i, all of a scene's objects being one array in
+    /// splashpack data), or nullptr when nothing shines.
+    void SetShine(const ShineRecord* const* byObject, const GameObject* firstObject, uint16_t count) {
+        m_shineByObject = byObject; m_shineFirstObject = firstObject; m_shineObjectCount = count;
+        m_objShine = nullptr;
+    }
 #endif
 
     static Renderer& GetInstance() {
@@ -238,6 +258,7 @@ class Renderer final {
     UISystem* m_uiSystem = nullptr;
     SpriteSystem* m_spriteSystem = nullptr;
     TileSystem* m_tileSystem = nullptr;
+    BackgroundSystem* m_backgroundSystem = nullptr;
 #ifdef PSXSPLASH_MEMOVERLAY
     MemOverlay* m_memOverlay = nullptr;
 #endif
@@ -272,13 +293,86 @@ class Renderer final {
     const ShadowRecord* m_shadows = nullptr;
     int m_shadowCount = 0;
     const NavRegionSystem* m_shadowNav = nullptr;
-    void renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
-                       int32_t fogFarSZ, OT& ot, Balloc& balloc);
+    // A blob that will be drawn this frame: its bucket, darkness and fan.
+    struct ShadowDraw {
+        const GameObject* obj;
+        int32_t bucket;
+        uint8_t dark;
+        psyqo::Vertex sxy[1 + shadowmath::kRimVerts];
+    };
+    ShadowDraw m_shadowDraws[MAX_SCENE_SHADOWS];
+    int m_shadowDrawCount = 0;
+    // The deepest bucket the current object's triangles may take: one in
+    // front of its own blob, so the blob never darkens its caster.
+    static constexpr int32_t kNoCasterCap = 0x7FFFFFFF;
+    int32_t m_casterCap = kNoCasterCap;
+    void setCasterCap(const GameObject* obj) {
+        m_casterCap = kNoCasterCap;
+        for (int i = 0; i < m_shadowDrawCount; i++)
+            if (m_shadowDraws[i].obj == obj && m_shadowDraws[i].bucket - 1 < m_casterCap)
+                m_casterCap = m_shadowDraws[i].bucket - 1;
+    }
+    // Before the meshes: everything a blob needs but the ordering table, and
+    // the caps its caster's triangles take from it.
+    void prepareShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition, int32_t fogFarSZ);
+    // After the meshes: the blobs prepareShadows kept.
+    void renderShadows(OT& ot, Balloc& balloc);
+#endif
+
+#if PSXSPLASH_FEATURE_SHINE
+    const ShineRecord* const* m_shineByObject = nullptr;
+    const GameObject* m_shineFirstObject = nullptr;
+    uint16_t m_shineObjectCount = 0;
+    // The shine record of the object setupObjectTransform last loaded, and
+    // its polygons (a top-level triangle's index is its offset from them).
+    const ShineRecord* m_objShine = nullptr;
+    const Tri* m_objPolys = nullptr;
+    // Its overlay's constant pieces: texture page with the blend, CLUT, grey.
+    psyqo::PrimPieces::TPageAttr m_shineTPage;
+    psyqo::PrimPieces::ClutIndex m_shineClut;
+    uint32_t m_shineGrey = 0;
+    bool m_shineHalf = false;
+    // The reflection UVs of tri's corners, from its vertex normals; false
+    // when tri is not one of the object's own triangles. Clobbers IR1-3 and
+    // MAC1-3, not V0-V2.
+    bool computeEnvUV(const Tri& tri, EnvUV& out);
+    // The reflection overlay over a projected triangle, drawn after the
+    // triangle at zIndex and before its fog pass (fogPass: one follows).
+    void insertShinePass(const psyqo::Vertex& a, const psyqo::Vertex& b, const psyqo::Vertex& c, const EnvUV& env,
+                         const int32_t fogIR[3], bool fogPass, OT& ot, Balloc& balloc, int32_t zIndex);
+    // A texture page setting the additive blend back, at zIndex.
+    void insertBlendRestore(OT& ot, Balloc& balloc, int32_t zIndex);
+    void beginShineFrame(OT& ot, Balloc& balloc);
 #endif
 
     TriangleRef* m_visibleRefs = nullptr;
     uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
+
+    // Capture tags (capturetag.hh). m_tagOn is latched from g_captureTag once
+    // per frame; the rest is the object being drawn, set per object only while
+    // it is on. m_tagRoot is the triangle a split triangle's pieces came from.
+    bool m_tagOn = false;
+    uint16_t m_tagObj = 0;
+    uint16_t m_tagPolyCount = 0;
+    uint16_t m_tagRoot = 0;
+    const Tri* m_tagPolys = nullptr;
+    uint32_t m_tagCount = 0;
+    uint32_t m_tagSkipped = 0;
+    void beginCaptureTags();
+    void endCaptureTags();
+    // One predictable branch per object while off.
+    void tagObject(size_t index, const Tri* polys, uint16_t polyCount) {
+        if (__builtin_expect(m_tagOn, 0)) {
+            m_tagObj = index > 0xffff ? 0xffff : (uint16_t)index;
+            m_tagPolys = polys;
+            m_tagPolyCount = polyCount;
+        }
+    }
+    // Appends the tag words to frag, the last fragment allocated and just
+    // inserted at zIndex. Out of line: only reached while tagging.
+    __attribute__((noinline)) void appendCaptureTag(psyqo::Fragments::ChainEntry& frag, unsigned fragBytes,
+                                                    const Tri& tri, int32_t zIndex, unsigned kind, Balloc& balloc);
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
@@ -291,23 +385,23 @@ class Renderer final {
     void processTriangle(Tri& tri, int32_t fogFarSZ,
                          OT& ot,
                          Balloc& balloc,
-                         psyqo::PrimPieces::UVCoords uvOffset = { 0 }, int depth = 0);
+                         psyqo::PrimPieces::UVCoords uvOffset = { 0 }, int depth = 0, const EnvUV* env = nullptr);
     // Splits tri at the midpoints of the edges in `edges` (bit i: corner i to
     // corner i + 1) into 2, 3 or 4 children and draws them through
     // processTriangle at depth + 1; or returns false, leaving tri to the
     // caller, when the bump allocator is nearly full.
     bool splitTriangle(const Tri& tri, unsigned edges, int32_t fogFarSZ, OT& ot, Balloc& balloc,
-                       psyqo::PrimPieces::UVCoords uvOffset, int depth);
+                       psyqo::PrimPieces::UVCoords uvOffset, int depth, const EnvUV* env);
     // Fog, lights and the primitives of one projected triangle (both paths;
     // inlined into both, so the per-triangle path pays no call for it).
     __attribute__((always_inline)) inline void emitTriangle(const Tri& tri, const psyqo::Vertex& p0, const psyqo::Vertex& p1, const psyqo::Vertex& p2,
                       const int32_t sz[3], int32_t zIndex, int32_t fogFarSZ, OT& ot, Balloc& balloc,
-                      psyqo::PrimPieces::UVCoords uvOffset);
+                      psyqo::PrimPieces::UVCoords uvOffset, const EnvUV* env = nullptr);
     // Clips tri, whose vertices are loaded in V0-V2 and projected by the GTE
     // into `projected`, to the near plane and the rasterizer's safe box, and
     // draws the pieces, projected in software where the GTE could not.
     void clipTriangle(const Tri& tri, const psyqo::Vertex projected[3], int32_t fogFarSZ, OT& ot,
-                      Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset);
+                      Balloc& balloc, psyqo::PrimPieces::UVCoords uvOffset, const EnvUV* env);
     // The GTE projects a vertex exactly only from SZ = (H >> 1) + 1: at
     // SZ <= H/2 its H/SZ division overflows and SXY comes out as if H/SZ were
     // 2. Triangles with a vertex nearer than that are clipped and projected
@@ -324,12 +418,16 @@ class Renderer final {
     // pixels from the screen midpoint where it belongs. An edge further off
     // than m_splitQ quarter pixels is split at its model-space midpoint,
     // decided from its two endpoints alone, so both triangles sharing it agree;
-    // down to SPLIT_DEPTH levels. Measured on the courtyard, lamplighter and
-    // the walk worlds: 8 pixels (SPLIT_ERR_Q) and 3 levels clear the near
-    // chevrons; 4 pixels or a fourth level cost frames without a visible
-    // difference near the camera.
+    // down to SPLIT_DEPTH levels. 8 pixels (SPLIT_ERR_Q) clear the near
+    // chevrons; 4 pixels cost frames without a visible difference near the
+    // camera. One level: an edge crossing the near plane warps by hundreds of
+    // pixels and qualifies at any threshold, so only the depth bounds how far
+    // those are cut. In the courtyard walk the first level keeps the near
+    // pillars and walls straight where the unsplit triangle bends them; two
+    // or three levels redraw about 3% of the pixels at the heaviest poses,
+    // for 1.9 to 2.3 times the splits.
     static constexpr int32_t SPLIT_ERR_Q = 32;
-    static constexpr int SPLIT_DEPTH = 3;
+    static constexpr int SPLIT_DEPTH = 1;
     // Only edges with an end nearer than SPLIT_NEAR halves of H are split:
     // the corners the GTE cannot project, the warp the old near-plane
     // subdivision hid. Each child there is a clipped triangle, and 2H or 4H
@@ -361,6 +459,20 @@ class Renderer final {
                               OT& ot,
                               Balloc& balloc,
                               const Frustum* frustum = nullptr);
+#endif
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+  public:
+    // While the perf map walks, reportPeaks prints nothing: its printf runs
+    // inside the measured rendering section. Peaks keep being tracked, so a
+    // peak that grew is printed at the first report after release.
+    void setReportsHeld(bool held) { m_reportsHeld = held; }
+
+  private:
+    bool m_reportsHeld = false;
+    bool reportsHeld() const { return m_reportsHeld; }
+#else
+    static constexpr bool reportsHeld() { return false; }
 #endif
 };
 

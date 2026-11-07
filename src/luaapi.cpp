@@ -929,6 +929,24 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     RegisterCompiledOut(L, "Light", "lights");
 #endif
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // ========================================================================
+    // BACKGROUND API
+    // ========================================================================
+    L.newTable();  // Background table
+
+    L.push(Background_Show);
+    L.setField(-2, "Show");
+    L.push(Background_Hide);
+    L.setField(-2, "Hide");
+    L.push(Background_Current);
+    L.setField(-2, "Current");
+
+    L.setGlobal("Background");
+#else
+    RegisterCompiledOut(L, "Background", "backgrounds");
+#endif
+
 #if PSXSPLASH_FEATURE_SPRITES
     // ========================================================================
     // TILE API
@@ -5538,6 +5556,33 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
     return 4;
 }
 
+
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+// ============================================================================
+// BACKGROUND API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Background_Show(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && lua.isString(1) && s_sceneManager->showBackground(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Background_Hide(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->hideBackground();
+    return 0;
+}
+
+int LuaAPI::Background_Current(lua_State* L) {
+    psyqo::Lua lua(L);
+    const char* name = s_sceneManager ? s_sceneManager->currentBackground() : nullptr;
+    if (name)
+        lua.push(name);
+    else
+        lua.push();
+    return 1;
+}
 
 #endif
 #if PSXSPLASH_FEATURE_LIGHTS

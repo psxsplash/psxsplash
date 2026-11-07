@@ -16,6 +16,7 @@
 #include "streq.hh"
 #include "navregion.hh"
 #include "memorycardmanager.hh"
+#include "backgroundmath.hh"
 #include "shadowmath.hh"
 #include "splashpackversion.hh"
 
@@ -114,9 +115,15 @@ struct SPLASHPACKFileHeader {
     // Offset to the shadow table, or 0 if none. SplashEdit writes v27 for a
     // scene without shadows, so this word only exists when it is used.
     uint32_t shadowTableOffset;
+    // --- v29 (appended; the header grows from 160 to 164) ---
+    // Offset to the baked background table (BackgroundTableHeader), or 0 if none.
+    uint32_t backgroundTableOffset;
+    // --- v30 (appended; the header grows from 164 to 168) ---
+    // Offset to the shine table (shinemath.hh), or 0 if none.
+    uint32_t shineTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV28,
-              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV28 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV30,
+              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV30 bytes");
 // Historical sizes and splashpackHeaderSize(): splashpackversion.hh.
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
@@ -751,6 +758,27 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.shadowTable = table;
 #else
         skipCompiledOut(table[0] | (table[1] << 8), "shadows", "shadows");
+#endif
+    }
+
+    // Baked backgrounds (v29+). The pixels ride the .vram atlases like every
+    // other texture; only the table is read here.
+    if (header->version >= 29 && header->backgroundTableOffset != 0) {
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        setup.backgroundTableOffset = header->backgroundTableOffset;
+#else
+        skipCompiledOut(reinterpret_cast<const BackgroundTableHeader*>(data + header->backgroundTableOffset)->count,
+                        "baked backgrounds", "backgrounds");
+#endif
+    }
+
+    // Shine (v30+): reflection overlays on shiny triangles.
+    if (header->version >= 30 && header->shineTableOffset != 0) {
+        const uint8_t* table = data + header->shineTableOffset;
+#if PSXSPLASH_FEATURE_SHINE
+        setup.shineTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "shiny objects", "shine");
 #endif
     }
 
