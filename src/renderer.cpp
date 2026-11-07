@@ -49,6 +49,61 @@ using namespace psyqo::GTE;
 
 psxsplash::Renderer* psxsplash::Renderer::instance = nullptr;
 
+// Found by a debugger scanning RAM for its magic; layout in capturetag.hh.
+// Used so that it stays in the image even if nothing read it.
+__attribute__((used, aligned(4))) volatile psxsplash::CaptureTagControl psxsplash::g_captureTag = {
+    {'P', 'S', 'X', 'S', 'P', 'T', 'A', 'G'}, 1, 0, 0, 0};
+
+void psxsplash::Renderer::beginCaptureTags() {
+    m_tagOn = g_captureTag.enabled != 0;
+    m_tagCount = m_tagSkipped = 0;
+}
+
+void psxsplash::Renderer::endCaptureTags() {
+    if (!m_tagOn) return;
+    g_captureTag.tagged = m_tagCount;
+    g_captureTag.skipped = m_tagSkipped;
+}
+
+// The tag words go right after the fragment, in the same DMA packet: frag was
+// the last fragment allocated, so the next bump allocation is contiguous with
+// it, and its header's word count grows by 2. Tagging stops for a primitive
+// whenever less than a quarter of the bump allocator would be left: the
+// frame's remaining primitives keep at least that (twice the reserve under
+// which splitTriangle refuses), and the frame never asserts or overruns for a
+// tag. Such primitives are drawn untagged and counted in g_captureTag.skipped.
+void psxsplash::Renderer::appendCaptureTag(psyqo::Fragments::ChainEntry& frag, unsigned fragBytes, const Tri& tri,
+                                           int32_t zIndex, unsigned kind, Balloc& balloc) {
+    struct TagWords {
+        uint32_t w[2];
+    };
+    if (balloc.remaining() < sizeof(TagWords) + (m_bumpSize >> 2)) {
+        m_tagSkipped++;
+        return;
+    }
+    auto& tag = balloc.allocate<TagWords>();
+    if (reinterpret_cast<uint8_t*>(&tag) != reinterpret_cast<uint8_t*>(&frag) + fragBytes) {
+        // Not contiguous (cannot happen with the emitters below): leave the
+        // primitive untagged; the 8 bytes stay unused.
+        m_tagSkipped++;
+        return;
+    }
+    // The pieces of a split triangle are copies, outside the object's list:
+    // they carry the triangle they were split from.
+    const Tri* t = &tri;
+    uint32_t index = (t >= m_tagPolys && t < m_tagPolys + m_tagPolyCount) ? (uint32_t)(t - m_tagPolys) : m_tagRoot;
+    // The slot the insert used: it clamps z to the table.
+    int32_t slot = zIndex < 0 ? 0 : zIndex >= (int32_t)m_otSize ? (int32_t)m_otSize - 1 : zIndex;
+    tag.w[0] = captureTagWord1(kind, m_tagObj, index);
+    tag.w[1] = captureTagWord2(m_tagObj, (uint32_t)slot);
+#ifdef PS1_PC_PORT
+    frag.size += 2;
+#else
+    frag.head += 2u << 24;
+#endif
+    m_tagCount++;
+}
+
 void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
     psyqo::Kernel::assert(instance == nullptr,
                           "A second initialization of Renderer was tried");
@@ -287,12 +342,14 @@ void psxsplash::Renderer::insertFogPass(const Tri& tri, const psyqo::Vertex& a, 
         p.primitive.setColorA(fogMaskTint(fogA)); p.primitive.setColorB(fogMaskTint(fogB)); p.primitive.setColorC(fogMaskTint(fogC));
         p.primitive.setSemiTrans();
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagFog, balloc);
     } else {
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
         p.primitive.pointA = a; p.primitive.pointB = b; p.primitive.pointC = c;
         p.primitive.setColorA(fogA); p.primitive.setColorB(fogB); p.primitive.setColorC(fogC);
         p.primitive.setSemiTrans();
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagFog, balloc);
     }
 }
 
@@ -559,6 +616,9 @@ bool psxsplash::Renderer::splitTriangle(const Tri& tri, unsigned edges, int32_t 
     }
     m_splitKids += n;
     RENDER_LOST(m_lost.split++);
+    // The pieces are tagged with the triangle they came from.
+    if (m_tagOn && depth == 0 && &tri >= m_tagPolys && &tri < m_tagPolys + m_tagPolyCount)
+        m_tagRoot = (uint16_t)(&tri - m_tagPolys);
     SplitCorner c[6];
     c[0] = {tri.v0, tri.uvA.u, tri.uvA.v, tri.colorA};
     c[1] = {tri.v1, tri.uvB.u, tri.uvB.v, tri.colorB};
@@ -634,6 +694,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
         p.primitive.setOpaque();
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagMain, balloc);
     } else if (hasFog) {
         psyqo::Color texA = fogTexColor(cA, fogIR[0]);
         psyqo::Color texB = fogTexColor(cB, fogIR[1]);
@@ -653,6 +714,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         texP.primitive.setColorA(texA); texP.primitive.setColorB(texB); texP.primitive.setColorC(texC);
         texP.primitive.setOpaque();
         ot.insert(texP, zIndex);
+        if (m_tagOn) appendCaptureTag(texP, sizeof(texP), tri, zIndex, kCaptureTagMain, balloc);
     } else {
 
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
@@ -667,6 +729,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         p.primitive.setColorA(cA); p.primitive.setColorB(cB); p.primitive.setColorC(cC);
         p.primitive.setOpaque();
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagMain, balloc);
     }
 }
 
@@ -962,6 +1025,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     ditherCmd.primitive.attr.setDithering(true);
     ditherCmd.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd, m_otSize - 1);
+    beginCaptureTags();
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
@@ -973,6 +1037,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
         if (!obj->isActive()) continue;
         if (obj->isSkinned()) continue;
         setupObjectTransform(obj, cameraPosition);
+        tagObject(&obj - objects.data(), obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int i = 0; i < obj->polyCount; i++)
             processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, obj->uvOffset);
@@ -998,6 +1063,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
+    endCaptureTags();
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
@@ -1027,6 +1093,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     ditherCmd2.primitive.attr.setDithering(true);
     ditherCmd2.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd2, m_otSize - 1);
+    beginCaptureTags();
 
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
     int visibleCount = bvh.cullFrustum(frustum, m_visibleRefs, m_visibleCapacity);
@@ -1059,6 +1126,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
             }
             lastObjCulled = false;
             setupObjectTransform(obj, cameraPosition);
+            tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
         }
         if (lastObjCulled) continue;
         // polyCount is 0 while a streamed object's geometry is not resident.
@@ -1079,6 +1147,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
+        tagObject(oi, obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
@@ -1107,6 +1176,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
+    endCaptureTags();
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
@@ -1355,6 +1425,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     ditherCmd3.primitive.attr.setDithering(true);
     ditherCmd3.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd3, m_otSize - 1);
+    beginCaptureTags();
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
@@ -1419,6 +1490,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 }
                 lastObjCulled = false;
                 setupObjectTransform(obj, cameraPosition);
+                tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
             }
             if (lastObjCulled) continue;
             if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
@@ -1796,6 +1868,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
+        tagObject(oi, obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
@@ -1824,6 +1897,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
+    endCaptureTags();
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
@@ -1888,6 +1962,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
             objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
             if (!frustum->testAABB(objBox)) continue;
         }
+        // The skin owns the object's triangle list (taken at init, same order).
+        tagObject(animSet.gameObjectIndex, animSet.polygons, animSet.polyCount);
 
         const BakedBoneMatrix* boneMatricesA;
         const BakedBoneMatrix* boneMatricesB;
