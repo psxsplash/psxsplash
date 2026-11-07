@@ -70,7 +70,7 @@ jobs:
           done
       - name: Build every engine without the boot logo
         run: |
-          xmake f -y --features=net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows
+          xmake f -y --features=net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows,backgrounds
           xmake -y -j 4
           for n in psxsplash psxsplash-cdrom psxsplash-perf psxsplash-rooms psxsplash-perf-rooms; do
             test -s build/psx/mipsel/release/$n-nologo.ps-exe

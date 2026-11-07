@@ -8,7 +8,7 @@ includes("third_party/nugget/psyqo-lua")
 -- Engine subsystems and the sources each one adds, as in the Makefile and
 -- src/features.hh.
 local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "lights", "streaming",
-                      "memcard", "nav", "agents", "collision", "shadows"}
+                      "memcard", "nav", "agents", "collision", "shadows", "backgrounds"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
     net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
@@ -23,6 +23,7 @@ local feature_srcs = {
     memcard = {"src/memorycardmanager.cpp", "src/luatableserializer.cpp"},
     collision = {"src/collision.cpp"},
     shadows = {"src/shadowrender.cpp"},
+    backgrounds = {"src/backgroundsystem.cpp", "src/backgroundmath.cpp"},
 }
 
 option("features", {type = "string",
