@@ -21,6 +21,8 @@ constexpr uint16_t NO_COMPONENT = 0xFFFF;
  * Bit 2: pendingDisable - flag for deferred disable
  * Bit 3: dynamicMoved - object position was changed at runtime (BVH stale)
  * Bit 4: skinned - drawn by the skinned-mesh pass
+ * Bit 5: backgroundHidden - runtime only: baked into the background showing,
+ *        so not drawn (still active: it collides and triggers)
  * Bit 16: dynamicLit - point lights are applied to this mesh at runtime
  * Bit 17: dynamicLitSmooth - ... per vertex rather than per triangle
  */
@@ -30,6 +32,7 @@ class GameObject final {
     static constexpr uint32_t kPendingDisable = 0x04;
     static constexpr uint32_t kDynamicMoved = 0x08;
     static constexpr uint32_t kSkinned = 0x10;
+    static constexpr uint32_t kBackgroundHidden = 0x20;
 
     bool hasFlag(uint32_t f) const { return (flagsAsInt & f) != 0; }
     void setFlag(uint32_t f, bool on) { flagsAsInt = on ? (flagsAsInt | f) : (flagsAsInt & ~f); }
@@ -78,6 +81,11 @@ class GameObject final {
     
     // Skinned mesh flag (bit 4)
     bool isSkinned() const { return hasFlag(kSkinned); }
+
+    // Drawn this frame: active and not baked into the background showing.
+    // One mask test, so the render loops pay nothing for it.
+    bool isDrawn() const { return (flagsAsInt & (kActive | kBackgroundHidden)) == kActive; }
+    void setBackgroundHidden(bool hidden) { setFlag(kBackgroundHidden, hidden); }
 
     // Point lights affect this mesh. Skinned meshes ignore it. Bits 16 and 17
     // are raw masks written by the exporter, clear of the low flag bits.

@@ -19,6 +19,7 @@ struct AudioClip {
   uint16_t sampleRate;
   bool loop;
   bool loaded;
+  bool reverbSend;  // voices playing this clip feed the reverb (EON)
 };
 
 /// Manages SPU voices and audio clip playback.
@@ -50,7 +51,14 @@ public:
   /// Upload ADPCM data to SPU RAM and register as clip index.
   /// Data must be 16-byte aligned. Returns true on success.
   bool loadClip(int clipIndex, const uint8_t *adpcmData, uint32_t sizeBytes,
-                uint16_t sampleRate, bool loop);
+                uint16_t sampleRate, bool loop, bool reverbSend = false);
+
+  // Keeps the top `bytes` of sound RAM for the reverb work area: a clip that
+  // would reach into it is refused. Set before the clips are loaded.
+  void reserveTop(uint32_t bytes) { m_ramEnd = SPU_RAM_END - bytes; }
+
+  // End of the loaded clips: the reverb work area must start at or above it.
+  uint32_t getClipsEnd() const { return m_nextAddr; }
 
   /// Play a clip by index. Returns channel (0-23), or -1 if full.
   /// Volume: 0-128 (128=max). Pan: 0 (left) to 127 (right), 64 = center.
@@ -83,6 +91,8 @@ private:
 
   AudioClip m_clips[MAX_AUDIO_CLIPS];
   uint32_t m_nextAddr = SPU_RAM_START;
+  uint32_t m_ramEnd = SPU_RAM_END;
+  uint32_t m_reverbSend = 0;  // EON, one bit per voice
 };
 
 } // namespace psxsplash
