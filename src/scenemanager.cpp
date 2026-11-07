@@ -5,12 +5,17 @@
 #include "collision.hh"
 #include "profiler.hh"
 #include "renderer.hh"
+#include "screenfx.hh"
 #include "splashpack.hh"
 #include "streq.hh"
 #include "luaapi.hh"
+#include "luadebug.hh"
 #include "loadingscreen.hh"
 #include "gtemath.hh"
 #include "networkmanager.hh"
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#include "common/syscalls/syscalls.h"
+#endif
 
 #include <psyqo/primitives/misc.hh>
 #include <psyqo/soft-math.hh>
@@ -74,6 +79,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     L.Reset();
 
+    // A new scene starts with no fade, flash, shake, bars or trail.
+    ScreenFx::get().reset();
+
     // Deliberately NO m_audio.initHardware() here.
     //
     // The SPU is already programmed: our only caller is LoadScene, whose Step 2
@@ -93,6 +101,7 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     UISystem* uiSystem = nullptr;
     SpriteSystem* spriteSystem = nullptr;
     TileSystem* tileSystem = nullptr;
+    ParticleSystem* particleSystem = nullptr;
 #if PSXSPLASH_FEATURE_CUTSCENE
     cutscenePlayer = &m_cutscenePlayer;
     animationPlayer = &m_animationPlayer;
@@ -104,16 +113,32 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     spriteSystem = &m_spriteSystem;
     tileSystem = &m_tileSystem;
 #endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    particleSystem = &m_particleSystem;
+#endif
     LuaAPI::RegisterAll(L.getState(), this, cutscenePlayer, animationPlayer, uiSystem, spriteSystem,
-                        tileSystem);
+                        tileSystem, particleSystem);
+    // Breakpoints, when an editor asked for them, from the scripts' first line on.
+    LuaDebugger::Get().attach(L.getState().getState());
 
 #ifdef PSXSPLASH_PROFILER
     debug::Profiler::getInstance().initialize(s_font);
 #endif
 
     SplashpackSceneSetup sceneSetup;
+#if PSXSPLASH_FEATURE_SKIN
+    sceneSetup.loadedSkinAnimSets = m_skinAnimSets;
+#endif
     m_loader.LoadSplashpack(splashpackData, sceneSetup);
     Renderer::GetInstance().Configure(sceneSetup.orderingTableSize, sceneSetup.bumpAllocatorSize);
+
+    m_paletteCycler.clear();
+    for (uint16_t i = 0; i < sceneSetup.clutCount; i++) {
+        const SPLASHPACKClut& c = sceneSetup.cluts[i];
+        m_paletteCycler.addClut(splashpackData, m_currentSceneSize, i, c.clutOffset, c.pad, c.clutPackingX,
+                                c.clutPackingY, c.length);
+    }
+    Renderer::GetInstance().SetPaletteCycler(m_paletteCycler.count() ? &m_paletteCycler : nullptr);
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 40);
 
@@ -158,6 +183,15 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         fogCfg.maskClut8 = sceneSetup.fogMaskClut8;
         Renderer::GetInstance().SetFog(fogCfg);
     }
+
+    // Reverb: zones from the trigger boxes that carry a preset, the scene
+    // default, and how far up the clips reach (uploaded before this).
+    m_reverb.reset();
+    for (size_t i = 0; i < sceneSetup.triggerBoxes.size(); i++) {
+        const SPLASHPACKTriggerBox* tb = sceneSetup.triggerBoxes[i];
+        if (tb) m_reverb.addZone(tb->minX, tb->minY, tb->minZ, tb->maxX, tb->maxY, tb->maxZ, tb->reverbPreset);
+    }
+    m_reverb.begin(sceneSetup.reverbDefault, sceneSetup.cdReverb, m_audio.getClipsEnd());
     // Copy component arrays
     m_interactables = std::move(sceneSetup.interactables);
     m_legacyInteractables = std::move(sceneSetup.legacyInteractables);
@@ -207,10 +241,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
 #if PSXSPLASH_FEATURE_SKIN
-    // Copy skinned mesh data from splashpack into scene manager storage
+    // The loader wrote the skinned mesh sets straight into m_skinAnimSets
     m_skinnedMeshCount = sceneSetup.skinnedMeshCount;
     for (int i = 0; i < m_skinnedMeshCount; i++) {
-        m_skinAnimSets[i] = sceneSetup.loadedSkinAnimSets[i];
         m_skinAnimStates[i] = SkinAnimState{};
         m_skinAnimStates[i].animSet = &m_skinAnimSets[i];
 
@@ -269,6 +302,21 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     Renderer::GetInstance().SetShadowFloor(&m_navRegions);
 #endif
 
+#if PSXSPLASH_FEATURE_SHINE
+    // Shine (v30+): the renderer finds an object's record by its index.
+    {
+        int shines = 0;
+        if (sceneSetup.shineTable && !m_gameObjects.empty()) {
+            m_shineByObject.assign(m_gameObjects.size(), nullptr);
+            shines = shinemath::parseTable(
+                sceneSetup.shineTable, uint16_t(m_gameObjects.size()),
+                [this](uint16_t i) { return m_gameObjects[i]->polyCount; }, m_shineByObject.data());
+        }
+        if (shines > 0) Renderer::GetInstance().SetShine(m_shineByObject.data(), m_gameObjects[0], uint16_t(m_gameObjects.size()));
+        else Renderer::GetInstance().SetShine(nullptr, nullptr, 0);
+    }
+#endif
+
 #if PSXSPLASH_FEATURE_SPRITES
     // Sprite system (v22+). The sheets' pixels ride the same VRAM atlas as UI
     // images and 3D textures, so there is nothing to upload here - only the
@@ -293,6 +341,23 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         Renderer::GetInstance().SetTileSystem(&m_tileSystem);
     } else {
         Renderer::GetInstance().SetTileSystem(nullptr);
+    }
+#endif
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    m_backgrounds.init();
+    m_backgrounds.load(splashpackData, sceneSetup.backgroundTableOffset, &m_gameObjects);
+    Renderer::GetInstance().SetBackgroundSystem(sceneSetup.backgroundTableOffset ? &m_backgrounds : nullptr);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    // Particle emitters (v32+): their pool is allocated here, once, from the
+    // pack's sizes. They draw from the sprite sheets loaded just above.
+    m_particleSystem.unload();
+    if (sceneSetup.particleTable != nullptr && sceneSetup.spriteSheetCount > 0) {
+        m_particleSystem.load(splashpackData, sceneSetup.particleTable, &m_spriteSystem, m_gameObjects);
+        Renderer::GetInstance().SetParticleSystem(&m_particleSystem);
+    } else {
+        Renderer::GetInstance().SetParticleSystem(nullptr);
     }
 #endif
 
@@ -403,10 +468,11 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     m_playerHeight = sceneSetup.playerHeight;
 
-    m_controls[0].setMoveSpeed(sceneSetup.moveSpeed);
-    m_controls[0].setSprintSpeed(sceneSetup.sprintSpeed);
-    m_controls[1].setMoveSpeed(sceneSetup.moveSpeed);
-    m_controls[1].setSprintSpeed(sceneSetup.sprintSpeed);
+    for (int i = 0; i < inputmap::MAX_PLAYERS; i++) {
+        m_controls[i].setPlayer(i + 1);
+        m_controls[i].setMoveSpeed(sceneSetup.moveSpeed);
+        m_controls[i].setSprintSpeed(sceneSetup.sprintSpeed);
+    }
     m_playerRadius = (int32_t)sceneSetup.playerRadius.value;
     if (m_playerRadius == 0) m_playerRadius = PLAYER_RADIUS;
     // Both exporters write the jump velocity per second and gravity per second^2.
@@ -467,6 +533,16 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 85);
 
+    // The scene's video mode, before its scripts run so that onCreate already
+    // sees the screen it draws on. Loading screens are 320x240, so a scene in
+    // another mode stops drawing its progress here.
+    Renderer::GetInstance().SetVideoMode(sceneSetup.videoMode);
+    if (sceneSetup.videoMode != VIDEO_MODE_320x240) loading = nullptr;
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // Before any script event, so onCreate already sees Background.Current().
+    showBackgroundIndex(m_backgrounds.startIndex());
+#endif
+
     L.RegisterSceneScripts(sceneSetup.sceneLuaFileIndex);
 
     L.OnSceneCreationStart();
@@ -483,30 +559,40 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
             m_gameObjects.size());
     }
 
-    // THE ORDER OF THESE FIVE CALLS IS THE FIX, not decoration.
+    // THE ORDER OF THESE FOUR CALLS IS THE FIX, not decoration.
     //
-    // Init() hands SIO0 to psyqo's AdvancedPad, which registers a per-frame pad
-    // poll on the kernel. That list is append-only -- nothing can remove an entry
-    // -- so Init() is guarded to run once per boot; without that guard every scene
-    // load permanently added two more blocking, bit-banged SIO0 transfers to every
-    // frame, and the console eventually hung inside one of them.
+    // Init() hands SIO0 to psyqo's AdvancedPad (one, shared by all eight
+    // players), which registers a per-frame pad poll on the kernel. That list is
+    // append-only -- nothing can remove an entry -- so Init() is guarded to run
+    // once per boot; without that guard every scene load permanently added more
+    // blocking, bit-banged SIO0 transfers to every frame, and the console
+    // eventually hung inside one of them.
     //
     // Shield{Begin,End} bracket those registrations so the SIO1 receive interrupt
     // is masked for the duration of the poll. Registration order IS execution
-    // order, so Begin must precede the Init()s and End must follow them. Swapping
+    // order, so Begin must precede Init() and End must follow it. Swapping
     // any of this silently disarms the shield: the callbacks still run, just not
     // around the thing they exist to protect. See Controls::ShieldPadPollBegin.
     Controls::ShieldPadPollBegin();
 
-    m_controls[0].forceAnalogMode();
-    m_controls[0].Init();
-
-    m_controls[1].forceAnalogMode();
-    m_controls[1].Init();
+    Controls::forceAnalogMode();
+    Controls::Init();
 
     Controls::ShieldPadPollEnd();
 
     Renderer::GetInstance().SetCamera(m_currentCamera);
+
+    // The starting reverb, before any Lua keys a voice.
+    {
+        uint8_t zone = 0;
+#if PSXSPLASH_FEATURE_COLLISION
+        AABB box = playerBox();
+        zone = m_reverb.zoneAt(box.min.x.value, box.min.y.value, box.min.z.value,
+                               box.max.x.value, box.max.y.value, box.max.z.value);
+#endif
+        int room = startRoom();
+        m_reverb.start(zone, room >= 0 ? m_rooms[room].reverbPreset : 0);
+    }
 
     L.OnSceneCreationEnd();
 
@@ -517,6 +603,41 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 
     if (loading && loading->isActive()) loading->updateProgress(gpu, 100);
 }
+
+bool psxsplash::SceneManager::playerDrivenByController() const {
+    // Players 1 and 2 count while enabled, whatever they are
+    // bound to; the others only when bound to the player.
+    if (m_controlsEnabled[0] || m_controlsEnabled[1]) return true;
+    for (int p = 2; p < inputmap::MAX_PLAYERS; p++) {
+        if (m_controlBoundActor[p] == PLAYER_ACTOR_ID) return true;
+    }
+    return false;
+}
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+bool psxsplash::SceneManager::showBackgroundIndex(int i) {
+    const bool wasShowing = m_backgrounds.current() != BACKGROUND_NONE;
+    const int32_t h = m_currentCamera.GetProjectionH();
+    if (!m_backgrounds.show(i, m_currentCamera)) return false;
+    if (!wasShowing) {
+        m_bgFollowWas = m_cameraFollowsPlayer;
+        m_bgHWas = h;
+    }
+    m_cameraFollowsPlayer = false;
+    return true;
+}
+
+bool psxsplash::SceneManager::showBackground(const char* name) {
+    return showBackgroundIndex(m_backgrounds.find(name));
+}
+
+void psxsplash::SceneManager::hideBackground() {
+    if (m_backgrounds.current() == BACKGROUND_NONE) return;
+    m_backgrounds.hide();
+    m_cameraFollowsPlayer = m_bgFollowWas;
+    m_currentCamera.SetProjectionH(m_bgHWas);
+}
+#endif
 
 void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint16_t actorId) {
     if (!isValidActor(actorId)) return;
@@ -531,10 +652,8 @@ void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint
     // Reuse the player's movement handler on the bound actor's own transform.
     // A non-player actor moves freely here (gravity/nav are player-only, applied
     // later in GameTick); freecam=false keeps motion planar.
-    if (controllerIndex == 0)
-        m_controls[0].HandleControlsPlayer1(pos, rx, ry, rz, false, m_dt12);
-    else
-        m_controls[1].HandleControlsPlayer2(pos, rx, ry, rz, false, m_dt12);
+    if (controllerIndex < 0 || controllerIndex >= inputmap::MAX_PLAYERS) return;
+    m_controls[controllerIndex].HandleControls(pos, rx, ry, rz, false, m_dt12);
 
     setActorPosition(actorId, pos);
     psyqo::Vec3 newRot;
@@ -560,6 +679,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
         m_lastFrameTime = now;
     }
 
+    // Palette cycling advances with the frame's time; the renderer uploads what changed.
+    m_paletteCycler.tick(m_dt12);
+
     // Networking: pump the link and apply any remote state BEFORE this frame's
     // game logic, so scripts and movement see fresh peer state. No-op (and never
     // blocks) unless a session has been started.
@@ -567,6 +689,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     NetworkManager::Get().preTick(*this, m_dt12);
 #endif
 
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    perfMapPin();
+#endif
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameStart = gpu.now();
     uint32_t animationStart = frameStart;
@@ -576,6 +701,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     m_cutscenePlayer.tick(m_dt12);
     m_animationPlayer.tick(m_dt12);
 #endif
+    ScreenFx::get().tick(m_dt12);
 
 #if PSXSPLASH_FEATURE_SKIN
     // Tick skinned mesh animations
@@ -595,6 +721,9 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // pinned to.
 #if PSXSPLASH_FEATURE_SPRITES
     m_spriteSystem.update(m_dt12);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+    m_particleSystem.update(m_dt12);
 #endif
 
 
@@ -637,23 +766,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     uint32_t collisionStart = gpu.now();
 
 #if PSXSPLASH_FEATURE_COLLISION
-    AABB playerAABB;
-    {
-        psyqo::FixedPoint<12> r;
-        r.value = m_playerRadius;
-        psyqo::FixedPoint<12> px = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.x);
-        psyqo::FixedPoint<12> py = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y);
-        psyqo::FixedPoint<12> pz = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z);
-        psyqo::FixedPoint<12> h = static_cast<psyqo::FixedPoint<12>>(m_playerHeight);
-        // Y is inverted on PS1: negative = up, positive = down.
-        // m_playerPosition.y is the camera (head), feet are at py + h.
-        // Leave a small gap at the bottom so the floor geometry doesn't
-        // trigger constant collisions (floor contact is handled by nav).
-        psyqo::FixedPoint<12> bodyBottom;
-        bodyBottom.value = h.value * 3 / 4;  // 75% of height below camera
-        playerAABB.min = psyqo::Vec3{ px - r, py, pz - r };
-        playerAABB.max = psyqo::Vec3{ px + r, py + bodyBottom, pz + r };
-    }
+    AABB playerAABB = playerBox();
 
     psyqo::Vec3 pushBack;
     int collisionCount = m_collisionSystem.detectCollisions(playerAABB, pushBack, *this);
@@ -678,7 +791,18 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
     // Process trigger boxes (enter/exit)
     m_collisionSystem.detectTriggers(playerAABB, *this);
+    uint8_t reverbZone = m_reverb.zoneAt(playerAABB.min.x.value, playerAABB.min.y.value, playerAABB.min.z.value,
+                                         playerAABB.max.x.value, playerAABB.max.y.value, playerAABB.max.z.value);
+#else
+    uint8_t reverbZone = 0;
 #endif
+    {
+        // Innermost reverb zone, else the camera's room, else the scene default.
+        uint8_t roomPreset = 0;
+        int room = (m_roomCount > 0 && m_rooms) ? renderer.lastCameraRoom() : -1;
+        if (room >= 0 && room < m_roomCount) roomPreset = m_rooms[room].reverbPreset;
+        m_reverb.update(reverbZone, roomPreset);
+    }
 
     gpu.pumpCallbacks();
     uint32_t collisionEnd = gpu.now();
@@ -708,62 +832,36 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 
     uint32_t controlsStart = gpu.now();
 
-    // Update button state tracking first
-    m_controls[0].UpdateButtonStatesPlayer1();
-    m_controls[1].UpdateButtonStatesPlayer2();
+    // Update button state tracking first, for all eight players (a slot with
+    // nothing in it reads no buttons).
+    for (auto& c : m_controls) c.UpdateButtonStates();
 
     // Update interaction system (checks for interact button press)
     updateInteractionSystem();
 
-    // Dispatch button events to all objects
-    uint16_t pressed1 = m_controls[0].getButtonsPressed();
-    uint16_t released1 = m_controls[0].getButtonsReleased();
-
-    uint16_t pressed2 = m_controls[1].getButtonsPressed();
-    uint16_t released2 = m_controls[1].getButtonsReleased();
-
-    if (pressed1 || released1) {
+    // Dispatch button events to all objects, player by player; the player
+    // number (1..8) is the callbacks' third argument.
+    for (int p = 0; p < inputmap::MAX_PLAYERS; p++) {
+        uint16_t pressed = m_controls[p].getButtonsPressed();
+        uint16_t released = m_controls[p].getButtonsReleased();
+        if (!pressed && !released) continue;
         // Only iterate objects if there are button events
         for (auto* go : m_gameObjects) {
             if (!go || !go->isActive()) continue;
 
-            if (pressed1) {
+            if (pressed) {
                 // Dispatch press events for each pressed button
                 for (int btn = 0; btn < 16; btn++) {
-                    if (pressed1 & (1 << btn)) {
-                        L.OnButtonPress(go, btn);
+                    if (pressed & (1 << btn)) {
+                        L.OnButtonPress(go, btn, p + 1);
                     }
                 }
             }
-            if (released1) {
+            if (released) {
                 // Dispatch release events for each released button
                 for (int btn = 0; btn < 16; btn++) {
-                    if (released1 & (1 << btn)) {
-                        L.OnButtonRelease(go, btn);
-                    }
-                }
-            }
-        }
-    }
-
-    if (pressed2 || released2) {
-        // Only iterate objects if there are button events
-        for (auto* go : m_gameObjects) {
-            if (!go || !go->isActive()) continue;
-
-            if (pressed2) {
-                // Dispatch press events for each pressed button
-                for (int btn = 0; btn < 16; btn++) {
-                    if (pressed2 & (1 << btn)) {
-                        L.OnButtonPress(go, btn);
-                    }
-                }
-            }
-            if (released2) {
-                // Dispatch release events for each released button
-                for (int btn = 0; btn < 16; btn++) {
-                    if (released2 & (1 << btn)) {
-                        L.OnButtonRelease(go, btn);
+                    if (released & (1 << btn)) {
+                        L.OnButtonRelease(go, btn, p + 1);
                     }
                 }
             }
@@ -773,31 +871,21 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Save position BEFORE movement for collision detection
     psyqo::Vec3 oldPlayerPosition = m_playerPosition;
 
-    if (m_controlsEnabled[0]) {
-        if (m_controlBoundActor[0] == PLAYER_ACTOR_ID) {
-            m_controls[0].HandleControlsPlayer1(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
+    // Players 1 and 2 can be switched off from Lua; the multitap slots, which
+    // drive nothing until bound, cannot.
+    for (int p = 0; p < inputmap::MAX_PLAYERS; p++) {
+        if (p < 2 && !m_controlsEnabled[p]) continue;
+        uint16_t bound = m_controlBoundActor[p];
+        if (bound == PLAYER_ACTOR_ID) {
+            m_controls[p].HandleControls(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
 
             // Jump input: Cross button triggers jump when grounded
-            if (m_isGrounded && m_controls[0].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
+            if (m_isGrounded && m_controls[p].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
                 jumpmath::launch(m_vertical, m_jumpVelocityPerSec);  // Negative = upward (PSX Y-down)
                 m_isGrounded = false;
             }
         } else {
-            driveActorWithController(0, m_controlBoundActor[0]);
-        }
-    }
-
-    if (m_controlsEnabled[1]) {
-        if (m_controlBoundActor[1] == PLAYER_ACTOR_ID) {
-            m_controls[1].HandleControlsPlayer2(m_playerPosition, playerRotationX, playerRotationY, playerRotationZ, freecam, m_dt12);
-
-            // Jump input: Cross button triggers jump when grounded
-            if (m_isGrounded && m_controls[1].wasButtonPressed(psyqo::AdvancedPad::Button::Cross)) {
-                jumpmath::launch(m_vertical, m_jumpVelocityPerSec);  // Negative = upward (PSX Y-down)
-                m_isGrounded = false;
-            }
-        } else {
-            driveActorWithController(1, m_controlBoundActor[1]);
+            driveActorWithController(p, bound);
         }
     }
 
@@ -901,6 +989,11 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // (no nav regions / no PSXPlayer), the camera is driven entirely
     // by cutscenes and Lua. After a cutscene ends in free mode, the
     // camera stays at the last cutscene position.
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    // Again after controls, collision, nav and Lua had their go, so the
+    // camera follows the pinned pose.
+    perfMapPin();
+#endif
     if (m_cameraFollowsPlayer && !cutsceneDrivesCamera()) {
         psyqo::Vec3 actorPos;
         psyqo::Vec3 actorRot;
@@ -933,13 +1026,28 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     NetworkManager::Get().postTick(*this, m_dt12);
 #endif
 
-    // Process pending scene transitions (at end of frame)
+#if PSXSPLASH_FEATURE_MOVIE
+    // Last, so the next flip's chain is the frame that shows it, and the chain
+    // running now is the one flip would have waited for anyway.
+    if (m_movieTexture.tick(gpu)) fireMovieComplete(m_movieTexture.takeOnComplete(), "ended");
+#endif
+
+    // Process pending scene transitions (at end of frame). A movie goes first:
+    // Movie.Play then Scene.Load in one frame means the movie, then the scene.
     pollHotReload();
+    LuaDebugger::Get().poll();
+#if PSXSPLASH_FEATURE_MOVIE
+    if (!m_movie.pending())
+#endif
     processPendingSceneLoad();
 
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameEnd = gpu.now();
     psxsplash::debug::Profiler::getInstance().endFrame(frameEnd - frameStart);
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    // After the frame is closed, so the walk's own output is not measured.
+    perfMapFrameEnded();
+#endif
 #endif
 }
 
@@ -1191,7 +1299,7 @@ void psxsplash::SceneManager::tickAgents() {
         }
         if (!isValidActor(actorId)) continue;
         // Don't run agent AI on the player while any controller drives it.
-        if (actorId == PLAYER_ACTOR_ID && (m_controlsEnabled[0] || m_controlsEnabled[1])) continue;
+        if (actorId == PLAYER_ACTOR_ID && playerDrivenByController()) continue;
 
         // Tick state timer
         if (agent.stateTimer < 0xFFFF) ++agent.stateTimer;
@@ -1418,6 +1526,169 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
     loadScene(gpu, targetIndex, /*isFirstScene=*/false);
 }
 
+#if defined(LOADER_CDROM)
+// CD-DA music keeps a CDRomDevice action active for the entire track (the
+// drive reports position and the end-of-track IRQ through it).  While that
+// action is pending, any blocking data read aborts with "readSectorsBlocking
+// called with pending action".  So the drive must be brought to idle before
+// loading any scene files or starting a movie - for a scene load this must
+// happen before the loading-screen read.
+//
+// Getting there safely is fiddly.  The device exposes only isIdle()
+// (state == 0), and psyqo's stopCDDA() accepts ONLY the steady PLAYING
+// state (100): calling it during CD-DA's startup handshake, or while a
+// pause/stop the scene's own Lua already issued is still draining, aborts
+// with "stopCDDA called while not playing".  And MusicManager::isPlayingCDDA()
+// can't be trusted alone: it's set from a deferred callback, so it lags the
+// hardware.  So do it in two phases:
+//   1. Pump until the drive settles into a definite state - either idle
+//      (a startup that failed, or an in-flight pause/stop that finished) or
+//      steady playback.  isPlayingCDDA() flips true from the callback that
+//      fires exactly when the PLAYING state is entered, so it is a reliable
+//      "safe to stop now" signal; combined with !isIdle() it means state==100.
+//   2. If it settled on playing, stop it and drain back to idle.
+void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
+    psyqo::CDRomDevice* cdrom = static_cast<psxsplash::FileLoaderCDRom&>(
+        psxsplash::FileLoader::Get()).getCDRomDevice();
+    while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
+        gpu.pumpCallbacks();
+    }
+    if (!cdrom->isIdle()) {
+        m_music.stopCDDA();
+        while (!cdrom->isIdle()) {
+            gpu.pumpCallbacks();
+        }
+    }
+}
+#endif
+
+#if PSXSPLASH_FEATURE_MOVIE
+void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
+    const MoviePlayer::Request& request = m_movie.takeRequest();
+#if defined(LOADER_CDROM)
+    // Gameplay reads and CD music have to let go of the drive first. A scene that
+    // stays keeps what it queued: its streamer is waiting on those reads.
+#if PSXSPLASH_FEATURE_STREAMING
+    if (request.thenScene >= 0) {
+        StreamReader::Get().drain();
+    } else {
+        while (StreamReader::Get().busy()) {
+            StreamReader::Get().update();
+            gpu.pumpCallbacks();
+        }
+    }
+#endif
+    CDRomHelper::WakeDrive();
+    settleDrive(gpu);
+    m_audio.stopAll();
+
+    // Then-a-scene: the scene goes now, so the movie fits with one of any size.
+    // Its replacement loads as a first scene would, with nothing left to clear.
+    if (request.thenScene >= 0) {
+        clearScene();
+        if (m_currentSceneData) {
+            FileLoader::Get().FreeFile(m_currentSceneData);
+            m_currentSceneData = nullptr;
+        }
+    }
+
+    // StrPlayer shows 320x240 from the two buffers at y 0 and 256. A 640x480
+    // scene's one buffer covers both, so its movies play at 320x240 (an overlay
+    // on black, as the scene's picture does not fit) and finishMovie puts the
+    // scene's mode back.
+    if (currentScreen().interlaced) {
+        if (request.thenScene < 0) m_movieSceneVideoMode = VIDEO_MODE_640x480I;
+        Renderer::GetInstance().SetVideoMode(VIDEO_MODE_320x240);
+    }
+
+    if (m_movie.start(gpu, m_controls[0])) return;
+#endif
+    finishMovie(gpu, MoviePlayer::Result::FAILED);
+}
+
+bool psxsplash::SceneManager::playMovieOn(const char* name, const GameObject* target,
+                                          const MovieTexture::Options& options) {
+#if defined(LOADER_CDROM)
+    // Lua runs with the drive's interrupts off (SilenceDrive), and the read needs them.
+    CDRomHelper::WakeDrive();
+    const bool playing = m_movieTexture.play(name, target, options);
+    CDRomHelper::SilenceDrive();
+    return playing;
+#else
+    return false;
+#endif
+}
+
+void psxsplash::SceneManager::stopMovieOn() {
+    m_movieTexture.stop();
+    const int ref = m_movieTexture.takeOnComplete();
+    if (ref != MovieTexture::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+}
+
+bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
+    if (m_movie.pending()) {
+        // A frame after the one that asked, with its chain out: the player's first
+        // upload must not meet that chain, nor a 24-bit display show its picture.
+        gpu.waitChainIdle();
+        startMovie(gpu);
+        return true;
+    }
+    if (!m_movie.playing()) return false;
+    MoviePlayer::Result result;
+    if (m_movie.frame(m_controls[0], result)) finishMovie(gpu, result);
+    return true;
+}
+
+void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
+    const MoviePlayer::Request& request = m_movie.request();
+    // The game's tick did not run while the movie played: the button that skipped it is no press now.
+    // Each pad is set before it settles, in case the movie ends before the first game tick.
+    for (int i = 0; i < inputmap::MAX_PLAYERS; i++) {
+        m_controls[i].setPlayer(i + 1);
+        m_controls[i].SettleButtons();
+    }
+#if defined(LOADER_CDROM)
+    if (request.thenScene >= 0) {
+        m_movie.restoreDisplay();
+        m_movieSceneVideoMode = VIDEO_MODE_320x240;
+        loadScene(gpu, request.thenScene, /*isFirstScene=*/true);
+        return;
+    }
+    CDRomHelper::SilenceDrive();
+#endif
+    m_lastFrameTime = 0;  // the movie's length is not a frame's
+
+    fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
+                                          : result == MoviePlayer::Result::SKIPPED ? "skipped"
+                                                                                   : "failed");
+    // Its last picture stays up for a movie onComplete queued; otherwise the game's display comes back.
+    if (!m_movie.pending()) {
+        m_movie.restoreDisplay();
+        if (m_movieSceneVideoMode != VIDEO_MODE_320x240) {
+            Renderer::GetInstance().SetVideoMode(m_movieSceneVideoMode);
+            m_movieSceneVideoMode = VIDEO_MODE_320x240;
+        }
+    }
+}
+
+void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
+    if (ref == MoviePlayer::c_noRef) return;
+    lua_State* state = L.getState().getState();
+    psyqo::Lua lua(state);
+    lua.rawGetI(LUA_REGISTRYINDEX, ref);
+    if (lua.isFunction(-1)) {
+        lua.push(result);
+        if (lua.pcall(1, 0) != LUA_OK) {
+            printf("Lua error: %s\n", lua.toString(-1));
+            lua.pop();
+        }
+    } else {
+        lua.pop();
+    }
+    luaL_unref(state, LUA_REGISTRYINDEX, ref);
+}
+#endif
+
 void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool isFirstScene) {
     // Finish or drop gameplay stream reads while the scene that owns their
     // buffers is still alive; the blocking loads below need an idle drive.
@@ -1429,49 +1700,21 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #if defined(LOADER_CDROM)
     CDRomHelper::WakeDrive();
 
-    // CD-DA music keeps a CDRomDevice action active for the entire track (the
-    // drive reports position and the end-of-track IRQ through it).  While that
-    // action is pending, any blocking data read aborts with "readSectorsBlocking
-    // called with pending action".  So the drive must be brought to idle before
-    // loading any scene files - this must happen before the loading-screen read
-    // below.
-    //
-    // Getting there safely is fiddly.  The device exposes only isIdle()
-    // (state == 0), and psyqo's stopCDDA() accepts ONLY the steady PLAYING
-    // state (100): calling it during CD-DA's startup handshake, or while a
-    // pause/stop the scene's own Lua already issued is still draining, aborts
-    // with "stopCDDA called while not playing".  And MusicManager::isPlayingCDDA()
-    // can't be trusted alone: it's set from a deferred callback, so it lags the
-    // hardware.  So do it in two phases:
-    //   1. Pump until the drive settles into a definite state - either idle
-    //      (a startup that failed, or an in-flight pause/stop that finished) or
-    //      steady playback.  isPlayingCDDA() flips true from the callback that
-    //      fires exactly when the PLAYING state is entered, so it is a reliable
-    //      "safe to stop now" signal; combined with !isIdle() it means state==100.
-    //   2. If it settled on playing, stop it and drain back to idle.
     // The per-scene Lua VM (which owns music state) is torn down in clearScene()
     // and the next scene restarts its own track, so a full stop is correct.
-    {
-        psyqo::CDRomDevice* cdrom = static_cast<psxsplash::FileLoaderCDRom&>(
-            psxsplash::FileLoader::Get()).getCDRomDevice();
-        while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
-            gpu.pumpCallbacks();
-        }
-        if (!cdrom->isIdle()) {
-            m_music.stopCDDA();
-            while (!cdrom->isIdle()) {
-                gpu.pumpCallbacks();
-            }
-        }
-    }
+    settleDrive(gpu);
+
+    // Every file below opens through the root and this scene's directory;
+    // read those once for the whole load instead of once per file.
+    psxsplash::FileLoaderCDRom::DirBatch dirBatch(
+        static_cast<psxsplash::FileLoaderCDRom&>(psxsplash::FileLoader::Get()));
 #endif
 
-    psyqo::Prim::FastFill ff(psyqo::Color{ .r = 0, .g = 0, .b = 0 });
-    ff.rect = psyqo::Rect{ 0, 0, 320, 240 };
-    gpu.sendPrimitive(ff);
-    ff.rect = psyqo::Rect{ 0, 256, 320, 240 };
-    gpu.sendPrimitive(ff);
-    gpu.pumpCallbacks();
+    // Loading runs at 320x240: the loading screen draws into the two 320x240
+    // buffers, and a 320x240 scene's textures are uploaded where a 640x480
+    // buffer would be shown. InitializeScene switches to the scene's own mode.
+    if (!isFirstScene) Renderer::GetInstance().SetVideoMode(VIDEO_MODE_320x240);
+    Renderer::ClearFramebuffers(gpu);
 
     LoadingScreen loading;
     if (s_font) {
@@ -1488,9 +1731,13 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 
         // Free old splashpack data BEFORE loading the new one.
         // This avoids having both scene buffers in the heap simultaneously.
+        // The cycler reads its base words out of that buffer.
+        m_paletteCycler.clear();
+        Renderer::GetInstance().SetPaletteCycler(nullptr);
         if (m_currentSceneData) {
             FileLoader::Get().FreeFile(m_currentSceneData);
             m_currentSceneData = nullptr;
+            m_currentSceneSize = 0;
         }
     }
 
@@ -1604,6 +1851,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
     psyqo::Angle keptRotX = playerRotationX, keptRotY = playerRotationY, keptRotZ = playerRotationZ;
 
     m_currentSceneData = newData;
+    m_currentSceneSize = uint32_t(fileSize);
     m_currentSceneIndex = sceneIndex;
 
     // Initialize with new data (creates fresh Lua VM inside).
@@ -1617,6 +1865,9 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         playerRotationZ = keptRotZ;
     }
     if (isFirstScene) m_hotReloadWatch = readHotReloadTag(m_hotReloadTag, m_hotReloadTagLen);
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+    perfMapSceneStart(isFirstScene);
+#endif
 }
 
 // ============================================================================
@@ -1626,7 +1877,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 //         Per-atlas: vramX(u16) vramY(u16) width(u16) height(u16) + pixel data + align4
 //         Per-CLUT: clutPackingX(u16) clutPackingY(u16) length(u16) pad(u16) + data + align4
 //         Per-font: glyphW(u8) glyphH(u8) vramX(u16) vramY(u16) textureH(u16)
-//                   dataSize(u32) + pixel data + align4
+//                   dataSize(u32) + pixel data [+ 16-entry palette] + align4
 
 void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
     if (!vramData || vramSize < 8) return;
@@ -1695,11 +1946,18 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
                 (int16_t)fontVramX, (int16_t)fontVramY,
                 64, (int16_t)textureH);
 
-            // Upload white CLUT (entry 0=transparent, entry 1=white)
-            static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
-            renderer.VramUpload(whiteCLUT,
-                (int16_t)fontVramX, (int16_t)fontVramY,
-                2, 1);
+            if (dataSize >= 128u * textureH + 32) {
+                // Font's own 16-entry palette follows the sheet: row below it
+                renderer.VramUpload(reinterpret_cast<const uint16_t*>(ptr + 128u * textureH),
+                    (int16_t)fontVramX, (int16_t)(fontVramY + textureH),
+                    16, 1);
+            } else {
+                // Upload white CLUT (entry 0=transparent, entry 1=white)
+                static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
+                renderer.VramUpload(whiteCLUT,
+                    (int16_t)fontVramX, (int16_t)fontVramY,
+                    2, 1);
+            }
             ptr += dataSize;
         }
 
@@ -1714,6 +1972,51 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
 // ============================================================================
 // Format: 'S' 'A' clipCount(u16)
 //         Per-clip: sizeBytes(u32) sampleRate(u16) loop(u8) pad(u8) + ADPCM data + align4
+// pad bit 0: the clip's voices feed the reverb; bits 4-7: the largest reverb
+// preset the scene uses, whose work area is kept free at the top of sound RAM
+// (reverb.hh). Older packs wrote 0: no reverb, no reservation.
+
+psxsplash::AABB psxsplash::SceneManager::playerBox() const {
+    AABB box;
+    psyqo::FixedPoint<12> r;
+    r.value = m_playerRadius;
+    psyqo::FixedPoint<12> px = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.x);
+    psyqo::FixedPoint<12> py = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.y);
+    psyqo::FixedPoint<12> pz = static_cast<psyqo::FixedPoint<12>>(m_playerPosition.z);
+    psyqo::FixedPoint<12> h = static_cast<psyqo::FixedPoint<12>>(m_playerHeight);
+    // Y is inverted on PS1: negative = up, positive = down.
+    // m_playerPosition.y is the camera (head), feet are at py + h.
+    // Leave a small gap at the bottom so the floor geometry doesn't
+    // trigger constant collisions (floor contact is handled by nav).
+    psyqo::FixedPoint<12> bodyBottom;
+    bodyBottom.value = h.value * 3 / 4;  // 75% of height below camera
+    box.min = psyqo::Vec3{ px - r, py, pz - r };
+    box.max = psyqo::Vec3{ px + r, py + bodyBottom, pz + r };
+    return box;
+}
+
+int psxsplash::SceneManager::startRoom() const {
+    if (m_roomCount == 0 || m_rooms == nullptr) return -1;
+    int catchAll = m_roomCount - 1;
+    if (m_navRegions.isLoaded() && m_playerNavRegion != NAV_NO_REGION) {
+        uint8_t ri = m_navRegions.getRoomIndex(m_playerNavRegion);
+        if (ri != 0xFF && ri < catchAll) return ri;
+    }
+    // Renderer::RenderWithRooms' fallback, at the player: the smallest room
+    // whose box (with its margin) holds the point.
+    constexpr int32_t ROOM_MARGIN = 2048;
+    int32_t x = m_playerPosition.x.raw(), y = m_playerPosition.y.raw(), z = m_playerPosition.z.raw();
+    int best = -1;
+    uint32_t bestSize = 0xFFFFFFFFu;
+    for (int r = 0; r < catchAll; r++) {
+        const RoomData& rd = m_rooms[r];
+        if (x < rd.aabbMinX - ROOM_MARGIN || x > rd.aabbMaxX + ROOM_MARGIN || y < rd.aabbMinY - ROOM_MARGIN ||
+            y > rd.aabbMaxY + ROOM_MARGIN || z < rd.aabbMinZ - ROOM_MARGIN || z > rd.aabbMaxZ + ROOM_MARGIN) continue;
+        uint32_t size = reverb::zoneSize(rd.aabbMinX, rd.aabbMinY, rd.aabbMinZ, rd.aabbMaxX, rd.aabbMaxY, rd.aabbMaxZ);
+        if (size < bestSize) { bestSize = size; best = r; }
+    }
+    return best;
+}
 
 void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
     if (!spuData || spuSize < 4) return;
@@ -1725,14 +2028,28 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
     ptr += 2;
     uint16_t clipCount = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
 
+    // The reservation has to be in place before the first clip is placed.
+    {
+        uint8_t reserve = 0;
+        const uint8_t* p = ptr;
+        for (uint16_t i = 0; i < clipCount; i++) {
+            uint32_t sizeBytes = *reinterpret_cast<const uint32_t*>(p);
+            uint8_t r = reverb::clipReserve(p[7]);
+            if (reverb::workAreaBytes(r) > reverb::workAreaBytes(reserve)) reserve = r;
+            p += 8 + sizeBytes;
+            p = reinterpret_cast<const uint8_t*>((reinterpret_cast<uintptr_t>(p) + 3) & ~uintptr_t(3));
+        }
+        m_audio.reserveTop(reverb::workAreaBytes(reserve));
+    }
+
     for (uint16_t i = 0; i < clipCount; i++) {
         uint32_t sizeBytes = *reinterpret_cast<uint32_t*>(ptr); ptr += 4;
         uint16_t sampleRate = *reinterpret_cast<uint16_t*>(ptr); ptr += 2;
         uint8_t  loop = *ptr++;
-        ptr++; // pad
+        uint8_t  pad = *ptr++;
 
         if (sizeBytes > 0) {
-            m_audio.loadClip((int)i, ptr, sizeBytes, sampleRate, loop != 0);
+            m_audio.loadClip((int)i, ptr, sizeBytes, sampleRate, loop != 0, reverb::clipSend(pad));
             ptr += sizeBytes;
         }
 
@@ -1743,6 +2060,12 @@ void psxsplash::SceneManager::uploadSpuData(uint8_t* spuData, int spuSize) {
 }
 
 void psxsplash::SceneManager::clearScene() {
+#if PSXSPLASH_FEATURE_MOVIE
+    // Its target and its script go with the scene.
+    m_movieTexture.stop();
+    m_movieTexture.takeOnComplete();
+#endif
+
     // 0. Drop network replication state: actorIds refer to different objects in
     //    a new scene, so any mapping/registry must not carry over.
     //
@@ -1781,6 +2104,7 @@ void psxsplash::SceneManager::clearScene() {
 
     // 3. Reset hardware / subsystems
     m_audio.reset();           // Free SPU RAM and stop all voices
+    m_reverb.reset();          // Reverb off, its zones dropped
 #if PSXSPLASH_FEATURE_COLLISION
     m_collisionSystem.init();  // Re-init collision system
 #endif
@@ -1803,6 +2127,10 @@ void psxsplash::SceneManager::clearScene() {
     m_shadowCount = 0;
     Renderer::GetInstance().SetShadows(nullptr, 0);
 #endif
+#if PSXSPLASH_FEATURE_SHINE
+    Renderer::GetInstance().SetShine(nullptr, nullptr, 0);
+    { eastl::vector<const ShineRecord*> tmp; tmp.swap(m_shineByObject); }
+#endif
     // BVH and NavRegions will be overwritten by next load
 
 #if PSXSPLASH_FEATURE_UI
@@ -1820,6 +2148,18 @@ void psxsplash::SceneManager::clearScene() {
     // data, which is about to be freed and reloaded.
     Renderer::GetInstance().SetTileSystem(nullptr);
     m_tileSystem.init();
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // The records and the object list are about to go away.
+    Renderer::GetInstance().SetBackgroundSystem(nullptr);
+    m_backgrounds.init();
+#endif
+
+#if PSXSPLASH_FEATURE_PARTICLES
+    // The emitters point into splashpack data and at the GameObjects: free
+    // the pool with them.
+    Renderer::GetInstance().SetParticleSystem(nullptr);
+    m_particleSystem.unload();
 #endif
 
     // Reset room/portal pointers (they point into splashpack data which is being freed)
@@ -2163,6 +2503,115 @@ void psxsplash::SceneManager::tickAgentStateMachine(uint16_t actorId, AgentRunti
         default:
             // All Lua-driven; C++ does nothing automatic.
             break;
+    }
+}
+#endif
+
+// ============================================================================
+// PERFORMANCE MAP WALK (profiler dev builds, src/perfmap.hh)
+// ============================================================================
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+void psxsplash::SceneManager::perfMapSceneStart(bool isFirstScene) {
+    auto& profiler = debug::Profiler::getInstance();
+    if (m_perfMapWalk.walking()) {
+        // A script changed scene mid-walk: the remaining points belong to the old one.
+        ramsyscall_printf("psxsplash: perf abort %d\n", (int)m_perfMapWalk.point());
+        m_perfMapWalk.stop();
+        profiler.setHidden(false);
+        Renderer::GetInstance().setReportsHeld(false);
+    }
+    if (m_perfMapData) {
+        FileLoader::Get().FreeFile(m_perfMapData);
+        m_perfMapData = nullptr;
+    }
+    if (!isFirstScene) return;
+
+    int size = 0;
+    uint8_t* data = FileLoader::Get().LoadFileSync("perfmap.pos", size);
+    if (!data) return;
+    perfmap::Header h;
+    if (!perfmap::parse(data, size, h)) {
+        ramsyscall_printf("psxsplash: perf badfile %d\n", size);
+        FileLoader::Get().FreeFile(data);
+        return;
+    }
+    // No nav regions means no PSXPlayer: the camera is the scene's own.
+    if (!m_navRegions.isLoaded()) {
+        ramsyscall_printf("psxsplash: perf noplayer\n");
+        FileLoader::Get().FreeFile(data);
+        return;
+    }
+    m_perfMapData = data;
+    m_perfMapSavedFollows = m_cameraFollowsPlayer;
+    m_perfMapSavedFollowActor = m_cameraFollowActor;
+    m_perfMapWalk.begin(h);
+    ramsyscall_printf("psxsplash: perf begin %d %d\n", (int)h.count, (int)h.yawCount);
+    profiler.setHidden(true);
+    Renderer::GetInstance().setReportsHeld(true);
+    perfMapPoseChanged();
+}
+
+void psxsplash::SceneManager::perfMapPoseChanged() {
+    perfmap::Point p = perfmap::pointAt(m_perfMapData, m_perfMapWalk.point());
+    m_perfMapRegion = m_navRegions.findRegionClosest(p.x, p.y, p.z);
+}
+
+// Every frame, so gravity, collision push-back, nav clamping, pad input and
+// Lua cannot move the player or turn the follow camera off the pose. The
+// camera is forced to follow the player: the map is about the player's view,
+// even in a scene whose script turns follow off or follows another actor, or
+// whose cutscene drives the camera.
+void psxsplash::SceneManager::perfMapPin() {
+    if (!m_perfMapWalk.walking()) return;
+    perfmap::Point p = perfmap::pointAt(m_perfMapData, m_perfMapWalk.point());
+    m_playerPosition.x.value = p.x;
+    m_playerPosition.y.value = p.y;
+    m_playerPosition.z.value = p.z;
+    m_playerNavRegion = m_perfMapRegion;  // picks the room the renderer starts from
+    jumpmath::stop(m_vertical);
+    m_isGrounded = true;
+    playerRotationX.value = 0;
+    playerRotationY.value = perfmap::yawRaw(m_perfMapWalk.yaw(), m_perfMapWalk.header().yawCount);
+    playerRotationZ.value = 0;
+    m_cameraFollowsPlayer = true;
+    m_cameraFollowActor = PLAYER_ACTOR_ID;
+#if PSXSPLASH_FEATURE_CUTSCENE
+    // A cutscene with camera tracks (an intro, one a trigger starts) would
+    // put its own camera in the readings; end it as if it had finished.
+    if (cutsceneDrivesCamera()) m_cutscenePlayer.stop();
+#endif
+}
+
+static_assert(psxsplash::perfmap::SECTIONS == psxsplash::debug::PROFILER_SECTION_COUNT, "perfmap section count");
+
+void psxsplash::SceneManager::perfMapFrameEnded() {
+    if (!m_perfMapWalk.walking()) return;
+    auto& profiler = debug::Profiler::getInstance();
+    uint32_t sections[perfmap::SECTIONS];
+    for (int i = 0; i < perfmap::SECTIONS; i++) sections[i] = profiler.sectionTime((debug::ProfilerSection)i);
+    perfmap::Result r;
+    uint16_t point = m_perfMapWalk.point();
+    bool streaming = false;
+#if PSXSPLASH_FEATURE_STREAMING
+    streaming = StreamReader::Get().busy();
+#endif
+    if (!m_perfMapWalk.frameEnded(sections, profiler.totalFrameTime(), profiler.otherTime(), streaming, r)) return;
+    ramsyscall_printf("psxsplash: perf point %d yaw %d total %u max %u render %u anim %u coll %u lua %u ctrl %u nav %u other %u stream %d\n",
+                      (int)r.point, (int)r.yaw, r.total, r.maxTotal, r.section[debug::PROFILER_RENDERING],
+                      r.section[debug::PROFILER_ANIMATION], r.section[debug::PROFILER_COLLISION],
+                      r.section[debug::PROFILER_LUA], r.section[debug::PROFILER_CONTROLS],
+                      r.section[debug::PROFILER_NAVMESH], r.other, (int)r.streamFrames);
+    if (!m_perfMapWalk.walking()) {
+        ramsyscall_printf("psxsplash: perf done %d\n", (int)m_perfMapWalk.header().count);
+        FileLoader::Get().FreeFile(m_perfMapData);
+        m_perfMapData = nullptr;
+        profiler.setHidden(false);
+        Renderer::GetInstance().setReportsHeld(false);
+        m_cameraFollowsPlayer = m_perfMapSavedFollows;
+        m_cameraFollowActor = m_perfMapSavedFollowActor;
+    } else if (m_perfMapWalk.point() != point) {
+        perfMapPoseChanged();
     }
 }
 #endif

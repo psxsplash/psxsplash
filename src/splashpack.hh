@@ -39,10 +39,12 @@ struct SPLASHPACKTriggerBox {
     int32_t minX, minY, minZ;
     int32_t maxX, maxY, maxZ;
     int16_t luaFileIndex;
-    uint16_t padding;
+    uint8_t reverbPreset;  // reverb.hh preset id while the player is inside, 0 = not a reverb zone (was padding)
+    uint8_t padding;
     uint32_t padding2;
 };
 static_assert(sizeof(SPLASHPACKTriggerBox) == 32, "SPLASHPACKTriggerBox must be 32 bytes");
+static_assert(offsetof(SPLASHPACKTriggerBox, reverbPreset) == 26, "reverbPreset is the low byte of the old padding word");
 
 /**
  * Agent configuration stored in the splashpack binary.  Replaces the old
@@ -92,6 +94,17 @@ static_assert(sizeof(SPLASHPACKPointLight) == 28, "SPLASHPACKPointLight must be 
 // Legacy alias kept so any old code that still uses SPLASHPACKAgent compiles.
 using SPLASHPACKAgent = SPLASHPACKAgentV2;
 
+/// One per paletted texture. The words themselves are in the .vram file; clutOffset and pad
+/// carry an optional palette cycling record (palettecycle.hh).
+struct SPLASHPACKClut {
+    uint32_t clutOffset;
+    uint16_t clutPackingX;
+    uint16_t clutPackingY;
+    uint16_t length;
+    uint16_t pad;
+};
+static_assert(sizeof(SPLASHPACKClut) == 12, "SPLASHPACKClut must be 12 bytes");
+
 struct SplashpackSceneSetup {
     int sceneLuaFileIndex;
     eastl::vector<LuaFile *> luaFiles;
@@ -140,6 +153,8 @@ struct SplashpackSceneSetup {
     uint8_t fogR = 0, fogG = 0, fogB = 0;
     uint8_t fogDensity = 5;
     bool edgeFade = false;
+    uint8_t reverbDefault = 0;  // reverb.hh preset id, 0 = off
+    bool cdReverb = false;
     uint16_t fogMaskClut4 = 0, fogMaskClut8 = 0;
 
     const RoomData* rooms = nullptr;
@@ -167,12 +182,19 @@ struct SplashpackSceneSetup {
     int animationCount = 0;
 
 #if PSXSPLASH_FEATURE_SKIN
-    SkinAnimSet loadedSkinAnimSets[MAX_SKINNED_MESHES];
+    /// MAX_SKINNED_MESHES sets to load into, owned by the caller (the
+    /// SceneManager's own array, so no copy of them sits on the stack).
+    SkinAnimSet* loadedSkinAnimSets = nullptr;
 #endif
     int skinnedMeshCount = 0;
 
+    const SPLASHPACKClut* cluts = nullptr;  ///< CLUT table (resident, in the pack)
+    uint16_t clutCount = 0;
+
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
+    /// screenmode.hh VIDEO_MODE_*: 320x240 progressive or 640x480 interlaced.
+    uint8_t  videoMode = 0;
     uint32_t uiTableOffset = 0;
 
     // --- v22 ---
@@ -200,6 +222,18 @@ struct SplashpackSceneSetup {
     /// The shadow table (shadowmath.hh: u16 count, u16 pad, ShadowRecords),
     /// or nullptr when the scene has no shadows.
     const uint8_t* shadowTable = nullptr;
+
+    // --- v29 ---
+    /// Offset to the baked background table (backgroundmath.hh), or 0.
+    uint32_t backgroundTableOffset = 0;
+
+    // --- v30 ---
+    /// The shine table (shinemath.hh), or nullptr when nothing shines.
+    const uint8_t* shineTable = nullptr;
+
+    // --- v32 ---
+    // Particle emitter table (v32+, particlemath.hh), or nullptr.
+    const uint8_t* particleTable = nullptr;
 };
 
 class SplashPackLoader {

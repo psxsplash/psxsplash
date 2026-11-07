@@ -11,10 +11,12 @@
 #include "sio1.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
+#include "particlesystem.hh"
 #include "uisystem.hh"
 #include "networkmanager.hh"
 
 #include "renderer.hh"
+#include "screenfx.hh"
 
 #include <psyqo/atan2.hh>
 #include <psyqo/gte-math.hh>
@@ -42,6 +44,7 @@ AnimationPlayer* LuaAPI::s_animationPlayer = nullptr;
 UISystem* LuaAPI::s_uiSystem = nullptr;
 SpriteSystem* LuaAPI::s_spriteSystem = nullptr;
 TileSystem* LuaAPI::s_tileSystem = nullptr;
+ParticleSystem* LuaAPI::s_particleSystem = nullptr;
 
 // Scale factor: FixedPoint<12> stores 1.0 as raw 4096.
 // Lua scripts work in world-space units (1 = one unit), so we convert.
@@ -64,13 +67,14 @@ static psyqo::Trig<> s_trig;
 // REGISTRATION
 // ============================================================================
 
-void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem, TileSystem* tileSystem) {
+void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cutscenePlayer, AnimationPlayer* animationPlayer, UISystem* uiSystem, SpriteSystem* spriteSystem, TileSystem* tileSystem, ParticleSystem* particleSystem) {
     s_sceneManager = scene;
     s_cutscenePlayer = cutscenePlayer;
     s_animationPlayer = animationPlayer;
     s_uiSystem = uiSystem;
     s_spriteSystem = spriteSystem;
     s_tileSystem = tileSystem;
+    s_particleSystem = particleSystem;
     
     // ========================================================================
     // ACTOR API
@@ -411,6 +415,21 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Input_GetAnalogPlayer2);
     L.setField(-2, "GetAnalogPlayer2");
 
+    // Any player, 1..8: 1 and 2 are ports 1 and 2, 3-5 and 6-8 the multitap
+    // slots B-D of port 1 and port 2.
+    L.push(Input_IsPressed);
+    L.setField(-2, "IsPressed");
+    L.push(Input_IsReleased);
+    L.setField(-2, "IsReleased");
+    L.push(Input_IsHeld);
+    L.setField(-2, "IsHeld");
+    L.push(Input_GetAnalog);
+    L.setField(-2, "GetAnalog");
+    L.push(Input_GetDevice);
+    L.setField(-2, "GetDevice");
+    L.push(Input_GetMouse);
+    L.setField(-2, "GetMouse");
+
     L.push(Input_BindToActor);
     L.setField(-2, "BindToActor");
     L.push(Input_GetBoundActor);
@@ -485,6 +504,34 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "SetH");
     
     L.setGlobal("Camera");
+
+    // ========================================================================
+    // SCREEN API - fades, flash, shake, letterbox and trail
+    // ========================================================================
+    L.newTable();
+
+    L.push(Screen_FadeOut);
+    L.setField(-2, "FadeOut");
+
+    L.push(Screen_FadeIn);
+    L.setField(-2, "FadeIn");
+
+    L.push(Screen_Flash);
+    L.setField(-2, "Flash");
+
+    L.push(Screen_Shake);
+    L.setField(-2, "Shake");
+
+    L.push(Screen_Letterbox);
+    L.setField(-2, "Letterbox");
+
+    L.push(Screen_Trail);
+    L.setField(-2, "Trail");
+
+    L.push(Screen_IsFading);
+    L.setField(-2, "IsFading");
+
+    L.setGlobal("Screen");
     
     // ========================================================================
     // AUDIO API (Placeholder)
@@ -688,6 +735,29 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Cutscene");
 #else
     RegisterCompiledOut(L, "Cutscene", "cutscene");
+#endif
+
+#if PSXSPLASH_FEATURE_MOVIE
+    // ========================================================================
+    // MOVIE API
+    // ========================================================================
+    L.newTable();
+
+    L.push(Movie_Play);
+    L.setField(-2, "Play");
+
+    L.push(Movie_IsPlaying);
+    L.setField(-2, "IsPlaying");
+
+    L.push(Movie_PlayOn);
+    L.setField(-2, "PlayOn");
+
+    L.push(Movie_StopOn);
+    L.setField(-2, "StopOn");
+
+    L.setGlobal("Movie");
+#else
+    RegisterCompiledOut(L, "Movie", "movie");
 #endif
 
 #if PSXSPLASH_FEATURE_CUTSCENE
@@ -905,6 +975,32 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     RegisterCompiledOut(L, "Sprite", "sprites");
 #endif
 
+#if PSXSPLASH_FEATURE_PARTICLES
+    // ========================================================================
+    // PARTICLES API
+    // ========================================================================
+    L.newTable();  // Particles table
+
+    L.push(Particles_Find);
+    L.setField(-2, "Find");
+    L.push(Particles_Play);
+    L.setField(-2, "Play");
+    L.push(Particles_Stop);
+    L.setField(-2, "Stop");
+    L.push(Particles_Clear);
+    L.setField(-2, "Clear");
+    L.push(Particles_Burst);
+    L.setField(-2, "Burst");
+    L.push(Particles_IsPlaying);
+    L.setField(-2, "IsPlaying");
+    L.push(Particles_Count);
+    L.setField(-2, "Count");
+
+    L.setGlobal("Particles");
+#else
+    RegisterCompiledOut(L, "Particles", "particles");
+#endif
+
 #if PSXSPLASH_FEATURE_LIGHTS
     // ========================================================================
     // LIGHT API
@@ -927,6 +1023,24 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Light");
 #else
     RegisterCompiledOut(L, "Light", "lights");
+#endif
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // ========================================================================
+    // BACKGROUND API
+    // ========================================================================
+    L.newTable();  // Background table
+
+    L.push(Background_Show);
+    L.setField(-2, "Show");
+    L.push(Background_Hide);
+    L.setField(-2, "Hide");
+    L.push(Background_Current);
+    L.setField(-2, "Current");
+
+    L.setGlobal("Background");
+#else
+    RegisterCompiledOut(L, "Background", "backgrounds");
 #endif
 
 #if PSXSPLASH_FEATURE_SPRITES
@@ -2031,6 +2145,89 @@ void LuaAPI::RegisterInputConstants(psyqo::Lua& L) {
     
     L.pushNumber(static_cast<lua_Number>(psyqo::AdvancedPad::Button::R3));
     L.setField(-2, "R3");
+
+    // A mouse's buttons, in the bits where a pad has R1 and L1.
+    L.pushNumber(static_cast<lua_Number>(inputmap::MOUSE_LEFT_BIT));
+    L.setField(-2, "MOUSE_LEFT");
+
+    L.pushNumber(static_cast<lua_Number>(inputmap::MOUSE_RIGHT_BIT));
+    L.setField(-2, "MOUSE_RIGHT");
+}
+
+// The Controls of the player number at idx (1..8), or nullptr when there is no
+// scene or it is not a number in range; the getters then answer "nothing held".
+static psxsplash::Controls* InputPlayer(psyqo::Lua& lua, int idx, psxsplash::SceneManager* sm) {
+    if (!sm || !lua.isNumber(idx)) return nullptr;
+    return sm->getControls(static_cast<int>(lua.toNumber(idx)));
+}
+
+int LuaAPI::Input_IsPressed(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->wasButtonPressed(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsReleased(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->wasButtonReleased(button));
+    return 1;
+}
+
+int LuaAPI::Input_IsHeld(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c || !lua.isNumber(2)) {
+        lua.push(false);
+        return 1;
+    }
+    auto button = static_cast<psyqo::AdvancedPad::Button>(static_cast<uint16_t>(lua.toNumber(2)));
+    lua.push(c->isButtonHeld(button));
+    return 1;
+}
+
+int LuaAPI::Input_GetAnalog(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    if (!c) {
+        lua.pushNumber(0);
+        lua.pushNumber(0);
+        return 2;
+    }
+    int stick = lua.isNumber(2) ? static_cast<int>(lua.toNumber(2)) : 0;
+    int16_t x = stick == 1 ? c->getRightStickX() : c->getLeftStickX();
+    int16_t y = stick == 1 ? c->getRightStickY() : c->getLeftStickY();
+    // Same scale as GetAnalogPlayer1: stick range -127..+127 to about -1.0..1.0
+    lua.pushNumber(x * kFixedScale / 127);
+    lua.pushNumber(y * kFixedScale / 127);
+    return 2;
+}
+
+int LuaAPI::Input_GetDevice(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    lua.push(inputmap::deviceName(c ? c->device() : inputmap::Device::None));
+    return 1;
+}
+
+int LuaAPI::Input_GetMouse(lua_State* L) {
+    psyqo::Lua lua(L);
+    Controls* c = InputPlayer(lua, 1, s_sceneManager);
+    // Raw counts, not scaled: the mouse's own units, summed over the frame.
+    lua.pushNumber(c ? c->mouseDeltaX() : 0);
+    lua.pushNumber(c ? c->mouseDeltaY() : 0);
+    return 2;
 }
 
 int LuaAPI::Input_IsPressedPlayer1(lua_State* L) {
@@ -2170,7 +2367,7 @@ int LuaAPI::Input_GetAnalogPlayer2(lua_State* L) {
 
 int LuaAPI::Input_BindToActor(lua_State* L) {
     psyqo::Lua lua(L);
-    // Input.BindToActor(player, actor) - player is 1 or 2. Bind to the player
+    // Input.BindToActor(player, actor) - player is 1..8. Bind to the player
     // actor (Actor.GetPlayer()) to restore default player locomotion.
     int player = static_cast<int>(lua.checkNumber(1)) - 1;
     uint16_t actorId = ReadActorId(lua, 2);
@@ -2204,7 +2401,7 @@ void LuaAPI::IncrementFrameCount() {
 
 #if PSXSPLASH_FEATURE_NET
 // ============================================================================
-// NET API IMPLEMENTATION (serial multiplayer over SIO1)
+// NET API IMPLEMENTATION (multiplayer over a PCDRV TCP socket or SIO1)
 // ============================================================================
 
 int LuaAPI::Net_Connect(lua_State* L) {
@@ -2229,7 +2426,12 @@ int LuaAPI::Net_Connect(lua_State* L) {
     // Host-election entropy: a hardware timer sample that differs per console.
     uint32_t seed = s_sceneManager->getFrameTimestamp() ^ (s_frameCount << 3) ^ SceneManager::m_random.rand();
 
-    // Net.Connect([baud[, rxMode]]).
+    // Net.Connect([baud[, rxMode[, server]]]) or Net.Connect(server).
+    //
+    // server: "host:port" for the PCDRV TCP socket, tried first whenever the host
+    // has networking (psxmon, or PCSX-Redux with -pcdrv -pcdrvnet); default
+    // PcdrvSocket::c_defaultServer, psnl_server's raw port on the same machine.
+    // baud and rxMode configure the SIO1 fallback and mean nothing to the socket.
     //
     // rxMode: 0/nil = Auto (polled under Redux, interrupt on hardware), 1 =
     // Polled, 2 = Interrupt. The override exists because Auto's hardware choice
@@ -2242,13 +2444,17 @@ int LuaAPI::Net_Connect(lua_State* L) {
     // a baud mismatch presents as a completely dead link with no diagnostic. One
     // number, one place.
     const uint32_t baud = lua.isNumber(1) ? static_cast<uint32_t>(lua.toNumber(1)) : Sio1::c_defaultBaud;
+    // isString is also true for a number, so the number test comes first.
+    const char* server = nullptr;
+    if (!lua.isNumber(1) && lua.isString(1)) server = lua.toString(1);
+    else if (!lua.isNumber(3) && lua.isString(3)) server = lua.toString(3);
     Sio1::RxMode rxMode = Sio1::RxMode::Auto;
     if (lua.isNumber(2)) {
         const int m = static_cast<int>(lua.toNumber(2));
         if (m == 1) rxMode = Sio1::RxMode::Polled;
         else if (m == 2) rxMode = Sio1::RxMode::Interrupt;
     }
-    NetworkManager::Get().begin(sceneHash, seed, baud, rxMode);
+    NetworkManager::Get().begin(sceneHash, seed, baud, rxMode, server);
     lua.push(true);
     return 1;
 }
@@ -2287,6 +2493,8 @@ int LuaAPI::Net_State(lua_State* L) {
 /// connecting" - which turned out to be a frozen frame, not a status.
 ///
 /// Reading the table, when the console will not connect:
+///   socket 1              -> the session runs over the PCDRV TCP socket; only
+///                            bytesRx/bytesTx and the frame counters apply
 ///   rxIrqs 0 + bytesRx 0  -> the RX interrupt never fired (event/mask problem)
 ///   bytesRx rising, frames 0 -> bytes arrive but no frame ever completes
 ///   frames rising, still connecting -> handshake rejected; check magic/version
@@ -2322,8 +2530,13 @@ int LuaAPI::Net_Stats(lua_State* L) {
         lua.pushNumber(static_cast<lua_Number>(v));
         lua.setField(-2, name);
     };
-    field("bytesRx", sio.bytesReceived());
-    field("bytesTx", sio.bytesSent());
+    // Over the socket the byte counts are the socket's; everything else in this
+    // table describes SIO1 and stays at rest.
+    const bool socket = NetworkManager::Get().usingSocket();
+    const auto& sock = NetworkManager::Get().socket();
+    field("socket", socket ? 1 : 0);
+    field("bytesRx", socket ? sock.bytesReceived() : sio.bytesReceived());
+    field("bytesTx", socket ? sock.bytesSent() : sio.bytesSent());
     field("rxIrqs", sio.rxInterrupts());
     field("rxOverflows", sio.rxOverflows());
     // Early warning where rxOverflows is a post-mortem: this is how close the ring
@@ -2384,10 +2597,10 @@ int LuaAPI::Net_Stats(lua_State* L) {
     // PAD INITS, and it belongs beside heapKB for exactly the same reason: it is
     // the other thing that used to accumulate until the console died.
     //
-    // MUST READ 2 AND STAY THERE for the whole boot -- one per player, registered
-    // once. It is not a trend line, it is an assertion with a known answer, which
-    // is what makes it readable at a glance on a screen that is the only channel
-    // this machine has.
+    // MUST READ 1 AND STAY THERE for the whole boot -- one AdvancedPad for all
+    // players, registered once. It is not a trend line, it is an assertion with
+    // a known answer, which is what makes it readable at a glance on a screen
+    // that is the only channel this machine has.
     //
     // It used to read 2 x (scene loads). psyqo::AdvancedPad::initialize() appends a
     // readPad() callback to the kernel's per-frame list, nothing can remove one,
@@ -3453,6 +3666,62 @@ int LuaAPI::Camera_SetH(lua_State* L) {
 }
 
 // ============================================================================
+// SCREEN API IMPLEMENTATION
+// ============================================================================
+
+static uint8_t screenByte(psyqo::Lua& lua, int i) {
+    int32_t v = lua.isNumber(i) ? static_cast<int32_t>(lua.toNumber(i)) : 0;
+    return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
+}
+
+static int32_t screenInt(psyqo::Lua& lua, int i) {
+    return lua.isNumber(i) ? static_cast<int32_t>(lua.toNumber(i)) : 0;
+}
+
+int LuaAPI::Screen_FadeOut(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().fadeOut(screenByte(lua, 1), screenByte(lua, 2), screenByte(lua, 3), screenInt(lua, 4));
+    return 0;
+}
+
+int LuaAPI::Screen_FadeIn(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().fadeIn(screenInt(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Screen_Flash(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().startFlash(screenByte(lua, 1), screenByte(lua, 2), screenByte(lua, 3), screenInt(lua, 4));
+    return 0;
+}
+
+int LuaAPI::Screen_Shake(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().startShake(screenInt(lua, 1), screenInt(lua, 2));
+    return 0;
+}
+
+int LuaAPI::Screen_Letterbox(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto& fx = ScreenFx::get();
+    fx.state().startLetterbox(screenInt(lua, 1), screenInt(lua, 2), fx.height());
+    return 0;
+}
+
+int LuaAPI::Screen_Trail(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().trail(screenInt(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Screen_IsFading(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(ScreenFx::get().state().isFading());
+    return 1;
+}
+
+// ============================================================================
 // AUDIO API IMPLEMENTATION
 // ============================================================================
 
@@ -3777,8 +4046,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = ((vx * projH) / vz) + 160;
-    int32_t rawY = ((vy * projH) / vz) + 120;
+    int32_t rawX = ((vx * projH) / vz) + currentScreen().width / 2;
+    int32_t rawY = ((vy * projH) / vz) + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -3822,7 +4091,7 @@ int LuaAPI::Math_Convert3DTo2D(lua_State* L)
     auto& cam = s_sceneManager->getCamera();
     psyqo::Vec3 camPos = cam.GetPosition();
     psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
-    int32_t projH = cam.GetProjectionH();
+    int32_t projH = scaledProjectionH(cam.GetProjectionH(), currentScreen());
 
     int16_t screenX = 0;
     int16_t screenY = 0;
@@ -4215,6 +4484,145 @@ int LuaAPI::MemCard_FreeBlocks(lua_State* L) {
 }
 
 #endif
+#if PSXSPLASH_FEATURE_MOVIE
+// The disc holds MOVIES/<NAME>.STR, so a name is what an ISO 9660 file name can be.
+static bool copyMovieName(const char* name, char* out, size_t size) {
+    size_t i = 0;
+    for (; name[i]; i++) {
+        char c = name[i];
+        if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
+        if (i + 1 >= size || !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return false;
+        out[i] = c;
+    }
+    out[i] = 0;
+    return i > 0;
+}
+
+int LuaAPI::Movie_Play(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    MoviePlayer::Request request;
+    if (!s_sceneManager || !lua.isString(1) || !copyMovieName(lua.toString(1), request.name, sizeof request.name)) {
+        lua.push(false);
+        return 1;
+    }
+
+    // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2,
+    // thenScene=n, rgb24=bool, onComplete=function}
+    bool rgb24Set = false;
+    if (lua.isTable(2)) {
+        lua.getField(2, "skip");
+        if (lua.isBoolean(-1)) request.skippable = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "loop");
+        if (lua.isBoolean(-1)) request.loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "overlay");
+        if (lua.isBoolean(-1)) request.overlay = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(2, "speed");
+        if (lua.isNumber(-1)) request.speed = static_cast<uint8_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "x");
+        if (lua.isNumber(-1)) request.x = static_cast<int16_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "y");
+        if (lua.isNumber(-1)) request.y = static_cast<int16_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "thenScene");
+        if (lua.isNumber(-1)) request.thenScene = static_cast<int>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(2, "rgb24");
+        if (lua.isBoolean(-1)) {
+            request.rgb24 = lua.toBoolean(-1);
+            rgb24Set = true;
+        }
+        lua.pop();
+
+        // A callback needs the scene's Lua, which a then-scene movie frees.
+        lua.getField(2, "onComplete");
+        if (lua.isFunction(-1) && request.thenScene < 0) {
+            request.onComplete = lua.ref();  // pops and stores in registry
+        } else {
+            lua.pop();
+        }
+    }
+
+    // In place the picture has to stay inside the framebuffers: 24 bits would
+    // run over the textures beside them, which the scene still needs.
+    if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
+    if (request.thenScene < 0) request.rgb24 = false;
+    if (request.rgb24 || request.thenScene >= 0) request.overlay = false;  // nothing to lay it over
+    if (request.loop) request.skippable = true;  // no script runs to end it
+
+    const bool queued = s_sceneManager->requestMovie(request);
+    if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+    lua.push(queued);
+    return 1;
+}
+
+int LuaAPI::Movie_IsPlaying(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && s_sceneManager->isMovieBusy());
+    return 1;
+}
+
+int LuaAPI::Movie_PlayOn(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    char name[9];
+    if (!s_sceneManager || !lua.isTable(1) || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+        lua.push(false);
+        return 1;
+    }
+    lua.getField(1, "__cpp_ptr");
+    auto target = lua.toUserdata<GameObject>(-1);
+    lua.pop();
+    if (!target) {
+        lua.push(false);
+        return 1;
+    }
+
+    // Optional third argument: {fps=n, loop=bool, onComplete=function}
+    MovieTexture::Options options;
+    if (lua.isTable(3)) {
+        lua.getField(3, "fps");
+        if (lua.isNumber(-1)) options.fps = static_cast<uint8_t>(lua.toNumber(-1));
+        lua.pop();
+
+        lua.getField(3, "loop");
+        if (lua.isBoolean(-1)) options.loop = lua.toBoolean(-1);
+        lua.pop();
+
+        lua.getField(3, "onComplete");
+        if (lua.isFunction(-1)) {
+            options.onComplete = lua.ref();  // pops and stores in registry
+        } else {
+            lua.pop();
+        }
+    }
+
+    const bool started = s_sceneManager->playMovieOn(name, target, options);
+    if (!started && options.onComplete != MovieTexture::c_noRef) {
+        luaL_unref(L, LUA_REGISTRYINDEX, options.onComplete);
+    }
+    lua.push(started);
+    return 1;
+}
+
+int LuaAPI::Movie_StopOn(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->stopMovieOn();
+    return 0;
+}
+#endif
+
 #if PSXSPLASH_FEATURE_CUTSCENE
 // ============================================================================
 // CUTSCENE API IMPLEMENTATION
@@ -5545,6 +5953,33 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
 
 
 #endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+// ============================================================================
+// BACKGROUND API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Background_Show(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && lua.isString(1) && s_sceneManager->showBackground(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Background_Hide(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->hideBackground();
+    return 0;
+}
+
+int LuaAPI::Background_Current(lua_State* L) {
+    psyqo::Lua lua(L);
+    const char* name = s_sceneManager ? s_sceneManager->currentBackground() : nullptr;
+    if (name)
+        lua.push(name);
+    else
+        lua.push();
+    return 1;
+}
+
+#endif
 #if PSXSPLASH_FEATURE_LIGHTS
 // ============================================================================
 // LIGHT API IMPLEMENTATION
@@ -5621,5 +6056,70 @@ int LuaAPI::Light_SetEnabled(lua_State* L) {
     return 0;
 }
 
+#endif
+
+#if PSXSPLASH_FEATURE_PARTICLES
+// ============================================================================
+// PARTICLES API
+// ============================================================================
+//
+// Emitters are named by their object's name (most have no mesh, so no
+// GameObject to pass), or by the number Find returned. A real Lua string is a
+// name; anything else is read as a number: lua_isstring is true for numbers
+// too, which is what made Sprite.Create(1) look for a sheet named "1".
+
+static int particleEmitterArg(psyqo::Lua& lua, ParticleSystem* ps) {
+    if (!ps) return -1;
+    if (lua.type(1) == LUA_TSTRING) return ps->find(lua.toString(1));
+    if (lua.isNumber(1)) return static_cast<int>(lua.toNumber(1));
+    return -1;
+}
+
+int LuaAPI::Particles_Find(lua_State* L) {
+    psyqo::Lua lua(L);
+    const int i = (s_particleSystem && lua.type(1) == LUA_TSTRING) ? s_particleSystem->find(lua.toString(1)) : -1;
+    if (i < 0) lua.push();
+    else lua.pushNumber(i);
+    return 1;
+}
+
+int LuaAPI::Particles_Play(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_particleSystem) s_particleSystem->play(particleEmitterArg(lua, s_particleSystem));
+    return 0;
+}
+
+int LuaAPI::Particles_Stop(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_particleSystem) s_particleSystem->stop(particleEmitterArg(lua, s_particleSystem));
+    return 0;
+}
+
+int LuaAPI::Particles_Clear(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (s_particleSystem) s_particleSystem->clear(particleEmitterArg(lua, s_particleSystem));
+    return 0;
+}
+
+int LuaAPI::Particles_Burst(lua_State* L) {
+    psyqo::Lua lua(L);
+    if (!s_particleSystem) return 0;
+    const int i = particleEmitterArg(lua, s_particleSystem);
+    const int n = lua.isNumber(2) ? static_cast<int>(lua.toNumber(2)) : 0;
+    if (n > 0) s_particleSystem->burst(i, static_cast<uint32_t>(n));
+    return 0;
+}
+
+int LuaAPI::Particles_IsPlaying(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_particleSystem && s_particleSystem->isPlaying(particleEmitterArg(lua, s_particleSystem)));
+    return 1;
+}
+
+int LuaAPI::Particles_Count(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(s_particleSystem ? s_particleSystem->liveParticles(particleEmitterArg(lua, s_particleSystem)) : 0);
+    return 1;
+}
 #endif
 }  // namespace psxsplash
