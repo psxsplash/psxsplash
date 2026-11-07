@@ -14,7 +14,13 @@ their last frame, under frames slow enough that a tick never lands on that frame
 
     tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
 
-A third, `fixture-movie/`, needs a cdrom build, since movies are disc-only. `mkdisc.py` puts the scene and two
+A third, `fixture-particles/`, has two particle emitters (splashpack v32): its scene script finds
+them by name, checks which one autoplays and bursts the other; the crate's script stops the playing
+one from Lua at update 240 and passes once its particles have all lived out their lifetime:
+
+    tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-particles 'BOOT OK: particles'
+
+A fourth, `fixture-movie/`, needs a cdrom build, since movies are disc-only. `mkdisc.py` puts the scene and two
 clips on a Mode 2 disc (ISO9660, Form 1 sectors with their EDC and ECC, a `.STR` copied sector for sector so its
 audio stays Form 2), and `BOOT_ISO` boots it in place of PCdrv. The script plays `CLIP` with `Movie.Play`, then
 `TV` on a crate with `Movie.PlayOn`; the check also greps the engine's own count for each, so a player that runs and
@@ -48,5 +54,7 @@ reading the committed version (the job then fails with the engine's own version 
     build/cli/splashpack-cli export tests/boot/scene/boot.scene -o tests/boot/fixture/scene_0.splashpack
 
     build/cli/splashpack-cli export tests/boot/scene/cutscene.scene -o tests/boot/fixture-cutscene/scene_0.splashpack
+
+    build/cli/splashpack-cli export tests/boot/scene/particles.scene -o tests/boot/fixture-particles/scene_0.splashpack
 
 The export writes `scene_0.vram` and `scene_0.spu` beside the `.splashpack`. Commit all three.

@@ -16,10 +16,12 @@
 #include "collision.hh"
 #include "controls.hh"
 #include "gameobject.hh"
+#include "shinemath.hh"
 #include "lua.h"
 #include "splashpack.hh"
 #include "navregion.hh"
 #include "audiomanager.hh"
+#include "reverb.hh"
 #include "musicmanager.hh"
 #include "worldstreamer.hh"
 #include "interactable.hh"
@@ -29,10 +31,16 @@
 #include "animation.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#include "perfmap.hh"
+#endif
 #include "tilesystem.hh"
+#include "backgroundsystem.hh"
+#include "particlesystem.hh"
 #include "uisystem.hh"
 #include "movieplayer.hh"
 #include "movietexture.hh"
+#include "palettecycler.hh"
 #ifdef PSXSPLASH_MEMOVERLAY
 #include "memoverlay.hh"
 #endif
@@ -476,6 +484,10 @@ namespace psxsplash {
 #endif
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
+        // Player 1..8 (inputmap::slotForPlayer), nullptr for anything else.
+        Controls* getControls(int player) {
+            return (player >= 1 && player <= inputmap::MAX_PLAYERS) ? &m_controls[player - 1] : nullptr;
+        }
         Camera& getCamera() { return m_currentCamera; }
         Lua& getLua() { return L; }
         AudioManager& getAudio() { return m_audio; }
@@ -488,15 +500,17 @@ namespace psxsplash {
         void setControlsEnabledPlayer2(bool enabled) { m_controlsEnabled[1] = enabled; }
         bool isControlsEnabledPlayer2() const { return m_controlsEnabled[1]; }
 
-        // Actor-parented input: bind a controller (player 0/1) to any actor.
-        // Default is the player actor, so binding to PLAYER_ACTOR_ID reproduces
-        // the classic behaviour (full locomotion: gravity/jump/nav). Binding to
-        // another actor drives that actor's transform directly.
+        // Actor-parented input: bind a controller (player 0..7) to any actor.
+        // Players 0 and 1 default to the player actor, so binding to
+        // PLAYER_ACTOR_ID reproduces the classic behaviour (full locomotion:
+        // gravity/jump/nav). Binding to another actor drives that actor's
+        // transform directly. Players 2..7 (multitap slots) drive nothing until
+        // bound (0xFFFF, no actor).
         void setControlBoundActor(int player, uint16_t actorId) {
-            if (player >= 0 && player < 2) m_controlBoundActor[player] = actorId;
+            if (player >= 0 && player < inputmap::MAX_PLAYERS) m_controlBoundActor[player] = actorId;
         }
         uint16_t getControlBoundActor(int player) const {
-            return (player >= 0 && player < 2) ? m_controlBoundActor[player] : PLAYER_ACTOR_ID;
+            return (player >= 0 && player < inputmap::MAX_PLAYERS) ? m_controlBoundActor[player] : PLAYER_ACTOR_ID;
         }
 
         // enable/disable (Lua-driven)
@@ -508,6 +522,15 @@ namespace psxsplash {
             }
         }
         uint16_t getCameraFollowActor() const { return m_cameraFollowActor; }
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        // Baked backgrounds (Background.* in Lua). Showing one puts the camera
+        // at its pose and stops the camera following; hiding it restores the
+        // follow and H as they were before the first Show.
+        bool showBackground(const char* name);
+        void hideBackground();
+        const char* currentBackground() const { return m_backgrounds.name(m_backgrounds.current()); }
+#endif
 
         // Interactable access (for Lua API)
         Interactable* getInteractable(uint16_t index) {
@@ -552,6 +575,8 @@ namespace psxsplash {
         void fireMovieComplete(int ref, const char* result);
         MoviePlayer m_movie;
         MovieTexture m_movieTexture;
+        // The scene's video mode while a movie plays in its place at 320x240.
+        uint8_t m_movieSceneVideoMode = VIDEO_MODE_320x240;
 #endif
 #if defined(LOADER_CDROM)
         void settleDrive(psyqo::GPU& gpu);
@@ -562,6 +587,23 @@ namespace psxsplash {
         // frames and a change reloads the current scene, keeping the player
         // where they stand. Absent at boot, nothing is ever polled.
         void pollHotReload();
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+        // Performance map walk (src/perfmap.hh): with "perfmap.pos" beside the
+        // first scene, pins the player to each point and yaw in turn and prints
+        // the profiler's readings per pose.
+        void perfMapSceneStart(bool isFirstScene);
+        void perfMapPin();
+        void perfMapFrameEnded();
+        void perfMapPoseChanged();
+        uint8_t* m_perfMapData = nullptr;
+        perfmap::Walk m_perfMapWalk;
+        uint16_t m_perfMapRegion = NAV_NO_REGION;
+        // The scene's camera follow state at the start of the walk, which
+        // forces it to the player; put back after "perf done".
+        bool m_perfMapSavedFollows = true;
+        uint16_t m_perfMapSavedFollowActor = PLAYER_ACTOR_ID;
+#endif
 
         static Random m_random;
         static Random m_randomGenerator;
@@ -606,6 +648,12 @@ namespace psxsplash {
 
         // Audio system
         AudioManager m_audio;
+        ReverbSystem m_reverb;
+        // The room the player starts in, as GameTick would pick it on the first
+        // frame (nav region's room, else the smallest room around the player).
+        int startRoom() const;
+        // The player's body box: what collisions, triggers and reverb zones test.
+        AABB playerBox() const;
         MusicManager m_music;
 #if PSXSPLASH_FEATURE_STREAMING
         WorldStreamer m_worldStreamer;
@@ -635,6 +683,15 @@ namespace psxsplash {
         SpriteSystem m_spriteSystem;
         TileSystem m_tileSystem;
 #endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        BackgroundSystem m_backgrounds;
+        bool m_bgFollowWas = false;
+        int32_t m_bgHWas = 0;
+        bool showBackgroundIndex(int i);
+#endif
+#if PSXSPLASH_FEATURE_PARTICLES
+        ParticleSystem m_particleSystem;
+#endif
         uint32_t m_authoredSceneHash = 0;
 
 #if PSXSPLASH_FEATURE_LIGHTS
@@ -646,11 +703,16 @@ namespace psxsplash {
         ShadowRecord m_shadows[MAX_SCENE_SHADOWS];
         int m_shadowCount = 0;
 #endif
+#if PSXSPLASH_FEATURE_SHINE
+        // Shine record of each object by object index, nullptr for the dull
+        // ones; the records live in splashpack data.
+        eastl::vector<const ShineRecord*> m_shineByObject;
+#endif
 #ifdef PSXSPLASH_MEMOVERLAY
         MemOverlay m_memOverlay;
 #endif
 
-        psxsplash::Controls m_controls[2];
+        psxsplash::Controls m_controls[inputmap::MAX_PLAYERS];  // m_controls[i] reads player i + 1
 
         psxsplash::Camera m_currentCamera;
 
@@ -673,7 +735,11 @@ namespace psxsplash {
 
         bool freecam = false;
         bool m_controlsEnabled[2] = { true, true };    // Lua can disable all player input
-        uint16_t m_controlBoundActor[2] = { PLAYER_ACTOR_ID, PLAYER_ACTOR_ID }; // actor each controller drives
+        // actor each controller drives
+        uint16_t m_controlBoundActor[inputmap::MAX_PLAYERS] = {
+            PLAYER_ACTOR_ID, PLAYER_ACTOR_ID, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+        // Whether any enabled controller drives the player actor.
+        bool playerDrivenByController() const;
         bool m_cameraFollowsPlayer = true; // False when scene has no nav regions (freecam/cutscene mode)
         uint16_t m_cameraFollowActor = PLAYER_ACTOR_ID; // Which actor the camera follows (default: player)
 
@@ -693,6 +759,8 @@ namespace psxsplash {
         // Reads reload.flag into `tag`; false when it does not exist.
         bool readHotReloadTag(uint8_t* tag, uint8_t& len);
         uint8_t* m_currentSceneData = nullptr; // Owned pointer to loaded splashpack data
+        uint32_t m_currentSceneSize = 0;        // Its size in bytes, for bounds checks
+        PaletteCycler m_paletteCycler;
 
         // ---- Agent runtime (native AI: pathing, perception, state machine) ----
         static constexpr uint8_t AGENT_FLAG_REGISTERED    = 0x01;
