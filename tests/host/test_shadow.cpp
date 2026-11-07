@@ -33,6 +33,19 @@ TEST(header_size_per_version) {
     CHECK_EQ(kSplashpackHeaderSizeV30 - kSplashpackHeaderSizeV29, 4);
 }
 
+TEST(version_gate) {
+    CHECK(!splashpackVersionSupported(19));
+    CHECK(splashpackVersionSupported(20));
+    // Every format the loader has a reader for (v30 shine is the newest).
+    CHECK(splashpackVersionSupported(30));
+    CHECK_EQ(kSplashpackNewestVersion, 30);
+    CHECK_EQ(PSXSPLASH_SPLASHPACK_NEWEST, kSplashpackNewestVersion);
+    // A pack from a newer editor is refused, not parsed with this header.
+    CHECK(!splashpackVersionSupported(kSplashpackNewestVersion + 1));
+    CHECK(!splashpackVersionSupported(0xFFFF));
+    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV30);
+}
+
 namespace {
 void putRecord(uint8_t* p, uint16_t obj, uint8_t mode, uint8_t dark, uint16_t size, uint16_t fade) {
     p[0] = obj & 0xFF; p[1] = obj >> 8;
