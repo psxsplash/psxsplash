@@ -173,6 +173,8 @@ struct SplashpackSceneSetup {
 
     uint16_t uiCanvasCount = 0;
     uint8_t  uiFontCount = 0;
+    /// screenmode.hh VIDEO_MODE_*: 320x240 progressive or 640x480 interlaced.
+    uint8_t  videoMode = 0;
     uint32_t uiTableOffset = 0;
 
     // --- v22 ---

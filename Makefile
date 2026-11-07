@@ -6,6 +6,7 @@ src/main.cpp \
 src/renderer.cpp \
 src/splashpack.cpp \
 src/camera.cpp \
+src/screenmode.cpp \
 src/worldcollision.cpp \
 src/navregion.cpp \
 src/random.cpp\
