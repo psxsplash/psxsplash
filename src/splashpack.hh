@@ -200,6 +200,10 @@ struct SplashpackSceneSetup {
     /// The shadow table (shadowmath.hh: u16 count, u16 pad, ShadowRecords),
     /// or nullptr when the scene has no shadows.
     const uint8_t* shadowTable = nullptr;
+
+    // --- v29 ---
+    /// Offset to the baked background table (backgroundmath.hh), or 0.
+    uint32_t backgroundTableOffset = 0;
 };
 
 class SplashPackLoader {
