@@ -727,8 +727,12 @@ private:
     // CUTSCENE API - Cutscene playback control
     // ========================================================================
     
-    // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, behind=element, onComplete=fn(result, shown, dropped), thenScene=n, rgb24=bool}) -> queued
+    // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, behind=element, onComplete=fn(result, shown, dropped), onUpdate=fn(frame), thenScene=n, rgb24=bool}) -> queued
+    // With thenScene, onComplete and onUpdate are not called: the scene and its script are freed as the movie starts, to make room for it.
     static int Movie_Play(lua_State* L);
+
+    // Movie.Stop() -> stopped
+    static int Movie_Stop(lua_State* L);
 
     // Movie.IsPlaying() -> boolean
     static int Movie_IsPlaying(lua_State* L);
