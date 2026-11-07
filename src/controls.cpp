@@ -316,6 +316,15 @@ void psxsplash::Controls::UpdateButtonStates() {
     if (d != inputmap::Device::Mouse) m_mouseDX = m_mouseDY = 0;
 }
 
+void psxsplash::Controls::SettleButtons() {
+    m_currentButtons = m_previousButtons = liveButtons();
+    m_buttonsPressed = m_buttonsReleased = 0;
+    // Mouse motion summed while the game did not tick is no motion now either.
+    int32_t dx, dy;
+    s_mouseMotion[static_cast<unsigned>(m_pad)].latch(dx, dy);
+    m_mouseDX = m_mouseDY = 0;
+}
+
 void psxsplash::Controls::updateSticks(inputmap::Device d) {
     int16_t rightXOffset = 0, rightYOffset = 0, leftXOffset = 0, leftYOffset = 0;
 

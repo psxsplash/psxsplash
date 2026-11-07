@@ -92,6 +92,10 @@ class Controls {
     /// two UpdateButtonStates calls, summed. 0, 0 unless the device is a mouse.
     int32_t mouseDeltaX() const { return m_mouseDX; }
     int32_t mouseDeltaY() const { return m_mouseDY; }
+
+    /// Take the pad's live state as already seen, so a button held through a pause in the
+    /// game's tick (a full-screen movie) is no press when the game runs again.
+    void SettleButtons();
     
     /// Set movement speeds from splashpack data (call once after scene load)
     void setMoveSpeed(psyqo::FixedPoint<12, uint16_t> speed) { m_moveSpeed.value = speed.value; }
