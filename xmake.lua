@@ -93,7 +93,7 @@ for _, variant in ipairs(variants) do
         add_files("src/renderer.cpp", {cxflags = "-O2", force = {cxflags = "-O2"}})
         add_files("src/main.cpp", "src/screenfx.cpp", "src/palettecycler.cpp", "src/splashpack.cpp", "src/camera.cpp", "src/screenmode.cpp",
                   "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
-                  "src/lua.cpp", "src/luaapi.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
+                  "src/lua.cpp", "src/luaapi.cpp", "src/luadebug.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
                   "src/audiomanager.cpp", "src/reverb.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",
                   "src/memoverlay.cpp", "src/musicmanager.cpp", "src/loadbuffer_patch.cpp")
 

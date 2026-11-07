@@ -9,6 +9,7 @@
 #include "splashpack.hh"
 #include "streq.hh"
 #include "luaapi.hh"
+#include "luadebug.hh"
 #include "loadingscreen.hh"
 #include "gtemath.hh"
 #include "networkmanager.hh"
@@ -117,6 +118,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
     LuaAPI::RegisterAll(L.getState(), this, cutscenePlayer, animationPlayer, uiSystem, spriteSystem,
                         tileSystem, particleSystem);
+    // Breakpoints, when an editor asked for them, from the scripts' first line on.
+    LuaDebugger::Get().attach(L.getState().getState());
 
 #ifdef PSXSPLASH_PROFILER
     debug::Profiler::getInstance().initialize(s_font);
@@ -1032,6 +1035,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // Process pending scene transitions (at end of frame). A movie goes first:
     // Movie.Play then Scene.Load in one frame means the movie, then the scene.
     pollHotReload();
+    LuaDebugger::Get().poll();
 #if PSXSPLASH_FEATURE_MOVIE
     if (!m_movie.pending())
 #endif
