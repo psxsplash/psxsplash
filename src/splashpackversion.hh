@@ -19,7 +19,18 @@ static constexpr uint32_t kSplashpackHeaderSizeV28 = 160;  // + shadowTableOffse
 static constexpr uint32_t kSplashpackHeaderSizeV29 = 164;  // + backgroundTableOffset
 static constexpr uint32_t kSplashpackHeaderSizeV30 = 168;  // + shineTableOffset
 
-inline uint32_t splashpackHeaderSize(uint16_t version) {
+// The oldest and newest formats this engine reads. A newer pack has fields
+// this engine does not know where to find, so it is refused rather than
+// parsed as if it were the newest one. Bump the newest with the format.
+static constexpr uint16_t kSplashpackOldestVersion = 20;
+#define PSXSPLASH_SPLASHPACK_NEWEST 30
+static constexpr uint16_t kSplashpackNewestVersion = PSXSPLASH_SPLASHPACK_NEWEST;
+
+constexpr bool splashpackVersionSupported(uint16_t version) {
+    return version >= kSplashpackOldestVersion && version <= kSplashpackNewestVersion;
+}
+
+constexpr uint32_t splashpackHeaderSize(uint16_t version) {
     if (version >= 30) return kSplashpackHeaderSizeV30;
     if (version >= 29) return kSplashpackHeaderSizeV29;
     if (version >= 28) return kSplashpackHeaderSizeV28;
