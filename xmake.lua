@@ -12,7 +12,7 @@ local all_features = {"bootlogo", "net", "ui", "sprites", "skin", "cutscene", "l
                       "particles", "movie"}
 local feature_srcs = {
     bootlogo = {"src/bootlogo.cpp"},
-    net = {"src/sio1.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
+    net = {"src/sio1.cpp", "src/pcdrvsocket.cpp", "src/netlink.cpp", "src/nettest.cpp", "src/networkmanager.cpp",
            "src/luatableserializer.cpp"},
     ui = {"src/uisystem.cpp", "src/loadingscreen.cpp"},
     sprites = {"src/spritesystem.cpp", "src/spritemath.cpp", "src/tilesystem.cpp", "src/tilemath.cpp"},

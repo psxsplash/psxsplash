@@ -4,6 +4,7 @@
 
 #include "netlink.hh"
 #include "netprotocol.hh"
+#include "pcdrvsocket.hh"
 #include "sio1.hh"
 
 namespace psxsplash {
@@ -11,7 +12,11 @@ namespace psxsplash {
 class SceneManager;
 
 /**
- * NetworkManager - session, ownership, and actor-state replication over SIO1.
+ * NetworkManager - session, ownership, and actor-state replication.
+ *
+ * The bytes travel over one of two transports, chosen in begin(): a TCP socket
+ * through the PCDRV socket contract (psxmon, or PCSX-Redux with -pcdrvnet) when
+ * the host offers one, otherwise SIO1. Everything below is the same either way.
  *
  * Sits above NetLink (framing/reliability) and drives the replication model on
  * top of the actor system:
@@ -52,15 +57,21 @@ class NetworkManager final : public net::NetLinkHandler {
 
     static NetworkManager& Get();
 
-    // Start a session over SIO1. `sceneHash` identifies the loaded scene (both
-    // ends must match). `seed` seeds the host-election tiebreak. `rxMode`
+    // Start a session. `sceneHash` identifies the loaded scene (both ends must
+    // match). `seed` seeds the host-election tiebreak.
+    //
+    // Transport: if the PCDRV host has networking, connect a TCP socket to
+    // `server` ("host:port", default PcdrvSocket::c_defaultServer) and run the
+    // session over it; a socket already open from an earlier begin() is kept, so
+    // a scene change does not reconnect. Otherwise SIO1, configured by `baud` and
+    // `rxMode`, which the socket ignores. `rxMode`
     // defaults to Auto, which picks the correct strategy for the emulator vs
     // real hardware on its own - see sio1.hh before overriding it.
     // The baud default comes from Sio1, never a literal. A second copy of this
     // number in the Lua binding is what made changing it move the bridge and not
     // the console, and a baud mismatch presents as an unplugged cable.
     void begin(uint32_t sceneHash, uint32_t seed, uint32_t baud = Sio1::c_defaultBaud,
-               Sio1::RxMode rxMode = Sio1::RxMode::Auto);
+               Sio1::RxMode rxMode = Sio1::RxMode::Auto, const char* server = nullptr);
     void end();
 
     // Drop everything: session (slot, handshake, link) AND scene bindings.
@@ -156,6 +167,9 @@ class NetworkManager final : public net::NetLinkHandler {
     uint8_t localSlot() const { return m_localSlot; }
     uint8_t playerCount() const { return m_playerCount; }
     const net::NetLink& link() const { return m_link; }
+    /// True while the session runs over the PCDRV TCP socket rather than SIO1.
+    bool usingSocket() const { return &m_link.transport() == &m_socket; }
+    const PcdrvSocket& socket() const { return m_socket; }
 
     // --- net::NetLinkHandler ---
     void onHello(const net::HelloPayload& hello, uint8_t srcSlot) override;
@@ -177,6 +191,7 @@ class NetworkManager final : public net::NetLinkHandler {
     /// Called once per frame, unlike the snapshots that feed it.
     void interpolateRemotes(SceneManager& sm, int32_t dt12);
 
+    PcdrvSocket m_socket;
     net::NetLink m_link;
     State m_state = State::Disconnected;
     bool m_isHost = false;
