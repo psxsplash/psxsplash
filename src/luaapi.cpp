@@ -929,6 +929,24 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     RegisterCompiledOut(L, "Light", "lights");
 #endif
 
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // ========================================================================
+    // BACKGROUND API
+    // ========================================================================
+    L.newTable();  // Background table
+
+    L.push(Background_Show);
+    L.setField(-2, "Show");
+    L.push(Background_Hide);
+    L.setField(-2, "Hide");
+    L.push(Background_Current);
+    L.setField(-2, "Current");
+
+    L.setGlobal("Background");
+#else
+    RegisterCompiledOut(L, "Background", "backgrounds");
+#endif
+
 #if PSXSPLASH_FEATURE_SPRITES
     // ========================================================================
     // TILE API
@@ -3777,8 +3795,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = ((vx * projH) / vz) + 160;
-    int32_t rawY = ((vy * projH) / vz) + 120;
+    int32_t rawX = ((vx * projH) / vz) + currentScreen().width / 2;
+    int32_t rawY = ((vy * projH) / vz) + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -3822,7 +3840,7 @@ int LuaAPI::Math_Convert3DTo2D(lua_State* L)
     auto& cam = s_sceneManager->getCamera();
     psyqo::Vec3 camPos = cam.GetPosition();
     psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
-    int32_t projH = cam.GetProjectionH();
+    int32_t projH = scaledProjectionH(cam.GetProjectionH(), currentScreen());
 
     int16_t screenX = 0;
     int16_t screenY = 0;
@@ -5538,6 +5556,33 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
     return 4;
 }
 
+
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+// ============================================================================
+// BACKGROUND API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Background_Show(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && lua.isString(1) && s_sceneManager->showBackground(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Background_Hide(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->hideBackground();
+    return 0;
+}
+
+int LuaAPI::Background_Current(lua_State* L) {
+    psyqo::Lua lua(L);
+    const char* name = s_sceneManager ? s_sceneManager->currentBackground() : nullptr;
+    if (name)
+        lua.push(name);
+    else
+        lua.push();
+    return 1;
+}
 
 #endif
 #if PSXSPLASH_FEATURE_LIGHTS
