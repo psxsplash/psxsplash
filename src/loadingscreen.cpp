@@ -23,7 +23,7 @@ bool LoadingScreen::load(psyqo::GPU& gpu, psyqo::Font<>& systemFont, int sceneIn
     char filename[32];
     FileLoader::BuildLoadingFilename(sceneIndex, filename, sizeof(filename));
     int fileSize = 0;
-    uint8_t* data = FileLoader::Get().LoadFileSync(filename, fileSize);
+    uint8_t* data = FileLoader::Get().LoadFileSyncIfThere(filename, fileSize);   // most scenes have none
     if (!data || fileSize < (int)sizeof(LoaderPackHeader)) {
         if (data) FileLoader::Get().FreeFile(data);
         return false;

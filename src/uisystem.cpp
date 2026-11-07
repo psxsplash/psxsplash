@@ -122,6 +122,7 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
             uint8_t eFlags = *elemPtr++;
             el.visible = (eFlags & 0x01) != 0;
             el.blend   = uiblend::fromFlags(eFlags);
+            el.behindScene = false;
             uint8_t eNameLen = *elemPtr++;
             elemPtr++; // pad0
             uint32_t eNameOff = *reinterpret_cast<uint32_t*>(elemPtr); elemPtr += 4;
@@ -383,6 +384,7 @@ void UISystem::renderElement(UIElement& el,
         const UIImageData& img = el.image;
         psyqo::PrimPieces::TPageAttr tpage = makeTPage(img);
         psyqo::PrimPieces::ClutIndex clut(img.clutX, img.clutY);
+        const int32_t z = el.behindScene ? int32_t(ot.size()) - 1 : 0;  // the far end of the table
         psyqo::Color tint = {.r = el.colorR, .g = el.colorG, .b = el.colorB};
 
         // u1/v1 are the LAST texel (inclusive). The GPU never fills a polygon's
@@ -401,12 +403,12 @@ void UISystem::renderElement(UIElement& el,
             texInfo.v = img.v0;
             texInfo.clut = clut;
             spr.primitive.texInfo = texInfo;
-            ot.insert(spr, 0);
+            ot.insert(spr, z);
             // A sprite takes its texpage from draw mode. The OT is LIFO, so the
             // TPage inserted after the sprite runs before it.
             auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
             tp.primitive.attr = tpage;
-            ot.insert(tp, 0);
+            ot.insert(tp, z);
             break;
         }
 
@@ -433,7 +435,7 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.setColorB(tint);
             tri.primitive.setColorC(tint);
             tri.primitive.setOpaque();
-            ot.insert(tri, 0);
+            ot.insert(tri, z);
         }
         // Triangle 1: top-right, bottom-right, bottom-left
         {
@@ -450,7 +452,7 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.setColorB(tint);
             tri.primitive.setColorC(tint);
             tri.primitive.setOpaque();
-            ot.insert(tri, 0);
+            ot.insert(tri, z);
         }
         break;
     }
@@ -855,6 +857,10 @@ void UISystem::getProgressBgColor(int handle, uint8_t& r, uint8_t& g, uint8_t& b
 
 int UISystem::getCanvasCount() const {
     return m_canvasCount;
+}
+
+void UISystem::setBehindScene(int handle, bool behind) {
+    if (handle >= 0 && handle < m_elementCount) m_elements[handle].behindScene = behind;
 }
 
 const UIImageData* UISystem::getImageData(int handle) const {

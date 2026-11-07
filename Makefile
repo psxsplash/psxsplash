@@ -31,7 +31,7 @@ src/loadbuffer_patch.cpp
 #                comma separated. Unset builds all of them. SplashEdit passes
 #                the set the exported scenes use, e.g. FEATURES=ui,collision,nav.
 #                FEATURES= or FEATURES=none builds the smallest engine.
-ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows backgrounds shine particles
+ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows backgrounds shine particles movie
 ifeq ($(origin FEATURES),undefined)
 FEATURES := $(ALL_FEATURES)
 endif
@@ -59,6 +59,7 @@ FEATURE_SRCS_streaming = src/streamreader.cpp src/streamselftest.cpp src/worldst
 FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
 FEATURE_SRCS_shadows = src/shadowrender.cpp
+FEATURE_SRCS_movie = src/movieplayer.cpp src/movietexture.cpp src/srt.cpp
 FEATURE_SRCS_backgrounds = src/backgroundsystem.cpp src/backgroundmath.cpp
 FEATURE_SRCS_particles = src/particlesystem.cpp
 
@@ -138,6 +139,15 @@ endif
 include third_party/nugget/psyqo-lua/psyqo-lua.mk
 include third_party/nugget/psyqo/psyqo.mk
 
+# Movies stream off the drive, so only a disc build links the player. Its
+# library comes first: it calls into psyqo, and the linker reads them in order.
+ifeq ($(LOADER),cdrom)
+ifneq ($(filter movie,$(FEATURES)),)
+include third_party/nugget/psyqo-paths/psyqo-paths.mk
+LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-paths.a,$(LIBRARIES))
+$(BINDIR)$(TARGET).elf: $(PSYQOPATHSDIR)libpsyqo-paths.a
+endif
+endif
 # The renderer's per-triangle code runs faster at -O2 than at -Os on a real
 # PS1 (about 15% less render time on a courtyard walk), for 13 KB of code.
 src/renderer.o: CPPFLAGS += -O2
