@@ -40,6 +40,7 @@ FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 SHINE_BIN  := $(BUILD)/shine_tests
 JUMP_BIN   := $(BUILD)/jump_tests
+SCREENFX_BIN := $(BUILD)/screenfx_tests
 DECAL_BIN  := $(BUILD)/decal_tests
 REVERB_BIN := $(BUILD)/reverb_tests
 GEN_BIN    := $(BUILD)/gen_vectors
@@ -87,6 +88,9 @@ $(SHINE_BIN): test_shine.cpp testing.hh compat.hh $(SRC_DIR)/shinemath.hh | $(BU
 $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_jump.cpp
 
+# screenfxmath.hh is header-only.
+$(SCREENFX_BIN): test_screenfx.cpp testing.hh compat.hh $(SRC_DIR)/screenfxmath.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_screenfx.cpp
 # reverb.hh is header-only for everything tested here (reverb.cpp is the SPU side).
 $(REVERB_BIN): test_reverb.cpp testing.hh compat.hh $(SRC_DIR)/reverb.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_reverb.cpp
@@ -94,7 +98,7 @@ $(REVERB_BIN): test_reverb.cpp testing.hh compat.hh $(SRC_DIR)/reverb.hh | $(BUI
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -119,6 +123,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(SHINE_BIN)
 	@echo "== jump =="
 	@$(JUMP_BIN)
+	@echo "== screenfx =="
+	@$(SCREENFX_BIN)
 	@echo "== decal =="
 	@$(DECAL_BIN)
 	@echo "== reverb =="
