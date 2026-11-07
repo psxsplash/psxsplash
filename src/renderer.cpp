@@ -52,6 +52,61 @@ using namespace psyqo::GTE;
 
 psxsplash::Renderer* psxsplash::Renderer::instance = nullptr;
 
+// Found by a debugger scanning RAM for its magic; layout in capturetag.hh.
+// Used so that it stays in the image even if nothing read it.
+__attribute__((used, aligned(4))) volatile psxsplash::CaptureTagControl psxsplash::g_captureTag = {
+    {'P', 'S', 'X', 'S', 'P', 'T', 'A', 'G'}, 1, 0, 0, 0};
+
+void psxsplash::Renderer::beginCaptureTags() {
+    m_tagOn = g_captureTag.enabled != 0;
+    m_tagCount = m_tagSkipped = 0;
+}
+
+void psxsplash::Renderer::endCaptureTags() {
+    if (!m_tagOn) return;
+    g_captureTag.tagged = m_tagCount;
+    g_captureTag.skipped = m_tagSkipped;
+}
+
+// The tag words go right after the fragment, in the same DMA packet: frag was
+// the last fragment allocated, so the next bump allocation is contiguous with
+// it, and its header's word count grows by 2. Tagging stops for a primitive
+// whenever less than a quarter of the bump allocator would be left: the
+// frame's remaining primitives keep at least that (twice the reserve under
+// which splitTriangle refuses), and the frame never asserts or overruns for a
+// tag. Such primitives are drawn untagged and counted in g_captureTag.skipped.
+void psxsplash::Renderer::appendCaptureTag(psyqo::Fragments::ChainEntry& frag, unsigned fragBytes, const Tri& tri,
+                                           int32_t zIndex, unsigned kind, Balloc& balloc) {
+    struct TagWords {
+        uint32_t w[2];
+    };
+    if (balloc.remaining() < sizeof(TagWords) + (m_bumpSize >> 2)) {
+        m_tagSkipped++;
+        return;
+    }
+    auto& tag = balloc.allocate<TagWords>();
+    if (reinterpret_cast<uint8_t*>(&tag) != reinterpret_cast<uint8_t*>(&frag) + fragBytes) {
+        // Not contiguous (cannot happen with the emitters below): leave the
+        // primitive untagged; the 8 bytes stay unused.
+        m_tagSkipped++;
+        return;
+    }
+    // The pieces of a split triangle are copies, outside the object's list:
+    // they carry the triangle they were split from.
+    const Tri* t = &tri;
+    uint32_t index = (t >= m_tagPolys && t < m_tagPolys + m_tagPolyCount) ? (uint32_t)(t - m_tagPolys) : m_tagRoot;
+    // The slot the insert used: it clamps z to the table.
+    int32_t slot = zIndex < 0 ? 0 : zIndex >= (int32_t)m_otSize ? (int32_t)m_otSize - 1 : zIndex;
+    tag.w[0] = captureTagWord1(kind, m_tagObj, index);
+    tag.w[1] = captureTagWord2(m_tagObj, (uint32_t)slot);
+#ifdef PS1_PC_PORT
+    frag.size += 2;
+#else
+    frag.head += 2u << 24;
+#endif
+    m_tagCount++;
+}
+
 void psxsplash::Renderer::Init(psyqo::GPU& gpuInstance) {
     psyqo::Kernel::assert(instance == nullptr,
                           "A second initialization of Renderer was tried");
@@ -93,7 +148,7 @@ void psxsplash::Renderer::reportPeaks() {
 #ifdef PCDRV_SUPPORT
     // Development builds tell the editor what a scene really used, at most
     // once a second and only when a peak grew.
-    if (m_frameCount % 60 != 0) return;
+    if (m_frameCount % 60 != 0 || reportsHeld()) return;
     // And how many triangles it lost or bent over that second, when any.
     // The clip, split, threshold and refused fields go last, so parsers of the fields before them keep working.
     if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp || m_lost.clip || m_lost.split || m_lost.refused)
@@ -164,6 +219,9 @@ void psxsplash::Renderer::setupObjectTransform(
     psyqo::GteMath::multiplyMatrix33(obj->rotation, m_currentCamera->GetRotation(), &finalMatrix);
     writeSafe<PseudoRegister::Translation>(objectPosition);
     writeSafe<PseudoRegister::Rotation>(finalMatrix);
+#if PSXSPLASH_FEATURE_SHADOWS
+    setCasterCap(obj);
+#endif
 
 #if PSXSPLASH_FEATURE_LIGHTS
     m_objLights.count = 0;
@@ -373,12 +431,14 @@ void psxsplash::Renderer::insertFogPass(const Tri& tri, const psyqo::Vertex& a, 
         p.primitive.setColorA(fogMaskTint(fogA)); p.primitive.setColorB(fogMaskTint(fogB)); p.primitive.setColorC(fogMaskTint(fogC));
         p.primitive.setSemiTrans();
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagFog, balloc);
     } else {
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTriangle>();
         p.primitive.pointA = a; p.primitive.pointB = b; p.primitive.pointC = c;
         p.primitive.setColorA(fogA); p.primitive.setColorB(fogB); p.primitive.setColorC(fogC);
         p.primitive.setSemiTrans();
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagFog, balloc);
     }
 }
 
@@ -454,6 +514,9 @@ void psxsplash::Renderer::processTriangle(
         RENDER_LOST(m_lost.ot++);
         return;
     }
+#if PSXSPLASH_FEATURE_SHADOWS
+    if (zIndex > m_casterCap) zIndex = m_casterCap;
+#endif
     // Clamp above the reserved 2D bands, never to 0: geometry this close to the
     // camera must not land in the slots the sprites and UI draw from.
     if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
@@ -655,6 +718,9 @@ bool psxsplash::Renderer::splitTriangle(const Tri& tri, unsigned edges, int32_t 
     }
     m_splitKids += n;
     RENDER_LOST(m_lost.split++);
+    // The pieces are tagged with the triangle they came from.
+    if (m_tagOn && depth == 0 && &tri >= m_tagPolys && &tri < m_tagPolys + m_tagPolyCount)
+        m_tagRoot = (uint16_t)(&tri - m_tagPolys);
     SplitCorner c[6];
     c[0] = {tri.v0, tri.uvA.u, tri.uvA.v, tri.colorA};
     c[1] = {tri.v1, tri.uvB.u, tri.uvB.v, tri.colorB};
@@ -739,6 +805,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         if (env) insertShinePass(p0, p1, p2, *env, fogIR, false, ot, balloc, zIndex);
 #endif
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagMain, balloc);
     } else if (hasFog) {
         psyqo::Color texA = fogTexColor(cA, fogIR[0]);
         psyqo::Color texB = fogTexColor(cB, fogIR[1]);
@@ -761,6 +828,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         if (env) insertShinePass(p0, p1, p2, *env, fogIR, true, ot, balloc, zIndex);
 #endif
         ot.insert(texP, zIndex);
+        if (m_tagOn) appendCaptureTag(texP, sizeof(texP), tri, zIndex, kCaptureTagMain, balloc);
     } else {
 
         auto& p = balloc.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
@@ -778,6 +846,7 @@ void psxsplash::Renderer::emitTriangle(const Tri& tri, const psyqo::Vertex& p0, 
         if (env) insertShinePass(p0, p1, p2, *env, fogIR, false, ot, balloc, zIndex);
 #endif
         ot.insert(p, zIndex);
+        if (m_tagOn) appendCaptureTag(p, sizeof(p), tri, zIndex, kCaptureTagMain, balloc);
     }
 }
 
@@ -1055,6 +1124,9 @@ void psxsplash::Renderer::clipTriangle(const Tri& tri, const psyqo::Vertex proje
         // Ordering-table depth: the piece's deepest view z, floored as processTriangle does.
         const int32_t psz[3] = {sz[0], sz[i], sz[i + 1]};
         int32_t zIndex = eastl::max(eastl::max(psz[0], psz[1]), psz[2]);
+#if PSXSPLASH_FEATURE_SHADOWS
+        if (zIndex > m_casterCap) zIndex = m_casterCap;
+#endif
         if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
         EnvUV pieceEnv = {{poly[0].eu, poly[i].eu, poly[i + 1].eu}, {poly[0].ev, poly[i].ev, poly[i + 1].ev}};
         emitTriangle(piece, a, b, c, psz, zIndex, fogFarSZ, ot, balloc, uvOffset, env ? &pieceEnv : nullptr);
@@ -1078,6 +1150,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     ditherCmd.primitive.attr.setDithering(true);
     ditherCmd.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd, m_otSize - 1);
+    beginCaptureTags();
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
@@ -1085,10 +1158,14 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #if PSXSPLASH_FEATURE_SHINE
     beginShineFrame(ot, balloc);
 #endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    prepareShadows(objects, cameraPosition, fogFarSZ);
+#endif
     for (auto& obj : objects) {
         if (!obj->isDrawn()) continue;
         if (obj->isSkinned()) continue;
         setupObjectTransform(obj, cameraPosition);
+        tagObject(&obj - objects.data(), obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int i = 0; i < obj->polyCount; i++)
             processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, obj->uvOffset);
@@ -1097,7 +1174,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
-    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
+    renderShadows(ot, balloc);
 #endif
     // After the world: in a shared bucket the last insert draws first, so a
     // triangle at a layer's own depth stays in front of it.
@@ -1119,6 +1196,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
+    endCaptureTags();
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
@@ -1148,6 +1226,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     ditherCmd2.primitive.attr.setDithering(true);
     ditherCmd2.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd2, m_otSize - 1);
+    beginCaptureTags();
 
     Frustum frustum; m_currentCamera->ExtractFrustum(frustum);
     int visibleCount = bvh.cullFrustum(frustum, m_visibleRefs, m_visibleCapacity);
@@ -1156,6 +1235,9 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     beginFade(fogFarSZ);
 #if PSXSPLASH_FEATURE_SHINE
     beginShineFrame(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    prepareShadows(objects, cameraPosition, fogFarSZ);
 #endif
     int16_t lastObjectIndex = -1;
     bool lastObjCulled = false;
@@ -1180,6 +1262,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
             }
             lastObjCulled = false;
             setupObjectTransform(obj, cameraPosition);
+            tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
         }
         if (lastObjCulled) continue;
         // polyCount is 0 while a streamed object's geometry is not resident.
@@ -1200,6 +1283,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
+        tagObject(oi, obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
@@ -1210,7 +1294,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
-    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
+    renderShadows(ot, balloc);
 #endif
 
     // After the world: in a shared bucket the last insert draws first, so a
@@ -1233,6 +1317,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
+    endCaptureTags();
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
@@ -1481,12 +1566,16 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     ditherCmd3.primitive.attr.setDithering(true);
     ditherCmd3.primitive.attr.set(psyqo::Prim::TPageAttr::FullBackAndFullFront);
     ot.insert(ditherCmd3, m_otSize - 1);
+    beginCaptureTags();
 
     psyqo::Vec3 cameraPosition = computeCameraViewPos();
     int32_t fogFarSZ = m_fog.fogFarSZ;
     beginFade(fogFarSZ);
 #if PSXSPLASH_FEATURE_SHINE
     beginShineFrame(ot, balloc);
+#endif
+#if PSXSPLASH_FEATURE_SHADOWS
+    prepareShadows(objects, cameraPosition, fogFarSZ);
 #endif
     int32_t camX = m_currentCamera->GetPosition().x.raw();
     int32_t camY = m_currentCamera->GetPosition().y.raw();
@@ -1545,6 +1634,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
                 }
                 lastObjCulled = false;
                 setupObjectTransform(obj, cameraPosition);
+                tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
             }
             if (lastObjCulled) continue;
             if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
@@ -1922,6 +2012,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
         if (!frustum.testAABB(objBox)) continue;
         setupObjectTransform(obj, cameraPosition);
+        tagObject(oi, obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
         for (int t = 0; t < obj->polyCount; t++) {
             processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
@@ -1932,7 +2023,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc, &frustum);
 #endif
 #if PSXSPLASH_FEATURE_SHADOWS
-    renderShadows(objects, cameraPosition, fogFarSZ, ot, balloc);
+    renderShadows(ot, balloc);
 #endif
 
     // After the world: in a shared bucket the last insert draws first, so a
@@ -1955,6 +2046,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderOT(ot, balloc);
 #endif
+    endCaptureTags();
     m_gpu.getNextClear(clear.primitive, m_clearcolor);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
@@ -2012,6 +2104,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
         GameObject* obj = objects[animSet.gameObjectIndex];
         if (!obj->isDrawn()) continue;
         if (animSet.clipCount == 0) continue;
+#if PSXSPLASH_FEATURE_SHADOWS
+        setCasterCap(obj);
+#endif
 
         // Frustum cull using object AABB
         if (frustum) {
@@ -2020,6 +2115,8 @@ void psxsplash::Renderer::renderSkinnedObjects(
             objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
             if (!frustum->testAABB(objBox)) continue;
         }
+        // The skin owns the object's triangle list (taken at init, same order).
+        tagObject(animSet.gameObjectIndex, animSet.polygons, animSet.polyCount);
 
         const BakedBoneMatrix* boneMatricesA;
         const BakedBoneMatrix* boneMatricesB;
@@ -2194,6 +2291,9 @@ void psxsplash::Renderer::renderSkinnedObjects(
                 RENDER_LOST(m_lost.ot++);
                 continue;
             }
+#if PSXSPLASH_FEATURE_SHADOWS
+            if (zIndex > m_casterCap) zIndex = m_casterCap;
+#endif
             if (zIndex < WORLD_DEPTH_MIN) zIndex = WORLD_DEPTH_MIN;
 
             // Off-screen reject

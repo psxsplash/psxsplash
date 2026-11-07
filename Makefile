@@ -129,6 +129,10 @@ endif
 include third_party/nugget/psyqo-lua/psyqo-lua.mk
 include third_party/nugget/psyqo/psyqo.mk
 
+# The renderer's per-triangle code runs faster at -O2 than at -Os on a real
+# PS1 (about 15% less render time on a courtyard walk), for 13 KB of code.
+src/renderer.o: CPPFLAGS += -O2
+
 # Redirect Lua's allocator through our OOM-guarded wrapper
 LDFLAGS := $(subst luaI_realloc=libc_realloc,luaI_realloc=lua_oom_realloc,$(LDFLAGS))
 
