@@ -113,6 +113,20 @@ private:
     static int Light_SetIntensity(lua_State* L);
     static int Light_SetEnabled(lua_State* L);
 
+    // ========================================================================
+    // BACKGROUND API - baked fixed-camera backgrounds
+    // ========================================================================
+
+    // Background.Show(name)
+    // Shows the baked background of the Fixed camera named name: the camera jumps to its pose and stops following, and the objects baked into it are not drawn (they still collide). Returns true, or false when there is no such background.
+    static int Background_Show(lua_State* L);
+    // Background.Hide()
+    // Back to the 3D scene: the baked objects draw again and the camera follows as it did before the first Show.
+    static int Background_Hide(lua_State* L);
+    // Background.Current()
+    // The name of the background showing, or nil.
+    static int Background_Current(lua_State* L);
+
     // Tile API
     static int Tile_Walkable(lua_State* L);
     static int Tile_RayClear(lua_State* L);

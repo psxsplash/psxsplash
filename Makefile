@@ -7,6 +7,7 @@ src/renderer.cpp \
 src/screenfx.cpp \
 src/splashpack.cpp \
 src/camera.cpp \
+src/screenmode.cpp \
 src/worldcollision.cpp \
 src/navregion.cpp \
 src/random.cpp\
@@ -16,6 +17,7 @@ src/luaapi.cpp \
 src/scenemanager.cpp \
 src/fileloader.cpp \
 src/audiomanager.cpp \
+src/reverb.cpp \
 src/controls.cpp \
 src/profiler.cpp \
 src/bvh.cpp \
@@ -27,7 +29,7 @@ src/loadbuffer_patch.cpp
 #                comma separated. Unset builds all of them. SplashEdit passes
 #                the set the exported scenes use, e.g. FEATURES=ui,collision,nav.
 #                FEATURES= or FEATURES=none builds the smallest engine.
-ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows
+ALL_FEATURES = bootlogo net ui sprites skin cutscene lights streaming memcard nav agents collision shadows backgrounds shine
 ifeq ($(origin FEATURES),undefined)
 FEATURES := $(ALL_FEATURES)
 endif
@@ -52,6 +54,7 @@ FEATURE_SRCS_streaming = src/streamreader.cpp src/streamselftest.cpp src/worldst
 FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
 FEATURE_SRCS_shadows = src/shadowrender.cpp
+FEATURE_SRCS_backgrounds = src/backgroundsystem.cpp src/backgroundmath.cpp
 
 SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 
@@ -128,6 +131,10 @@ endif
 
 include third_party/nugget/psyqo-lua/psyqo-lua.mk
 include third_party/nugget/psyqo/psyqo.mk
+
+# The renderer's per-triangle code runs faster at -O2 than at -Os on a real
+# PS1 (about 15% less render time on a courtyard walk), for 13 KB of code.
+src/renderer.o: CPPFLAGS += -O2
 
 # Redirect Lua's allocator through our OOM-guarded wrapper
 LDFLAGS := $(subst luaI_realloc=libc_realloc,luaI_realloc=lua_oom_realloc,$(LDFLAGS))
