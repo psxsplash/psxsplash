@@ -90,7 +90,7 @@ void psxsplash::Renderer::reportPeaks() {
 #ifdef PCDRV_SUPPORT
     // Development builds tell the editor what a scene really used, at most
     // once a second and only when a peak grew.
-    if (m_frameCount % 60 != 0) return;
+    if (m_frameCount % 60 != 0 || reportsHeld()) return;
     // And how many triangles it lost or bent over that second, when any.
     // The clip, split, threshold and refused fields go last, so parsers of the fields before them keep working.
     if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp || m_lost.clip || m_lost.split || m_lost.refused)
