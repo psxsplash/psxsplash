@@ -34,7 +34,7 @@ This builds every engine into `build/psx/mipsel/release/`, each under its own na
 
 | Option | Description |
 |--------|-------------|
-| `--features=...` | Subsystems to compile in, comma separated, from `bootlogo,net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows` (`bootlogo` is the psxsplash logo animation shown before the first scene). Unset builds all of them; `none` builds the smallest engine. Without `bootlogo`, every file name ends in `-nologo`. |
+| `--features=...` | Subsystems to compile in, comma separated, from `bootlogo,net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows,backgrounds,shine,particles` (`bootlogo` is the psxsplash logo animation shown before the first scene; `agents` brings in `nav` and `particles` brings in `sprites`). Unset builds all of them; `none` builds the smallest engine. Without `bootlogo`, every file name ends in `-nologo`. |
 | `--noparser=y` | Strip the Lua parser; scripts must be precompiled bytecode |
 | `--ot_size=N` | Ordering table size when a scene does not set one |
 | `--bump_size=N` | Bump allocator size when a scene does not set one |

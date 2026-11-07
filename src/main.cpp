@@ -8,6 +8,7 @@
 #include <psyqo/trigonometry.hh>
 
 #include "renderer.hh"
+#include "screenfx.hh"
 #include "scenemanager.hh"
 #include "features.hh"
 #include "fileloader.hh"
@@ -77,23 +78,16 @@ MainScene mainScene;
 }  // namespace
 
 void PSXSplash::prepare() {
-    psyqo::GPU::Configuration config;
-    config.set(psyqo::GPU::Resolution::W320)
-        .set(psyqo::GPU::VideoMode::AUTO)
-        .set(psyqo::GPU::ColorMode::C15BITS)
-        .set(psyqo::GPU::Interlace::PROGRESSIVE);
-    gpu().initialize(config);
+    // Boot at 320x240; a scene that wants 640x480 switches in loadScene.
+    gpu().initialize(psxsplash::Renderer::GpuConfig(psxsplash::VIDEO_MODE_320x240));
 
     // Initialize the Renderer singleton
     psxsplash::Renderer::Init(gpu());
+    // The screen effects draw over the whole screen and read back the previous frame.
+    psxsplash::ScreenFx::get().setScreen(320, 240, true);
 
     // Clear screen
-    psyqo::Prim::FastFill ff(psyqo::Color{.r = 0, .g = 0, .b = 0});
-    ff.rect = psyqo::Rect{0, 0, 320, 240};
-    gpu().sendPrimitive(ff);
-    ff.rect = psyqo::Rect{0, 256, 320, 240};
-    gpu().sendPrimitive(ff);
-    gpu().pumpCallbacks();
+    psxsplash::Renderer::ClearFramebuffers(gpu());
 
     // Let the active file-loader backend do any early setup.
     // CDRom: CDRomDevice::prepare() must happen here.
@@ -118,6 +112,7 @@ void PSXSplash::prepare() {
 
 void PSXSplash::createScene() {
     m_font.uploadSystemFont(gpu());
+    psxsplash::ScreenFx::get().uploadMasks(gpu());
     psxsplash::SceneManager::SetFont(&m_font);
     pushScene(&mainScene);
 }

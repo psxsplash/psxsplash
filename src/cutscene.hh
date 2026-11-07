@@ -48,7 +48,19 @@ enum class TrackType : uint8_t {
     LightIntensity  = 16,
     LightRadius     = 17,
     LightEnabled    = 18,
+    // Screen effects (screenfx.hh): cutscenes only, no target.
+    ScreenFade      = 19,  // amount 0-255, interpolated
+    ScreenFadeColor = 20,  // r, g, b, step
+    Letterbox       = 21,  // bar height in pixels, interpolated
+    Shake           = 22,  // amplitude in pixels, interpolated
+    Trail           = 23,  // 0 off, 1 on, step
 };
+
+/// Helper: true if a TrackType drives a screen effect.
+inline bool isScreenTrackType(TrackType t) {
+    uint8_t v = static_cast<uint8_t>(t);
+    return v >= 19 && v <= 23;
+}
 
 /// Helper: true if a TrackType drives a UI property (canvas or element).
 inline bool isUITrackType(TrackType t) {
@@ -133,6 +145,12 @@ struct Cutscene {
 /// PointLight fields Lua's Light.Set* functions do.
 void captureLightTrack(CutsceneTrack& track, const PointLight* light);
 void applyLightTrack(CutsceneTrack& track, PointLight* light, uint16_t frame, uint16_t subFrame);
+
+/// Screen effect tracks (cutscenes only). Capture reads the current effect
+/// state into initialValues; apply writes the state at frame/subFrame.
+namespace screenfx { struct State; }
+void captureScreenTrack(CutsceneTrack& track, const screenfx::State& fx);
+void applyScreenTrack(CutsceneTrack& track, screenfx::State& fx, uint16_t frame, uint16_t subFrame, int32_t screenH);
 
 class CutscenePlayer {
 public:

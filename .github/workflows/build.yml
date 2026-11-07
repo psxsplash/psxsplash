@@ -48,6 +48,13 @@ jobs:
       - name: Chained cutscenes
         run: |
           tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-cutscene 'BOOT OK: cutscenes'
+      - name: Lua breakpoints
+        run: |
+          tests/boot/luadebug.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 120
+          NOBP=1 tests/boot/luadebug.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 120
+      - name: Particle emitters
+        run: |
+          tests/boot/boot.sh "$RUNNER_TEMP/redux/squashfs-root/AppRun" third_party/nugget/openbios/openbios.bin psxsplash.ps-exe 300 tests/boot/fixture-particles 'BOOT OK: particles'
 
   xmake:
     runs-on: ubuntu-latest
@@ -70,7 +77,7 @@ jobs:
           done
       - name: Build every engine without the boot logo
         run: |
-          xmake f -y --features=net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows
+          xmake f -y --features=net,ui,sprites,skin,cutscene,lights,streaming,memcard,nav,agents,collision,shadows,backgrounds,shine,particles
           xmake -y -j 4
           for n in psxsplash psxsplash-cdrom psxsplash-perf psxsplash-rooms psxsplash-perf-rooms; do
             test -s build/psx/mipsel/release/$n-nologo.ps-exe
