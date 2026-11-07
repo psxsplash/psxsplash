@@ -170,6 +170,10 @@ static int gameobjectSetRotationY(psyqo::Lua L) {
 
 void psxsplash::Lua::Init() {
     auto L = m_state;
+    // At Lua's default step multiplier of 200 the incremental collector only just
+    // outruns allocation, so a script that makes one FixedPoint per frame grows the
+    // heap without bound. 400 keeps it flat.
+    L.gc(LUA_GCSETSTEPMUL, 400);
     // Load and run the game objects script
     if (L.loadBuffer(reinterpret_cast<const char*>(GAMEOBJECT_BYTECODE), sizeof(GAMEOBJECT_BYTECODE), "bytecode:gameObjects") == 0) {
         if (L.pcall(0, 1) == 0) {
