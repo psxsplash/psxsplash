@@ -15,6 +15,7 @@
 
 #include "bvh.hh"
 #include "camera.hh"
+#include "capturetag.hh"
 #include "gameobject.hh"
 #include "features.hh"
 #include "lightmath.hh"
@@ -156,7 +157,7 @@ class Renderer final {
 #if PSXSPLASH_FEATURE_SHADOWS
     /// The scene's blob shadows (shadowmath.hh). nullptr / 0 draws none.
     void SetShadows(const ShadowRecord* shadows, int count) {
-        m_shadows = shadows; m_shadowCount = count;
+        m_shadows = shadows; m_shadowCount = count; m_shadowDrawCount = 0;
     }
     /// The floor shadows land on. nullptr (or nav not loaded) puts each blob
     /// flat under its object's bounds.
@@ -258,13 +259,60 @@ class Renderer final {
     const ShadowRecord* m_shadows = nullptr;
     int m_shadowCount = 0;
     const NavRegionSystem* m_shadowNav = nullptr;
-    void renderShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition,
-                       int32_t fogFarSZ, OT& ot, Balloc& balloc);
+    // A blob that will be drawn this frame: its bucket, darkness and fan.
+    struct ShadowDraw {
+        const GameObject* obj;
+        int32_t bucket;
+        uint8_t dark;
+        psyqo::Vertex sxy[1 + shadowmath::kRimVerts];
+    };
+    ShadowDraw m_shadowDraws[MAX_SCENE_SHADOWS];
+    int m_shadowDrawCount = 0;
+    // The deepest bucket the current object's triangles may take: one in
+    // front of its own blob, so the blob never darkens its caster.
+    static constexpr int32_t kNoCasterCap = 0x7FFFFFFF;
+    int32_t m_casterCap = kNoCasterCap;
+    void setCasterCap(const GameObject* obj) {
+        m_casterCap = kNoCasterCap;
+        for (int i = 0; i < m_shadowDrawCount; i++)
+            if (m_shadowDraws[i].obj == obj && m_shadowDraws[i].bucket - 1 < m_casterCap)
+                m_casterCap = m_shadowDraws[i].bucket - 1;
+    }
+    // Before the meshes: everything a blob needs but the ordering table, and
+    // the caps its caster's triangles take from it.
+    void prepareShadows(eastl::vector<GameObject*>& objects, const psyqo::Vec3& cameraPosition, int32_t fogFarSZ);
+    // After the meshes: the blobs prepareShadows kept.
+    void renderShadows(OT& ot, Balloc& balloc);
 #endif
 
     TriangleRef* m_visibleRefs = nullptr;
     uint32_t m_visibleCapacity = 0;
     int m_frameCount = 0;
+
+    // Capture tags (capturetag.hh). m_tagOn is latched from g_captureTag once
+    // per frame; the rest is the object being drawn, set per object only while
+    // it is on. m_tagRoot is the triangle a split triangle's pieces came from.
+    bool m_tagOn = false;
+    uint16_t m_tagObj = 0;
+    uint16_t m_tagPolyCount = 0;
+    uint16_t m_tagRoot = 0;
+    const Tri* m_tagPolys = nullptr;
+    uint32_t m_tagCount = 0;
+    uint32_t m_tagSkipped = 0;
+    void beginCaptureTags();
+    void endCaptureTags();
+    // One predictable branch per object while off.
+    void tagObject(size_t index, const Tri* polys, uint16_t polyCount) {
+        if (__builtin_expect(m_tagOn, 0)) {
+            m_tagObj = index > 0xffff ? 0xffff : (uint16_t)index;
+            m_tagPolys = polys;
+            m_tagPolyCount = polyCount;
+        }
+    }
+    // Appends the tag words to frag, the last fragment allocated and just
+    // inserted at zIndex. Out of line: only reached while tagging.
+    __attribute__((noinline)) void appendCaptureTag(psyqo::Fragments::ChainEntry& frag, unsigned fragBytes,
+                                                    const Tri& tri, int32_t zIndex, unsigned kind, Balloc& balloc);
 
     psyqo::Vec3 computeCameraViewPos();
     void setupObjectTransform(GameObject* obj, const psyqo::Vec3& cameraPosition);
@@ -310,12 +358,16 @@ class Renderer final {
     // pixels from the screen midpoint where it belongs. An edge further off
     // than m_splitQ quarter pixels is split at its model-space midpoint,
     // decided from its two endpoints alone, so both triangles sharing it agree;
-    // down to SPLIT_DEPTH levels. Measured on the courtyard, lamplighter and
-    // the walk worlds: 8 pixels (SPLIT_ERR_Q) and 3 levels clear the near
-    // chevrons; 4 pixels or a fourth level cost frames without a visible
-    // difference near the camera.
+    // down to SPLIT_DEPTH levels. 8 pixels (SPLIT_ERR_Q) clear the near
+    // chevrons; 4 pixels cost frames without a visible difference near the
+    // camera. One level: an edge crossing the near plane warps by hundreds of
+    // pixels and qualifies at any threshold, so only the depth bounds how far
+    // those are cut. In the courtyard walk the first level keeps the near
+    // pillars and walls straight where the unsplit triangle bends them; two
+    // or three levels redraw about 3% of the pixels at the heaviest poses,
+    // for 1.9 to 2.3 times the splits.
     static constexpr int32_t SPLIT_ERR_Q = 32;
-    static constexpr int SPLIT_DEPTH = 3;
+    static constexpr int SPLIT_DEPTH = 1;
     // Only edges with an end nearer than SPLIT_NEAR halves of H are split:
     // the corners the GTE cannot project, the warp the old near-plane
     // subdivision hid. Each child there is a clipped triangle, and 2H or 4H
@@ -347,6 +399,20 @@ class Renderer final {
                               OT& ot,
                               Balloc& balloc,
                               const Frustum* frustum = nullptr);
+#endif
+
+#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+  public:
+    // While the perf map walks, reportPeaks prints nothing: its printf runs
+    // inside the measured rendering section. Peaks keep being tracked, so a
+    // peak that grew is printed at the first report after release.
+    void setReportsHeld(bool held) { m_reportsHeld = held; }
+
+  private:
+    bool m_reportsHeld = false;
+    bool reportsHeld() const { return m_reportsHeld; }
+#else
+    static constexpr bool reportsHeld() { return false; }
 #endif
 };
 

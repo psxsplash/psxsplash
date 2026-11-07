@@ -83,7 +83,9 @@ for _, variant in ipairs(variants) do
     local name = variant.name .. (nologo and "-nologo" or "")
     target(name, function()
         add_rules("psyqo-lua.app")
-        add_files("src/main.cpp", "src/renderer.cpp", "src/splashpack.cpp", "src/camera.cpp",
+        -- -O2 for the renderer, as in the Makefile.
+        add_files("src/renderer.cpp", {cxflags = "-O2", force = {cxflags = "-O2"}})
+        add_files("src/main.cpp", "src/splashpack.cpp", "src/camera.cpp",
                   "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
                   "src/lua.cpp", "src/luaapi.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
                   "src/audiomanager.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",

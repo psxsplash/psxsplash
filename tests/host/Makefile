@@ -33,6 +33,7 @@ TILE_BIN   := $(BUILD)/tile_tests
 LIGHT_BIN  := $(BUILD)/light_tests
 STREAM_BIN := $(BUILD)/stream_tests
 BG_BIN     := $(BUILD)/background_tests
+PERFMAP_BIN := $(BUILD)/perfmap_tests
 FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 JUMP_BIN   := $(BUILD)/jump_tests
@@ -63,6 +64,8 @@ $(STREAM_BIN): test_stream.cpp testing.hh compat.hh $(STREAM_SRCS) | $(BUILD)
 $(BG_BIN): test_background.cpp testing.hh compat.hh $(BG_SRCS) $(SRC_DIR)/backgroundmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_background.cpp $(BG_SRCS)
 
+$(PERFMAP_BIN): test_perfmap.cpp testing.hh compat.hh $(SRC_DIR)/perfmap.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_perfmap.cpp
 $(FADE_BIN): test_fade.cpp testing.hh compat.hh $(SRC_DIR)/fade.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_fade.cpp
 $(SHADOW_BIN): test_shadow.cpp testing.hh compat.hh $(SRC_DIR)/shadowmath.hh $(SRC_DIR)/splashpackversion.hh | $(BUILD)
@@ -74,7 +77,7 @@ $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(BG_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== sprite =="
@@ -87,6 +90,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(BG_BIN)
 	@$(STREAM_BIN)
 	@echo "== background =="
 	@$(BG_BIN)
+	@echo "== perfmap =="
+	@$(PERFMAP_BIN)
 	@echo "== fade =="
 	@$(FADE_BIN)
 	@echo "== shadow =="
