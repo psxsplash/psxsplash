@@ -7,6 +7,7 @@
 #include <psyqo/xprintf.h>
 
 #include "gameobject.hh"
+#include "screenmode.hh"
 #include "spritemath.hh"
 #include "spritesystem.hh"
 #include "streq.hh"
@@ -129,6 +130,8 @@ int ParticleSystem::liveParticles(int i) const { return valid(i) ? m_emitters[i]
 void ParticleSystem::renderOT(const psyqo::Matrix33& rotation, const psyqo::Vec3& cameraPosition, int32_t projH, int32_t nearSZ, int32_t otSize,
                               int32_t fogFarSZ, Renderer::OT& ot, Renderer::Balloc& balloc) {
     if (m_count == 0 || !m_sprites) return;
+    // The GTE projects with the screen mode's H and centre (screenmode.hh).
+    const ScreenMode& screen = currentScreen();
     // The camera alone: a world position goes straight into V0.
     writeSafe<PseudoRegister::Rotation>(rotation);
     writeSafe<PseudoRegister::Translation>(cameraPosition);
@@ -183,7 +186,7 @@ void ParticleSystem::renderOT(const psyqo::Matrix33& rotation, const psyqo::Vec3
             if (w > 256) w = 256;
             if (h > 256) h = 256;
             const int32_t x0 = c.x - w / 2, y0 = c.y - h / 2;
-            if (x0 + w < 0 || x0 >= 320 || y0 + h < 0 || y0 >= 240) continue;
+            if (x0 + w < 0 || x0 >= screen.width || y0 + h < 0 || y0 >= screen.height) continue;
             if (balloc.remaining() < PARTICLE_BUMP_BYTES * 4) return;
 
             uint8_t u, vv;

@@ -46,7 +46,7 @@ enum ParticleFlags : uint8_t {
 static constexpr uint16_t PARTICLE_NO_OBJECT = 0xFFFF;
 static constexpr uint8_t PARTICLE_NO_ANIM = 0xFF;
 
-/// An emitter as stored in the splashpack (v31). The particle table is a
+/// An emitter as stored in the splashpack (v32). The particle table is a
 /// uint16 count and a uint16 pad, then `count` of these, then their names.
 struct ParticleEmitterRecord {
     uint32_t nameOffset;     ///< absolute offset of a NUL-terminated name, or 0

@@ -12,7 +12,7 @@ namespace psxsplash {
 class GameObject;
 class SpriteSystem;
 
-/// Billboard particle emitters (splashpack v31): camera-facing quads cut from
+/// Billboard particle emitters (splashpack v32): camera-facing quads cut from
 /// the scene's sprite sheets, drawn in the ordering table at their own depth
 /// among the 3D geometry. The simulation is particlemath.hh's.
 ///
