@@ -4,7 +4,7 @@
 # Only the sources the tool needs are compiled: the full Makefile wants every submodule.
 set -eu
 dir=$1
-ref=${AUTHORING_REF:-598ddd7d454e9365c2d5be30e26fb67e5946a7b1}
+ref=${AUTHORING_REF:-2ed8ca8ed9818d844f6148095544d7e6d7fea559}
 mkdir -p "$dir"
 cd "$dir"
 git init -q src
