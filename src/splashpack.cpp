@@ -16,6 +16,7 @@
 #include "streq.hh"
 #include "navregion.hh"
 #include "memorycardmanager.hh"
+#include "backgroundmath.hh"
 #include "shadowmath.hh"
 #include "splashpackversion.hh"
 
@@ -28,6 +29,13 @@ namespace psxsplash {
     if (count == 0) return;
     printf("Splashpack: %u %s ignored, feature '%s' is not in this build\n", count, what, feature);
 }
+
+// SPLASHPACKFileHeader::renderFlags. The byte was padding the editor wrote 0,
+// so older packs carry 0 in every bit: no edge fade, no reverb.
+constexpr uint8_t kRenderFlagEdgeFade = 1 << 0;
+constexpr uint8_t kRenderFlagReverbShift = 1;     // scene default reverb preset (reverb.hh), 0 = off
+constexpr uint8_t kRenderFlagReverbMask = 0x1E;   // bits 1-4
+constexpr uint8_t kRenderFlagCdReverb = 1 << 7;   // CD music feeds the reverb (SPU ATTR bit 2)
 
 struct SPLASHPACKFileHeader {
     char magic[2];
@@ -66,8 +74,9 @@ struct SPLASHPACKFileHeader {
     uint8_t fogEnabled;
     uint8_t fogR, fogG, fogB;
     uint8_t fogDensity;
-    // Bit 0: edge fade (Renderer FogConfig::edgeFade). Was padding the editor
-    // wrote 0, so older packs read as off.
+    // kRenderFlag* above: bit 0 edge fade (Renderer FogConfig::edgeFade),
+    // bits 1-4 scene default reverb preset, bit 7 CD music reverb. Was padding
+    // the editor wrote 0, so older packs read as off.
     uint8_t renderFlags;
     uint16_t roomCount;
     uint16_t portalCount;
@@ -77,7 +86,7 @@ struct SPLASHPACKFileHeader {
     uint32_t cutsceneTableOffset;
     uint16_t uiCanvasCount;
     uint8_t  uiFontCount;
-    uint8_t  uiPad5;
+    uint8_t  videoMode;      // screenmode.hh; 0 (320x240) in packs older than the field
     uint32_t uiTableOffset;
     uint32_t pixelDataOffset;
     uint16_t animationCount;
@@ -114,9 +123,18 @@ struct SPLASHPACKFileHeader {
     // Offset to the shadow table, or 0 if none. SplashEdit writes v27 for a
     // scene without shadows, so this word only exists when it is used.
     uint32_t shadowTableOffset;
+    // --- v29 (appended; the header grows from 160 to 164) ---
+    // Offset to the baked background table (BackgroundTableHeader), or 0 if none.
+    uint32_t backgroundTableOffset;
+    // --- v30 (appended; the header grows from 164 to 168) ---
+    // Offset to the shine table (shinemath.hh), or 0 if none.
+    uint32_t shineTableOffset;
+    // --- v32 (appended; the header grows from 168 to 172) ---
+    // Offset to the particle emitter table, or 0 if none.
+    uint32_t particleTableOffset;
 };
-static_assert(sizeof(SPLASHPACKFileHeader) == kSplashpackHeaderSizeV28,
-              "SPLASHPACKFileHeader must be kSplashpackHeaderSizeV28 bytes");
+static_assert(sizeof(SPLASHPACKFileHeader) == splashpackHeaderSize(kSplashpackNewestVersion),
+              "SPLASHPACKFileHeader must be the newest version's header size");
 // Historical sizes and splashpackHeaderSize(): splashpackversion.hh.
 
 // Memory card save configuration (v21+). Fixed-size so the binary layout is
@@ -141,19 +159,20 @@ struct SPLASHPACKTextureAtlas {
     uint16_t x, y;
 };
 
-struct SPLASHPACKClut {
-    uint32_t clutOffset;
-    uint16_t clutPackingX;
-    uint16_t clutPackingY;
-    uint16_t length;
-    uint16_t pad;
-};
+#define PSXSPLASH_STR2(x) #x
+#define PSXSPLASH_STR(x) PSXSPLASH_STR2(x)
 
 void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup) {
     psyqo::Kernel::assert(data != nullptr, "Splashpack loading data pointer is null");
     psxsplash::SPLASHPACKFileHeader *header = reinterpret_cast<psxsplash::SPLASHPACKFileHeader *>(data);
     psyqo::Kernel::assert(__builtin_memcmp(header->magic, "SP", 2) == 0, "Splashpack has incorrect magic");
-    psyqo::Kernel::assert(header->version >= 20, "Splashpack version too old (need v20+): re-export from SplashEdit");
+    psyqo::Kernel::assert(header->version >= kSplashpackOldestVersion,
+                          "Splashpack version too old (need v20+): re-export from SplashEdit");
+    // The editor reads "splashpack v<N> newest" out of the executable to warn
+    // before it boots a scene this engine cannot read: keep that wording.
+    psyqo::Kernel::assert(header->version <= kSplashpackNewestVersion,
+                          "Scene is newer than this engine (splashpack v" PSXSPLASH_STR(
+                              PSXSPLASH_SPLASHPACK_NEWEST) " newest): update psxsplash");
 
     setup.playerStartPosition = header->playerStartPos;
     setup.playerStartRotation = header->playerStartRot;
@@ -324,10 +343,11 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         cursor += sizeof(psxsplash::SPLASHPACKTextureAtlas);
     }
 
-    // CLUT metadata - v20: CLUT data is in a separate .vram file.
-    for (uint16_t i = 0; i < header->clutCount; i++) {
-        cursor += sizeof(psxsplash::SPLASHPACKClut);
-    }
+    // CLUT metadata - v20: CLUT data is in a separate .vram file. The table is kept for
+    // palette cycling records.
+    setup.cluts = reinterpret_cast<const psxsplash::SPLASHPACKClut*>(cursor);
+    setup.clutCount = header->clutCount;
+    cursor += header->clutCount * sizeof(psxsplash::SPLASHPACKClut);
 
     if (header->nameTableOffset != 0) {
         uint8_t* nameData = data + header->nameTableOffset;
@@ -368,7 +388,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     setup.fogG = header->fogG;
     setup.fogB = header->fogB;
     setup.fogDensity = header->fogDensity;
-    setup.edgeFade = (header->renderFlags & 1) != 0;
+    setup.edgeFade = (header->renderFlags & kRenderFlagEdgeFade) != 0;
+    setup.reverbDefault = (header->renderFlags & kRenderFlagReverbMask) >> kRenderFlagReverbShift;
+    setup.cdReverb = (header->renderFlags & kRenderFlagCdReverb) != 0;
     setup.fogMaskClut4 = header->fogMaskClut4;
     setup.fogMaskClut8 = header->fogMaskClut8;
     setup.sceneType = header->sceneType;
@@ -482,6 +504,8 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
     }
 #endif
 
+    // Version 13 added the byte, always written 0 until it meant the video mode.
+    if (header->version >= 13) setup.videoMode = header->videoMode;
 #if PSXSPLASH_FEATURE_UI
     if (header->version >= 13) {
         setup.uiCanvasCount = header->uiCanvasCount;
@@ -603,13 +627,17 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             tablePtr += 3; // pad
             uint32_t nameOffset  = *reinterpret_cast<uint32_t*>(tablePtr); tablePtr += 4;
 
+            psyqo::Kernel::assert(setup.loadedSkinAnimSets != nullptr, "Skinned meshes loaded with no storage");
             SkinAnimSet& animSet = setup.loadedSkinAnimSets[si];
 
             // Parse SkinData block
             uint8_t* skinPtr = data + dataOffset;
             animSet.gameObjectIndex = *reinterpret_cast<uint16_t*>(skinPtr); skinPtr += 2;
             animSet.boneCount       = *skinPtr++;
-            animSet.clipCount       = *skinPtr++;
+            const uint8_t packClipCount = *skinPtr++;
+            // Clips past the slots are walked over, not kept, so the v26
+            // tail after the last clip is still found where it is.
+            animSet.clipCount = packClipCount > SKINMESH_MAX_CLIPS ? SKINMESH_MAX_CLIPS : packClipCount;
 
             // Bone indices: polyCount x 3 bytes
             uint16_t polyCount = 0;
@@ -624,9 +652,9 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
             skinPtr = reinterpret_cast<uint8_t*>((addr + 3) & ~3);
 
             // Parse clips
-            if (animSet.clipCount > SKINMESH_MAX_CLIPS) animSet.clipCount = SKINMESH_MAX_CLIPS;
-            for (uint8_t ci = 0; ci < animSet.clipCount; ci++) {
-                SkinAnimClip& clip = animSet.clips[ci];
+            for (uint8_t ci = 0; ci < packClipCount; ci++) {
+                SkinAnimClip skipped;
+                SkinAnimClip& clip = ci < animSet.clipCount ? animSet.clips[ci] : skipped;
 
                 uint8_t clipNameLen = *skinPtr++;
                 // Null-terminate the name in place
@@ -749,6 +777,37 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
         setup.shadowTable = table;
 #else
         skipCompiledOut(table[0] | (table[1] << 8), "shadows", "shadows");
+#endif
+    }
+
+    // Baked backgrounds (v29+). The pixels ride the .vram atlases like every
+    // other texture; only the table is read here.
+    if (header->version >= 29 && header->backgroundTableOffset != 0) {
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+        setup.backgroundTableOffset = header->backgroundTableOffset;
+#else
+        skipCompiledOut(reinterpret_cast<const BackgroundTableHeader*>(data + header->backgroundTableOffset)->count,
+                        "baked backgrounds", "backgrounds");
+#endif
+    }
+
+    // Shine (v30+): reflection overlays on shiny triangles.
+    if (header->version >= 30 && header->shineTableOffset != 0) {
+        const uint8_t* table = data + header->shineTableOffset;
+#if PSXSPLASH_FEATURE_SHINE
+        setup.shineTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "shiny objects", "shine");
+#endif
+    }
+
+    // Particle emitters (v32+). The word does not exist in older headers.
+    if (header->version >= 32 && header->particleTableOffset != 0) {
+        const uint8_t* table = data + header->particleTableOffset;
+#if PSXSPLASH_FEATURE_PARTICLES
+        setup.particleTable = table;
+#else
+        skipCompiledOut(table[0] | (table[1] << 8), "particle emitters", "particles");
 #endif
     }
 

@@ -22,6 +22,8 @@ void AudioManager::init() {
   initHardware();
 
   m_nextAddr = SPU_RAM_START;
+  m_ramEnd = SPU_RAM_END;
+  m_reverbSend = 0;  // initHardware cleared EON
 
   for (int i = 0; i < MAX_AUDIO_CLIPS; i++) {
     m_clips[i].loaded = false;
@@ -34,11 +36,15 @@ void AudioManager::reset() {
     m_clips[i].loaded = false;
   }
   m_nextAddr = SPU_RAM_START;
+  m_ramEnd = SPU_RAM_END;
+  m_reverbSend = 0;
+  SPU_REVERB_EN_LOW = 0;
+  SPU_REVERB_EN_HIGH = 0;
 }
 
 bool AudioManager::loadClip(int clipIndex, const uint8_t *adpcmData,
                             uint32_t sizeBytes, uint16_t sampleRate,
-                            bool loop) {
+                            bool loop, bool reverbSend) {
   if (clipIndex < 0 || clipIndex >= MAX_AUDIO_CLIPS)
     return false;
   if (!adpcmData || sizeBytes == 0)
@@ -57,7 +63,7 @@ bool AudioManager::loadClip(int clipIndex, const uint8_t *adpcmData,
   uint32_t addr = (m_nextAddr + 15) & ~15u;
   uint32_t alignedSize = (sizeBytes + 15) & ~15u;
 
-  if (addr + alignedSize > SPU_RAM_END) {
+  if (addr + alignedSize > m_ramEnd) {
     return false;
   }
 
@@ -87,6 +93,7 @@ bool AudioManager::loadClip(int clipIndex, const uint8_t *adpcmData,
   m_clips[clipIndex].sampleRate = sampleRate;
   m_clips[clipIndex].loop = loop;
   m_clips[clipIndex].loaded = true;
+  m_clips[clipIndex].reverbSend = reverbSend;
 
   m_nextAddr = addr + alignedSize;
   return true;
@@ -139,6 +146,13 @@ int AudioManager::play(int clipIndex, int volume, int pan) {
   SPU_VOICES[ch].sampleStartAddr = static_cast<uint16_t>(clip.spuAddr / 8);
   SPU_VOICES[ch].adsrLo = config.adsr & 0xFFFF;
   SPU_VOICES[ch].adsrHi = (config.adsr >> 16) & 0xFFFF;
+
+  // Reverb send per voice, from the clip it plays (EON, kept in a shadow
+  // rather than read back from the register).
+  if (clip.reverbSend) m_reverbSend |= 1u << ch;
+  else m_reverbSend &= ~(1u << ch);
+  SPU_REVERB_EN_LOW = static_cast<uint16_t>(m_reverbSend);
+  SPU_REVERB_EN_HIGH = static_cast<uint16_t>(m_reverbSend >> 16);
 
   if (ch > 15) {
     SPU_KEY_ON_HIGH = 1 << (ch - 16);

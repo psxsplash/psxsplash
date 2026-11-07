@@ -40,7 +40,12 @@ class NetLinkHandler {
  */
 class NetLink {
   public:
-    NetLink(INetTransport& transport, NetLinkHandler& handler) : m_transport(transport), m_handler(handler) {}
+    NetLink(INetTransport& transport, NetLinkHandler& handler) : m_transport(&transport), m_handler(handler) {}
+
+    // Carry the link over a different transport from now on. Call reset() with
+    // it: bytes half-parsed from the old transport mean nothing on the new one.
+    void setTransport(INetTransport& transport) { m_transport = &transport; }
+    INetTransport& transport() const { return *m_transport; }
 
     void setLocalSlot(uint8_t slot) { m_localSlot = slot; }
     uint8_t localSlot() const { return m_localSlot; }
@@ -141,7 +146,7 @@ class NetLink {
   public:
     /// How congested the outgoing wire is, 0..255. Callers with droppable data
     /// MUST consult this before queueing - see INetTransport::txCongestion.
-    uint8_t txCongestion() const { return m_transport.txCongestion(); }
+    uint8_t txCongestion() const { return m_transport->txCongestion(); }
 
     /// Acknowledgements the transport refused and that had to be retried. A
     /// non-zero value means the outbound side was full at the exact moment the
@@ -194,7 +199,7 @@ class NetLink {
     bool m_hasPendingAck = false;
     uint32_t m_acksDeferred = 0;
 
-    INetTransport& m_transport;
+    INetTransport* m_transport;
     NetLinkHandler& m_handler;
     uint8_t m_localSlot = c_noSlot;
 
