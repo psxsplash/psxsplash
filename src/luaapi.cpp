@@ -749,6 +749,12 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Movie_IsPlaying);
     L.setField(-2, "IsPlaying");
 
+    L.push(Movie_Frame);
+    L.setField(-2, "Frame");
+
+    L.push(Movie_ReadSpeed);
+    L.setField(-2, "ReadSpeed");
+
     L.push(Movie_PlayOn);
     L.setField(-2, "PlayOn");
 
@@ -3803,9 +3809,16 @@ int LuaAPI::Audio_StopAll(lua_State* L) {
     return 0;
 }
 
+// What would send the drive a command while a movie streams off it raises an error instead: the
+// command would end the stream. onComplete runs once the drive is free.
+static int refuseWhileMovie(lua_State* L, const char* what) {
+    return luaL_error(L, "%s: not while a movie plays (the drive is streaming it); call it from onComplete", what);
+}
+
 int LuaAPI::Audio_PlayCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.PlayCDDA");
     s_sceneManager->getMusic().playCDDATrack(static_cast<int>(lua.toNumber(1)));
     return 0;
 }
@@ -3813,6 +3826,7 @@ int LuaAPI::Audio_PlayCDDA(lua_State *L) {
 int LuaAPI::Audio_ResumeCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.ResumeCDDA");
     s_sceneManager->getMusic().resumeCDDA();
     return 0;
 }
@@ -3820,6 +3834,7 @@ int LuaAPI::Audio_ResumeCDDA(lua_State *L) {
 int LuaAPI::Audio_PauseCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.PauseCDDA");
     s_sceneManager->getMusic().pauseCDDA();
     return 0;
 }
@@ -3827,12 +3842,14 @@ int LuaAPI::Audio_PauseCDDA(lua_State *L) {
 int LuaAPI::Audio_StopCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.StopCDDA");
     s_sceneManager->getMusic().stopCDDA();
     return 0;
 }
 
 int LuaAPI::Audio_TellCDDA(lua_State *L) {
     if (!s_sceneManager) return 0;
+    if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.TellCDDA");
     s_sceneManager->getMusic().tellCDDA(L);
     return 0;
 }
@@ -4555,12 +4572,24 @@ int LuaAPI::Movie_Play(lua_State* L) {
         }
     }
 
+    // A 16-bit UI image, drawn behind the scene, that the movie plays into as the game runs.
+    if (lua.isTable(2)) {
+        lua.getField(2, "behind");
+        const bool wanted = lua.isNumber(-1);
+        const bool ready = wanted && s_sceneManager->setMovieBehind(static_cast<int>(lua.toNumber(-1)), request);
+        lua.pop();
+        if (wanted && !ready) {
+            if (request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+            lua.push(false);
+            return 1;
+        }
+    }
     // In place the picture has to stay inside the framebuffers: 24 bits would
     // run over the textures beside them, which the scene still needs.
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
-    if (request.rgb24 || request.thenScene >= 0) request.overlay = false;  // nothing to lay it over
-    if (request.loop) request.skippable = true;  // no script runs to end it
+    if (request.rgb24 || request.thenScene >= 0 || request.behind()) request.overlay = false;  // nothing to lay it over
+    if (request.loop && !request.behind()) request.skippable = true;  // no script runs to end it; behind, the scene's load does
 
     const bool queued = s_sceneManager->requestMovie(request);
     if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
@@ -4574,18 +4603,37 @@ int LuaAPI::Movie_IsPlaying(lua_State* L) {
     return 1;
 }
 
+int LuaAPI::Movie_ReadSpeed(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(s_sceneManager ? s_sceneManager->readSpeed() : 0));
+    return 1;
+}
+
+int LuaAPI::Movie_Frame(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.pushNumber(static_cast<lua_Number>(s_sceneManager ? s_sceneManager->movieFramesShown() : 0));
+    return 1;
+}
+
 int LuaAPI::Movie_PlayOn(lua_State* L) {
     psyqo::Lua lua(L);
 
     char name[9];
-    if (!s_sceneManager || !lua.isTable(1) || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+    if (!s_sceneManager || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
         lua.push(false);
         return 1;
     }
-    lua.getField(1, "__cpp_ptr");
-    auto target = lua.toUserdata<GameObject>(-1);
-    lua.pop();
-    if (!target) {
+    // An entity, or a UI image's handle from UI.FindElement.
+    GameObject* target = nullptr;
+    int element = -1;
+    if (lua.isNumber(1)) {
+        element = static_cast<int>(lua.toNumber(1));
+    } else if (lua.isTable(1)) {
+        lua.getField(1, "__cpp_ptr");
+        target = lua.toUserdata<GameObject>(-1);
+        lua.pop();
+    }
+    if (!target && element < 0) {
         lua.push(false);
         return 1;
     }
@@ -4609,7 +4657,8 @@ int LuaAPI::Movie_PlayOn(lua_State* L) {
         }
     }
 
-    const bool started = s_sceneManager->playMovieOn(name, target, options);
+    const bool started = target ? s_sceneManager->playMovieOn(name, target, options)
+                                : s_sceneManager->playMovieOnImage(name, element, options);
     if (!started && options.onComplete != MovieTexture::c_noRef) {
         luaL_unref(L, LUA_REGISTRYINDEX, options.onComplete);
     }

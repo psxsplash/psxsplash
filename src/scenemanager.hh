@@ -476,11 +476,23 @@ namespace psxsplash {
         // Movie.Play: queues the movie for the end of this frame.
         bool requestMovie(const MoviePlayer::Request& request) { return m_movie.request(request); }
         bool isMovieBusy() const { return m_movie.busy(); }
+        uint32_t movieFramesShown() const { return m_movie.framesShown(); }
+        // What the drive reads at now: 1 or 2, or 0 on a build that has no drive.
+        int readSpeed();
+        // Points a request at a 16-bit UI image and draws that image behind the scene.
+        bool setMovieBehind(int element, MoviePlayer::Request& request);
         // One frame of the movie playing, if there is one; false when there is none.
         bool tickMovie(psyqo::GPU& gpu);
         // Movie.PlayOn: a small movie on a mesh, the game carrying on.
         bool playMovieOn(const char* name, const GameObject* target, const MovieTexture::Options& options);
+        bool playMovieOnImage(const char* name, int element, const MovieTexture::Options& options);
         void stopMovieOn();
+#endif
+        // A movie is streaming off the drive: nothing else may send it a command.
+#if PSXSPLASH_FEATURE_MOVIE
+        bool movieStreaming() const { return m_movie.playing(); }
+#else
+        bool movieStreaming() const { return false; }
 #endif
         Controls& getControlsPlayer1() { return m_controls[0]; }
         Controls& getControlsPlayer2() { return m_controls[1]; }
@@ -572,7 +584,7 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_MOVIE
         void startMovie(psyqo::GPU& gpu);
         void finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result);
-        void fireMovieComplete(int ref, const char* result);
+        void fireMovieComplete(int ref, const char* result, int shown = -1, int dropped = -1);
         MoviePlayer m_movie;
         MovieTexture m_movieTexture;
         // The scene's video mode while a movie plays in its place at 320x240.

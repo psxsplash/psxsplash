@@ -1595,8 +1595,9 @@ void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
     // StrPlayer shows 320x240 from the two buffers at y 0 and 256. A 640x480
     // scene's one buffer covers both, so its movies play at 320x240 (an overlay
     // on black, as the scene's picture does not fit) and finishMovie puts the
-    // scene's mode back.
-    if (currentScreen().interlaced) {
+    // scene's mode back. A movie behind the scene goes to a UI image, not the
+    // screen, so the scene keeps its mode.
+    if (currentScreen().interlaced && !request.behind()) {
         if (request.thenScene < 0) m_movieSceneVideoMode = VIDEO_MODE_640x480I;
         Renderer::GetInstance().SetVideoMode(VIDEO_MODE_320x240);
     }
@@ -1619,6 +1620,42 @@ bool psxsplash::SceneManager::playMovieOn(const char* name, const GameObject* ta
 #endif
 }
 
+bool psxsplash::SceneManager::playMovieOnImage(const char* name, int element, const MovieTexture::Options& options) {
+#if defined(LOADER_CDROM) && PSXSPLASH_FEATURE_UI
+    const UIImageData* image = m_uiSystem.getImageData(element);
+    if (!image || image->bitDepth != 2) {
+        printf("Movie %s: the target needs a 16-bit image\n", name);
+        return false;
+    }
+    CDRomHelper::WakeDrive();
+    const bool playing =
+        m_movieTexture.play(name, int16_t(image->texpageX * 64 + image->u0), int16_t(image->texpageY * 256 + image->v0),
+                            (image->u1 - image->u0 + 8u) & ~15u, (image->v1 - image->v0 + 8u) & ~15u, options);
+    CDRomHelper::SilenceDrive();
+    return playing;
+#else
+    return false;
+#endif
+}
+
+bool psxsplash::SceneManager::setMovieBehind(int element, MoviePlayer::Request& request) {
+#if PSXSPLASH_FEATURE_UI
+    const UIImageData* image = m_uiSystem.getImageData(element);
+    if (!image || image->bitDepth != 2) {
+        printf("Movie %s: behind needs a 16-bit image\n", request.name);
+        return false;
+    }
+    request.vramX = int16_t(image->texpageX * 64 + image->u0);
+    request.vramY = int16_t(image->texpageY * 256 + image->v0);
+    request.vramWidth = uint16_t((image->u1 - image->u0 + 8u) & ~15u);
+    request.vramHeight = uint16_t((image->v1 - image->v0 + 8u) & ~15u);
+    m_uiSystem.setBehindScene(element, true);
+    return true;
+#else
+    return false;
+#endif
+}
+
 void psxsplash::SceneManager::stopMovieOn() {
     m_movieTexture.stop();
     const int ref = m_movieTexture.takeOnComplete();
@@ -1636,16 +1673,21 @@ bool psxsplash::SceneManager::tickMovie(psyqo::GPU& gpu) {
     if (!m_movie.playing()) return false;
     MoviePlayer::Result result;
     if (m_movie.frame(m_controls[0], result)) finishMovie(gpu, result);
-    return true;
+    // Behind the scene the game goes on, a frame of it for each of the movie's.
+    return !m_movie.request().behind();
 }
 
 void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result) {
     const MoviePlayer::Request& request = m_movie.request();
-    // The game's tick did not run while the movie played: the button that skipped it is no press now.
+    m_movie.releaseSubtitles();
+    // The game's tick did not run while a movie in front of it played: the button that skipped it is
+    // no press now. Behind the scene the game ran and read its own presses.
     // Each pad is set before it settles, in case the movie ends before the first game tick.
-    for (int i = 0; i < inputmap::MAX_PLAYERS; i++) {
-        m_controls[i].setPlayer(i + 1);
-        m_controls[i].SettleButtons();
+    if (!request.behind()) {
+        for (int i = 0; i < inputmap::MAX_PLAYERS; i++) {
+            m_controls[i].setPlayer(i + 1);
+            m_controls[i].SettleButtons();
+        }
     }
 #if defined(LOADER_CDROM)
     if (request.thenScene >= 0) {
@@ -1660,7 +1702,8 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
 
     fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
                                           : result == MoviePlayer::Result::SKIPPED ? "skipped"
-                                                                                   : "failed");
+                                                                                   : "failed",
+                      int(m_movie.lastShown()), int(m_movie.lastDropped()));
     // Its last picture stays up for a movie onComplete queued; otherwise the game's display comes back.
     if (!m_movie.pending()) {
         m_movie.restoreDisplay();
@@ -1671,14 +1714,28 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
     }
 }
 
-void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
+int psxsplash::SceneManager::readSpeed() {
+#if defined(LOADER_CDROM)
+    return static_cast<FileLoaderCDRom&>(FileLoader::Get()).getCDRomDevice()->isDoubleSpeed() ? 2 : 1;
+#else
+    return 0;
+#endif
+}
+
+void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result, int shown, int dropped) {
     if (ref == MoviePlayer::c_noRef) return;
     lua_State* state = L.getState().getState();
     psyqo::Lua lua(state);
     lua.rawGetI(LUA_REGISTRYINDEX, ref);
     if (lua.isFunction(-1)) {
         lua.push(result);
-        if (lua.pcall(1, 0) != LUA_OK) {
+        int args = 1;
+        if (shown >= 0) {
+            lua.pushNumber(static_cast<lua_Number>(shown));
+            lua.pushNumber(static_cast<lua_Number>(dropped));
+            args = 3;
+        }
+        if (lua.pcall(args, 0) != LUA_OK) {
             printf("Lua error: %s\n", lua.toString(-1));
             lua.pop();
         }
@@ -1690,6 +1747,15 @@ void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result) {
 #endif
 
 void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool isFirstScene) {
+#if PSXSPLASH_FEATURE_MOVIE
+    // A movie behind the scene goes with it, before the drive is settled. Its image and its
+    // onComplete are the scene's, and onComplete does not run while the scene is torn down.
+    if (m_movie.playing() && m_movie.request().behind()) {
+        const int ref = m_movie.request().onComplete;
+        if (ref != MoviePlayer::c_noRef) luaL_unref(L.getState().getState(), LUA_REGISTRYINDEX, ref);
+        m_movie.abandon();
+    }
+#endif
     // Finish or drop gameplay stream reads while the scene that owns their
     // buffers is still alive; the blocking loads below need an idle drive.
 #if PSXSPLASH_FEATURE_STREAMING

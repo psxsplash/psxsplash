@@ -132,7 +132,13 @@ bool psxsplash::MovieTexture::play(const char* name, const GameObject* target, c
         printf("Movie %s: the target needs a 16-bit texture\n", name);
         return false;
     }
-    const uint32_t width = texelSpan(minU, maxU), height = texelSpan(minV, maxV);
+    return play(name, int16_t(first->tpage.getPageX() * 64 + minU), int16_t(first->tpage.getPageY() * 256 + minV),
+                texelSpan(minU, maxU), texelSpan(minV, maxV), options);
+}
+
+bool psxsplash::MovieTexture::play(const char* name, int16_t x, int16_t y, uint32_t width, uint32_t height,
+                                   const Options& options) {
+    stop();
     if (!width || !height) {
         printf("Movie %s: the target's texture is smaller than a macroblock\n", name);
         return false;
@@ -199,8 +205,8 @@ bool psxsplash::MovieTexture::play(const char* name, const GameObject* target, c
     m_stride = stride;
     m_frames = frames;
     m_macroblocks = (width / c_macroblock) * (height / c_macroblock);
-    m_x = int16_t(first->tpage.getPageX() * 64 + minU);
-    m_y = int16_t(first->tpage.getPageY() * 256 + minV);
+    m_x = x;
+    m_y = y;
     m_width = int16_t(width);
     m_height = int16_t(height);
     m_fps = options.fps ? options.fps : 15;

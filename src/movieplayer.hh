@@ -9,6 +9,7 @@
 #include <psyqo/gpu.hh>
 
 #include "controls.hh"
+#include "srt.hh"
 
 namespace psxsplash {
 
@@ -44,6 +45,11 @@ class MoviePlayer {
 
     static constexpr int c_noRef = -2;  // LUA_NOREF
 
+    // One line of text over a 15-bit movie, split on \n into at most two rows. Times
+    // are from the first picture. They come from MOVIES/NAME.SRT beside the movie, when
+    // there is one, and make it 15-bit: the GPU cannot draw into a 24-bit picture.
+    using Subtitle = srt::Subtitle;
+
     struct Request {
         char name[9] = {};      // "INTRO": A-Z, 0-9 and _, 8 characters at most
         int thenScene = -1;     // the scene to load after it, or -1 to stay
@@ -54,6 +60,12 @@ class MoviePlayer {
         bool loop = false;
         bool overlay = false;
         uint8_t speed = 0;  // 1 for a movie made with psxavenc -x 1, 2 for -x 2, 0 for the disc's
+        Subtitle* subtitles = nullptr;  // from psyqo_malloc; the player frees them
+        uint16_t subtitleCount = 0;
+        // A 16-bit UI image's rectangle, for a movie that plays behind the scene.
+        int16_t vramX = -1, vramY = 0;
+        uint16_t vramWidth = 0, vramHeight = 0;
+        bool behind() const { return vramX >= 0; }
     };
 
     // Queues a movie for the end of this frame. False while one is queued or
@@ -78,12 +90,25 @@ class MoviePlayer {
 
     const Request& request() const { return m_request; }
 
+    // Frames shown so far, for a scene that follows the movie.
+    uint32_t framesShown() const;
+    uint32_t lastShown() const { return m_lastShown; }
+    uint32_t lastDropped() const { return m_lastDropped; }
+
+    // The scene calls this when a movie has ended, or never started.
+    void releaseSubtitles();
+
+    // The scene behind the movie is going: it stops where it is, and nothing of it runs.
+    void abandon();
+    static void loadSubtitles(class FileLoaderCDRom& loader, Request& request);
+
     // The display back as the game left it, once no movie follows: a movie that
     // ends leaves its last picture up, so one that follows starts from it.
     void restoreDisplay();
 
   private:
     bool skipPressed(Controls& pad);
+    void drawSubtitles();
     void finish();
 
     Request m_request;
@@ -91,6 +116,10 @@ class MoviePlayer {
     bool m_pending = false;
     bool m_playing = false;
     bool m_skipHeld = false;
+    bool m_clockStarted = false;
+    uint32_t m_lastShown = 0, m_lastDropped = 0;
+    uint32_t m_clockStart = 0;
+    int16_t m_picX = 0, m_picY = 0, m_picW = 0, m_picH = 0;  // the picture in the display, for the subtitles
     bool m_held = false;       // a movie's last picture is up
     bool m_heldRgb24 = false;  // at 24 bits
 };

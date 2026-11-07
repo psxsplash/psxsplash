@@ -727,13 +727,19 @@ private:
     // CUTSCENE API - Cutscene playback control
     // ========================================================================
     
-    // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, onComplete=fn(result), thenScene=n, rgb24=bool}) -> queued
+    // Movie.Play(name) or Movie.Play(name, {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2, behind=element, onComplete=fn(result, shown, dropped), thenScene=n, rgb24=bool}) -> queued
     static int Movie_Play(lua_State* L);
 
     // Movie.IsPlaying() -> boolean
     static int Movie_IsPlaying(lua_State* L);
 
-    // Movie.PlayOn(entity, name) or Movie.PlayOn(entity, name, {fps=n, loop=bool, onComplete=fn}) -> started
+    // Movie.Frame() -> frames shown
+    static int Movie_Frame(lua_State* L);
+
+    // Movie.ReadSpeed() -> 1|2, the drive's speed now (0 without one)
+    static int Movie_ReadSpeed(lua_State* L);
+
+    // Movie.PlayOn(entity or UI image, name) or Movie.PlayOn(entity or UI image, name, {fps=n, loop=bool, onComplete=fn}) -> started
     static int Movie_PlayOn(lua_State* L);
 
     // Movie.StopOn() -> nil

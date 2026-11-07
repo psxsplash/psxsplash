@@ -4,16 +4,19 @@
 
 #if defined(LOADER_CDROM)
 
+#include <EASTL/algorithm.h>
 #include <new>
 
 #include <psyqo-paths/str-player.hh>
 #include <psyqo/alloc.h>
 #include <psyqo/hardware/gpu.hh>
 #include <psyqo/primitives/misc.hh>
+#include <psyqo/primitives/rectangles.hh>
 #include <psyqo/xprintf.h>
 
 #include "fileloader.hh"
 #include "fileloader_cdrom.hh"
+#include "scenemanager.hh"
 
 namespace {
 
@@ -111,6 +114,32 @@ bool psxsplash::MoviePlayer::request(const Request& request) {
     return true;
 }
 
+static void reportSubtitle(void* name, unsigned number, psxsplash::srt::Problem problem) {
+    if (problem == psxsplash::srt::Problem::LeftOut) {
+        printf("Movie %s: subtitle %u is not a time line (00:00:01,500 --> 00:00:04,000) and its text, left out\n",
+               static_cast<const char*>(name), number);
+    } else {
+        printf("Movie %s: subtitle %u has more than two rows of 40 characters, the rest is off screen\n",
+               static_cast<const char*>(name), number);
+    }
+}
+
+void psxsplash::MoviePlayer::loadSubtitles(FileLoaderCDRom& loader, Request& request) {
+    char path[24];
+    snprintf(path, sizeof path, "MOVIES/%s.SRT;1", request.name);
+    int size = 0;
+    uint8_t* file = loader.LoadFileSyncIfThere(path, size);
+    if (!file) return;
+    const char* text = reinterpret_cast<const char*>(file);
+    const unsigned room = srt::count(text, size_t(size));
+    if (room) request.subtitles = static_cast<Subtitle*>(psyqo_malloc(room * sizeof(Subtitle)));
+    if (request.subtitles) {
+        request.subtitleCount = uint16_t(srt::parse(text, size_t(size), request.subtitles, room, reportSubtitle, request.name));
+    }
+    FileLoader::Get().FreeFile(file);
+    printf("Movie %s: %u subtitles\n", request.name, request.subtitleCount);
+}
+
 bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     m_gpu = &gpu;
     auto& loader = static_cast<FileLoaderCDRom&>(FileLoader::Get());
@@ -125,6 +154,9 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     }
     const uint32_t sectors = (size + 2047) / 2048;
 
+    if (!m_request.behind()) loadSubtitles(loader, m_request);
+    if (m_request.subtitleCount) m_request.rgb24 = false;
+
     StrPlayer::Options options;
     options.rgb24 = m_request.rgb24;
     options.doubleSpeed = m_request.speed ? m_request.speed == 2 : FileLoaderCDRom::discDoubleSpeed();
@@ -134,23 +166,42 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     // display twice the corner plus the picture puts the picture at the corner.
     if (m_request.x >= 0 && width) options.displayWidth = uint16_t(2 * m_request.x + width);
     if (m_request.y >= 0 && height) options.displayHeight = uint16_t(2 * m_request.y + height);
+    m_picX = int16_t((options.displayWidth - width) / 2);
+    m_picY = int16_t((options.displayHeight - height) / 2);
+    m_picW = int16_t(width);
+    m_picH = int16_t(height);
 
     if (!fitsInHeap(options)) {
         printf("Movie %s: its buffers do not fit in the heap\n", m_request.name);
+        releaseSubtitles();
         return false;
     }
 
     // A movie that follows another at the same depth and fills the screen keeps
     // the last one's picture up until its own first frame replaces it.
     const bool covers = width >= options.displayWidth && height >= options.displayHeight;
-    const bool keep = m_held && m_heldRgb24 == m_request.rgb24 && !m_request.overlay && covers;
+    const bool keep = m_held && !m_request.behind() && m_heldRgb24 == m_request.rgb24 && !m_request.overlay && covers;
     if (m_held && !keep) restoreDisplay();
     m_held = false;
-    if (m_request.rgb24) setDisplayDepth(gpu, true);
-    if (m_request.overlay) {
-        freezeFramebuffers(gpu);
-    } else if (!keep) {
-        clearFramebuffers(gpu, m_request.rgb24);
+    if (m_request.behind()) {
+        if (width != m_request.vramWidth || height != m_request.vramHeight) {
+            printf("Movie %s: %ux%u does not fill its image, %ux%u\n", m_request.name, width, height,
+                   m_request.vramWidth, m_request.vramHeight);
+            return false;
+        }
+        options.rgb24 = false;
+        options.vramX = m_request.vramX;
+        options.vramY = m_request.vramY;
+        // the rectangle is the image's: StrPlayer refuses one that leaves VRAM
+        options.displayWidth = width;
+        options.displayHeight = height;
+    } else {
+        if (m_request.rgb24) setDisplayDepth(gpu, true);
+        if (m_request.overlay) {
+            freezeFramebuffers(gpu);
+        } else if (!keep) {
+            clearFramebuffers(gpu, m_request.rgb24);
+        }
     }
 
     s_options = options;
@@ -165,6 +216,7 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     }
     m_playing = true;
     m_skipHeld = skipPressed(pad);  // a press that started the movie does not end it
+    m_clockStarted = false;
     return true;
 }
 
@@ -172,9 +224,15 @@ bool psxsplash::MoviePlayer::skipPressed(Controls& pad) {
     return pad.isButtonHeld(psyqo::AdvancedPad::Button::Start) || pad.isButtonHeld(psyqo::AdvancedPad::Button::Cross);
 }
 
+uint32_t psxsplash::MoviePlayer::framesShown() const { return s_player ? s_player->stats().framesShown : 0; }
+
 bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
+    // Behind a scene the last frame's chain may still be running, and the player's
+    // uploads cannot share the GPU's DMA with it.
+    if (m_request.behind()) m_gpu->waitChainIdle();
     const StrPlayer::Status status = s_player->frame();
     if (status == StrPlayer::Status::PLAYING) {
+        if (!m_request.behind()) drawSubtitles();
         const bool held = skipPressed(pad);
         const bool pressed = held && !m_skipHeld;
         m_skipHeld = held;
@@ -188,10 +246,74 @@ bool psxsplash::MoviePlayer::frame(Controls& pad, Result& result) {
         result = status == StrPlayer::Status::ENDED ? Result::ENDED : Result::FAILED;
     }
     const auto& s = s_player->stats();
+    m_lastShown = s.framesShown;
+    m_lastDropped = s.framesDropped + s.framesRejected;
     printf("Movie %s: shown %u dropped %u rejected %u read errors %u bad addresses %u\n", m_request.name, s.framesShown,
            s.framesDropped, s.framesRejected, s.readErrors, s.badAddresses);
     finish();
     return true;
+}
+
+// The frame just decoded is in the back buffer and the flip has not happened, so
+// text drawn here shows with its picture and goes with it.
+void psxsplash::MoviePlayer::drawSubtitles() {
+    if (!m_clockStarted) {
+        m_clockStarted = true;
+        m_clockStart = m_gpu->getLiveFrameCount();
+    }
+    if (!m_request.subtitleCount) return;
+    psyqo::Font<>* font = SceneManager::GetFont();
+    if (!font) return;
+    // Nothing redraws a smaller picture's border, so the text drawn there last time would stay after its time:
+    // the band the rows go in is blanked first, where the picture does not cover it.
+    constexpr int16_t top = 200, bottom = 240;
+    const int16_t px1 = int16_t(m_picX + m_picW), py1 = int16_t(m_picY + m_picH);
+    auto blank = [this](int16_t x, int16_t y, int16_t w, int16_t h) {
+        if (w <= 0 || h <= 0) return;
+        psyqo::Prim::Rectangle r({.r = 0, .g = 0, .b = 0});
+        r.position = {{.x = x, .y = y}};
+        r.size = {{.x = w, .y = h}};
+        m_gpu->sendPrimitive(r);
+    };
+    const int16_t a = eastl::max(top, m_picY), b = eastl::min(bottom, py1);
+    if (b > a) {
+        blank(0, a, m_picX, int16_t(b - a));
+        blank(px1, a, int16_t(320 - px1), int16_t(b - a));
+    }
+    blank(0, top, 320, int16_t(eastl::min(m_picY, bottom) - top));
+    blank(0, eastl::max(top, py1), 320, int16_t(bottom - eastl::max(top, py1)));
+    const uint32_t vsyncs = m_gpu->getLiveFrameCount() - m_clockStart;
+    const uint32_t ms = vsyncs * 1000 / m_gpu->getRefreshRate();
+    for (unsigned i = 0; i < m_request.subtitleCount; i++) {
+        const Subtitle& line = m_request.subtitles[i];
+        if (ms < line.fromMs || ms >= line.toMs) continue;
+        const char* second = line.text;
+        while (*second && *second != '\n') second++;
+        const size_t firstLength = second - line.text;
+        const bool two = *second == '\n';
+        if (two) second++;
+        const size_t secondLength = two ? __builtin_strlen(second) : 0;
+        const eastl::string_view rows[2] = {{line.text, firstLength}, {second, secondLength}};
+        for (int row = 0; row < (two ? 2 : 1); row++) {
+            const int16_t x = int16_t((320 - int(rows[row].size()) * 8) / 2);
+            const int16_t y = int16_t((two ? 204 : 220) + row * 16);
+            font->print(*m_gpu, rows[row], {{.x = int16_t(x + 1), .y = int16_t(y + 1)}}, {{.r = 0, .g = 0, .b = 0}});
+            font->print(*m_gpu, rows[row], {{.x = x, .y = y}}, {{.r = 0xff, .g = 0xff, .b = 0xff}});
+        }
+    }
+}
+
+void psxsplash::MoviePlayer::releaseSubtitles() {
+    if (m_request.subtitles) psyqo_free(m_request.subtitles);
+    m_request.subtitles = nullptr;
+    m_request.subtitleCount = 0;
+}
+
+void psxsplash::MoviePlayer::abandon() {
+    if (!m_playing) return;
+    if (s_player) s_player->stop();
+    printf("Movie %s: stopped, the scene behind it is going\n", m_request.name);
+    finish();
 }
 
 void psxsplash::MoviePlayer::finish() {
@@ -199,7 +321,7 @@ void psxsplash::MoviePlayer::finish() {
         s_player->~StrPlayer();
         s_player = nullptr;
     }
-    m_held = true;
+    m_held = !m_request.behind();
     m_heldRgb24 = m_request.rgb24;
     m_playing = false;
 }
@@ -219,6 +341,9 @@ bool psxsplash::MoviePlayer::start(psyqo::GPU&, Controls&) { return false; }
 bool psxsplash::MoviePlayer::frame(Controls&, Result&) { return true; }
 bool psxsplash::MoviePlayer::skipPressed(Controls&) { return false; }
 void psxsplash::MoviePlayer::finish() {}
+void psxsplash::MoviePlayer::abandon() {}
+uint32_t psxsplash::MoviePlayer::framesShown() const { return 0; }
+void psxsplash::MoviePlayer::releaseSubtitles() {}
 void psxsplash::MoviePlayer::restoreDisplay() {}
 
 #endif  // LOADER_CDROM
