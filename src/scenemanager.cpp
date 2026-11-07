@@ -119,6 +119,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
     SplashpackSceneSetup sceneSetup;
+#if PSXSPLASH_FEATURE_SKIN
+    sceneSetup.loadedSkinAnimSets = m_skinAnimSets;
+#endif
     m_loader.LoadSplashpack(splashpackData, sceneSetup);
     Renderer::GetInstance().Configure(sceneSetup.orderingTableSize, sceneSetup.bumpAllocatorSize);
 
@@ -231,10 +234,9 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
 #endif
 
 #if PSXSPLASH_FEATURE_SKIN
-    // Copy skinned mesh data from splashpack into scene manager storage
+    // The loader wrote the skinned mesh sets straight into m_skinAnimSets
     m_skinnedMeshCount = sceneSetup.skinnedMeshCount;
     for (int i = 0; i < m_skinnedMeshCount; i++) {
-        m_skinAnimSets[i] = sceneSetup.loadedSkinAnimSets[i];
         m_skinAnimStates[i] = SkinAnimState{};
         m_skinAnimStates[i].animSet = &m_skinAnimSets[i];
 

@@ -19,7 +19,7 @@ struct lua_State;
 namespace psxsplash {
 
 static constexpr uint8_t  SKINMESH_MAX_BONES  = 64;
-static constexpr uint8_t  SKINMESH_MAX_CLIPS  = 16;
+static constexpr uint8_t  SKINMESH_MAX_CLIPS  = 32;
 static constexpr int      MAX_SKINNED_MESHES   = 16;
 
 /// Pre-baked bone matrix: 3x3 rotation (4.12 fp) + translation.

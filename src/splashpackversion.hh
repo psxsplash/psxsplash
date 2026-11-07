@@ -17,13 +17,15 @@ static constexpr uint32_t kSplashpackHeaderSizeV24 = 148;
 static constexpr uint32_t kSplashpackHeaderSizeV25 = 156;  // v25..v27
 static constexpr uint32_t kSplashpackHeaderSizeV28 = 160;  // + shadowTableOffset
 static constexpr uint32_t kSplashpackHeaderSizeV29 = 164;  // + backgroundTableOffset
-static constexpr uint32_t kSplashpackHeaderSizeV30 = 168;  // + shineTableOffset
+static constexpr uint32_t kSplashpackHeaderSizeV30 = 168;  // + shineTableOffset, v30..v31
 
 // The oldest and newest formats this engine reads. A newer pack has fields
 // this engine does not know where to find, so it is refused rather than
 // parsed as if it were the newest one. Bump the newest with the format.
+// v31 changes no layout: a skin may carry more than 16 clips (up to
+// SKINMESH_MAX_CLIPS).
 static constexpr uint16_t kSplashpackOldestVersion = 20;
-#define PSXSPLASH_SPLASHPACK_NEWEST 30
+#define PSXSPLASH_SPLASHPACK_NEWEST 31
 static constexpr uint16_t kSplashpackNewestVersion = PSXSPLASH_SPLASHPACK_NEWEST;
 
 constexpr bool splashpackVersionSupported(uint16_t version) {
