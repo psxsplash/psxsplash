@@ -28,6 +28,7 @@
 namespace psxsplash {
 
 class UISystem; // Forward declaration
+class PaletteCycler; // Forward declaration
 class SpriteSystem; // Forward declaration
 class TileSystem;   // Forward declaration
 class NavRegionSystem;
@@ -152,6 +153,7 @@ class Renderer final {
                     int16_t width, int16_t height);
 
     void SetUISystem(UISystem* ui) { m_uiSystem = ui; }
+    void SetPaletteCycler(PaletteCycler* cycler) { m_paletteCycler = cycler; }
     void SetSpriteSystem(SpriteSystem* sprites) { m_spriteSystem = sprites; }
     void SetTileSystem(TileSystem* tiles) { m_tileSystem = tiles; }
     void SetBackgroundSystem(BackgroundSystem* bg) { m_backgroundSystem = bg; }
@@ -259,6 +261,7 @@ class Renderer final {
     psyqo::Color m_clearcolor = {.r = 0, .g = 0, .b = 0};
 
     UISystem* m_uiSystem = nullptr;
+    PaletteCycler* m_paletteCycler = nullptr;
     SpriteSystem* m_spriteSystem = nullptr;
     TileSystem* m_tileSystem = nullptr;
     BackgroundSystem* m_backgroundSystem = nullptr;
@@ -365,6 +368,8 @@ class Renderer final {
     uint32_t m_tagSkipped = 0;
     void beginCaptureTags();
     void endCaptureTags();
+    // The palette cycler's CLUT uploads, first in the frame's chain.
+    void emitPaletteUploads(OT& ot, Balloc& balloc);
     // One predictable branch per object while off.
     void tagObject(size_t index, const Tri* polys, uint16_t polyCount) {
         if (__builtin_expect(m_tagOn, 0)) {
