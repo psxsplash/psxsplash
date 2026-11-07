@@ -31,6 +31,8 @@ class ScreenFx {
     void uploadMasks(psyqo::GPU& gpu);
     int16_t width() const { return m_width; }
     int16_t height() const { return m_height; }
+    // The trail has the GPU set the mask bit on everything it writes.
+    bool maskForced() const { return m_maskForced; }
 
     // Scene load: every effect off.
     void reset();

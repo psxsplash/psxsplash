@@ -2,6 +2,7 @@
 
 #include "fade.hh"
 #include "otdepth.hh"
+#include "palettecycler.hh"
 
 #include <EASTL/array.h>
 #include <EASTL/vector.h>
@@ -71,6 +72,25 @@ void psxsplash::Renderer::endCaptureTags() {
     if (!m_tagOn) return;
     g_captureTag.tagged = m_tagCount;
     g_captureTag.skipped = m_tagSkipped;
+}
+
+// Last inserts into the far bucket, so the CLUT uploads precede every primitive
+// of the frame. GP0(E6h) applies to CPU-to-VRAM transfers too: with the trail's
+// forced mask bit still set from the last frame, every uploaded CLUT entry
+// would get bit 15 (black would stop being transparent). So the uploads run
+// with the mask from the source, and the trail's setting is put back after them.
+void psxsplash::Renderer::emitPaletteUploads(OT& ot, Balloc& balloc) {
+    if (!m_paletteCycler) return;
+    const int32_t farBucket = int32_t(m_otSize) - 1;
+    if (ScreenFx::get().maskForced()) {
+        auto& set = balloc.allocateFragment<psyqo::Prim::MaskControl>();
+        set.primitive = psyqo::Prim::MaskControl(psyqo::Prim::MaskControl::ForceSet);
+        ot.insert(set, farBucket);
+    }
+    m_paletteCycler->emit(ot, balloc, farBucket);
+    auto& plain = balloc.allocateFragment<psyqo::Prim::MaskControl>();
+    plain.primitive = psyqo::Prim::MaskControl(psyqo::Prim::MaskControl::FromSource);
+    ot.insert(plain, farBucket);
 }
 
 // The tag words go right after the fragment, in the same DMA packet: frag was
@@ -1280,6 +1300,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #endif
     endCaptureTags();
     frameClear(clear.primitive);
+    emitPaletteUploads(ot, balloc);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -1404,6 +1425,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #endif
     endCaptureTags();
     frameClear(clear.primitive);
+    emitPaletteUploads(ot, balloc);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
@@ -2141,6 +2163,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #endif
     endCaptureTags();
     frameClear(clear.primitive);
+    emitPaletteUploads(ot, balloc);
     m_gpu.chain(clear); m_gpu.chain(ot);
 #if PSXSPLASH_FEATURE_UI
     if (m_uiSystem) m_uiSystem->renderText(m_gpu);
