@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "vram_config.h"
 #include "renderer.hh"
 #include <psyqo/font.hh>
 #include <psyqo/gpu.hh>
@@ -92,6 +91,7 @@ struct UIFontDesc {
     uint8_t  glyphW, glyphH;
     uint16_t vramX, vramY;
     uint16_t textureH;
+    uint16_t clutY;           // vramY + textureH when a 16-entry palette follows the sheet, else vramY
     const uint8_t* pixelData; // raw 4bpp, points into splashpack
     uint32_t pixelDataSize;
     uint8_t  advanceWidths[96]; // per-char advance (ASCII 0x20-0x7F) in pixels

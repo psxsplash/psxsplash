@@ -43,12 +43,12 @@ void NetLink::reset() {
 // --- receive path ---------------------------------------------------------
 
 void NetLink::poll(int32_t dt12) {
-    m_transport.poll();
+    m_transport->poll();
     advanceClock(dt12);
 
     uint8_t buf[128];
     uint32_t n;
-    while ((n = m_transport.read(buf, sizeof(buf))) > 0) {
+    while ((n = m_transport->read(buf, sizeof(buf))) > 0) {
         m_rxWindowBytes += n;
         for (uint32_t i = 0; i < n; i++) feedByte(buf[i]);
     }
@@ -388,7 +388,7 @@ bool NetLink::buildAndSend(PacketType type, uint16_t seq, const uint8_t* payload
     // Atomic: a frame goes out whole or not at all. The old partial write left a
     // truncated prefix on the wire whose length header pointed into the NEXT
     // frame, so a single TX-ring overflow cost two frames and a resync.
-    if (!m_transport.writeAll(frame, o)) return false;
+    if (!m_transport->writeAll(frame, o)) return false;
 
     // Count only what the transport ACCEPTED. Bytes it refused never reach the
     // wire, and including them would report a throughput the link does not have -
@@ -452,17 +452,17 @@ void NetLink::pumpLatest() {
     // Note this also makes snapshots yield to reliable traffic for free: while a
     // 158-byte reliable message is in the queue, occupancy exceeds a snapshot and none are
     // added until it has gone.
-    const uint32_t occupancy = m_transport.txCapacity() - m_transport.txSpace();
+    const uint32_t occupancy = m_transport->txCapacity() - m_transport->txSpace();
     if (occupancy > m_latestLen) {
         m_latestDeferred++;
         return;
     }
-    if (m_transport.txSpace() < m_latestLen) {
+    if (m_transport->txSpace() < m_latestLen) {
         m_latestDeferred++;
         return;
     }
 
-    if (m_transport.writeAll(m_latestFrame, m_latestLen)) {
+    if (m_transport->writeAll(m_latestFrame, m_latestLen)) {
         m_txWindowBytes += m_latestLen;
         m_hasLatest = false;
     }

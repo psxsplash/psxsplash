@@ -1,7 +1,11 @@
 #include "networkmanager.hh"
 
+#include <psyqo/xprintf.h>
+
+#include "common/hardware/counters.h"
 #include "netinterp.hh"
 
+#include "pcdrv_handler.hh"
 #include "scenemanager.hh"
 #include "sio1.hh"
 
@@ -22,21 +26,62 @@ struct RecordWire {
 };
 }  // namespace
 
+// The PCDRV calls behind PcdrvSocket. Only where PCDRV is answered by a `break`
+// (the emulator, or a psxmon holding the exception slot): over the SIO1 PCDRV
+// protocol the calls would share the wire with the very session they replace.
+// Every build has them, a CD one too: the check is a read of RAM, so a console
+// with no monitor just goes on to SIO1, and a disc under a cart's monitor gets the
+// socket like anything else.
+namespace {
+int pcnetOpen(const char* name) { return pcdrv_uses_break() ? PCopen(name, 0, 0) : -1; }
+int pcnetClose(int fd) { return PCclose(fd); }
+int pcnetRead(int fd, void* buf, int len) { return PCread(fd, buf, len); }
+int pcnetWrite(int fd, const void* buf, int len) { return PCwrite(fd, buf, len); }
+// Timer 1 is psyqo's, in scanlines (gpu.cpp), and it counts while a call has the
+// console stopped with interrupts off: the time a call took is what it measures.
+uint16_t pcnetNow() {
+    uint32_t v;
+    do { v = COUNTERS[1].value; } while (v != COUNTERS[1].value);
+    return static_cast<uint16_t>(v);
+}
+constexpr PcdrvNetOps c_pcnetOps = {pcnetOpen, pcnetClose, pcnetRead, pcnetWrite, pcnetNow};
+
+// Is the serial port the monitor's own link? Sio1::init would then retune it under
+// the monitor, and the host would lose the console until someone pressed RESET.
+// The BIOS leaves the port off, so a monitor on another link leaves these bits clear.
+bool sio1IsTheMonitorsLink() { return !pcsx_present() && psxmon_owns_breaks() && (SIO1_CTRL & 5) == 5; }
+}  // namespace
+
 NetworkManager NetworkManager::s_instance;
 NetworkManager& NetworkManager::Get() { return s_instance; }
 
-NetworkManager::NetworkManager() : m_link(Sio1::Get(), *this) {
+NetworkManager::NetworkManager() : m_socket(c_pcnetOps), m_link(Sio1::Get(), *this) {
     for (uint8_t s = 0; s < c_maxSlots; ++s) m_remoteAvatarActor[s] = 0xFFFF;
 }
 
-void NetworkManager::begin(uint32_t sceneHash, uint32_t seed, uint32_t baud, Sio1::RxMode rxMode) {
+void NetworkManager::begin(uint32_t sceneHash, uint32_t seed, uint32_t baud, Sio1::RxMode rxMode,
+                           const char* server) {
     // A persistent reconnect is a REBIND, not a fresh join: we already hold a
     // slot and only changed scene. Keeping m_localSlot here is what lets
     // sendHello() raise c_flagRebind - clear it and the rebind silently
     // degrades into "new player", which a full room would then refuse.
     const bool rebinding = m_persistent && m_localSlot != c_noSlot;
 
-    Sio1::Get().init(baud, rxMode);
+    // The socket when the host offers one, SIO1 otherwise. An open socket is kept
+    // (open() returns true without reconnecting), so a scene change is a rebind on
+    // the same connection, just as it is on the same serial line.
+    if (m_socket.open(server ? server : PcdrvSocket::c_defaultServer)) {
+        if (!usingSocket()) printf("Net: transport tcp://%s\n", server ? server : PcdrvSocket::c_defaultServer);
+        m_link.setTransport(m_socket);
+    } else if (sio1IsTheMonitorsLink()) {
+        printf("Net: no server, and SIO1 is the monitor's link\n");
+        m_state = State::Disconnected;
+        return;
+    } else {
+        if (usingSocket()) printf("Net: transport sio1\n");
+        Sio1::Get().init(baud, rxMode);
+        m_link.setTransport(Sio1::Get());
+    }
     // Always clear the link: the reliable queue may still hold payloads for the
     // scene we just left, and delivering those into the new scene would apply
     // them to whatever actorIds happen to occupy the same indices.
@@ -611,14 +656,24 @@ void NetworkManager::buildAndSendSnapshot(SceneManager& sm) {
 void NetworkManager::preTick(SceneManager& sm, int32_t dt12) {
     if (m_state == State::Disconnected || m_state == State::VersionMismatch || m_state == State::SceneMismatch) {
         // end() queues a Bye and goes straight to Disconnected. Keep servicing
-        // the transport until its TX ring is empty, or in polled mode the Bye
-        // never leaves.
-        Sio1& sio = Sio1::Get();
-        if (sio.txSpace() < sio.txCapacity()) sio.poll();
+        // the transport until its TX ring is empty, or in polled mode (and on the
+        // socket, which only writes from poll) the Bye never leaves.
+        INetTransport& t = m_link.transport();
+        if (t.txSpace() < t.txCapacity()) t.poll();
         return;
     }
 
     m_link.poll(dt12);  // parses frames -> onHello/onHelloAck/onSnapshot
+
+    // A socket that failed (server gone, write timed out) is a lost link, and
+    // unlike a serial line it says so. Report it, so the game can Net.Connect()
+    // again; begin() then reconnects, or falls back to SIO1.
+    if (usingSocket() && !m_socket.isOpen()) {
+        printf("Net: tcp connection lost (PC%s returned %d)\n", m_socket.lastFailedCall() == 'w' ? "write" : "read",
+               m_socket.lastFailedResult());
+        m_state = State::Disconnected;
+        return;
+    }
 
     if (m_state == State::Connecting) {
         m_helloTimer -= dt12;
