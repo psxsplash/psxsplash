@@ -59,7 +59,7 @@ FEATURE_SRCS_streaming = src/streamreader.cpp src/streamselftest.cpp src/worldst
 FEATURE_SRCS_memcard = src/memorycardmanager.cpp src/luatableserializer.cpp
 FEATURE_SRCS_collision = src/collision.cpp
 FEATURE_SRCS_shadows = src/shadowrender.cpp
-FEATURE_SRCS_movie = src/movieplayer.cpp src/movietexture.cpp
+FEATURE_SRCS_movie = src/movieplayer.cpp src/movietexture.cpp src/srt.cpp
 FEATURE_SRCS_backgrounds = src/backgroundsystem.cpp src/backgroundmath.cpp
 FEATURE_SRCS_particles = src/particlesystem.cpp
 

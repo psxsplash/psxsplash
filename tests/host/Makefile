@@ -26,6 +26,7 @@ TILE_SRCS   := $(SRC_DIR)/tilemath.cpp
 LIGHT_SRCS  := $(SRC_DIR)/lightmath.cpp
 STREAM_SRCS := $(SRC_DIR)/streamplanner.cpp
 SKIN_SRCS   := $(SRC_DIR)/skinpose.cpp
+SRT_SRCS    := $(SRC_DIR)/srt.cpp
 SCREEN_SRCS := $(SRC_DIR)/screenmode.cpp
 BG_SRCS     := $(SRC_DIR)/backgroundmath.cpp
 
@@ -42,6 +43,7 @@ SHADOW_BIN := $(BUILD)/shadow_tests
 SHINE_BIN  := $(BUILD)/shine_tests
 JUMP_BIN   := $(BUILD)/jump_tests
 SKIN_BIN   := $(BUILD)/skinpose_tests
+SRT_BIN    := $(BUILD)/srt_tests
 PCNET_BIN  := $(BUILD)/pcdrvsocket_tests
 LUADEBUG_BIN := $(BUILD)/luadebug_tests
 PALCYCLE_BIN := $(BUILD)/palcycle_tests
@@ -121,10 +123,13 @@ $(PARTICLE_BIN): test_particle.cpp testing.hh compat.hh $(SRC_DIR)/particlemath.
 $(PCNET_BIN): test_pcdrvsocket.cpp mocktransport.hh testing.hh compat.hh $(NET_SRCS) $(SRC_DIR)/pcdrvsocket.cpp $(SRC_DIR)/pcdrvsocket.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_pcdrvsocket.cpp $(SRC_DIR)/pcdrvsocket.cpp $(NET_SRCS)
 
+$(SRT_BIN): test_srt.cpp testing.hh compat.hh $(SRT_SRCS) $(SRC_DIR)/srt.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_srt.cpp $(SRT_SRCS)
+
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SKIN_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(SKIN_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== pcdrvsocket =="
@@ -151,6 +156,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(SHINE_BIN)
 	@echo "== jump =="
 	@$(JUMP_BIN)
+	@echo "== srt =="
+	@$(SRT_BIN)
 	@echo "== luadebug =="
 	@$(LUADEBUG_BIN)
 	@echo "== palcycle =="

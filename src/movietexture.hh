@@ -23,7 +23,7 @@ namespace psxsplash {
  * texture, and every mesh sharing that texture shows the movie too. The picture
  * has the size of the texture's rectangle, which the target's UVs give, so both
  * sides have to be multiples of 16. The texture keeps the last frame shown until
- * the scene reloads.
+ * the scene reloads. A 16-bit UI image takes one the same way, by its own rectangle.
  *
  * One at a time. Disc builds only, and it needs the drive for a moment to read
  * the file: start it before CD music does, which is why this reads the file as it
@@ -42,6 +42,8 @@ class MovieTexture {
     // False, with a log line, when the target has no 16-bit texture, the file is
     // not on the disc, or it does not fit in the heap. Nothing is left running then.
     bool play(const char* name, const GameObject* target, const Options& options);
+    // The same into a rectangle of VRAM, with the same rules: 16-bit, sides of 16.
+    bool play(const char* name, int16_t x, int16_t y, uint32_t width, uint32_t height, const Options& options);
 
     // Lets go of the file and the buffers; the texture keeps its last frame.
     void stop();

@@ -24,7 +24,7 @@ local feature_srcs = {
     memcard = {"src/memorycardmanager.cpp", "src/luatableserializer.cpp"},
     collision = {"src/collision.cpp"},
     shadows = {"src/shadowrender.cpp"},
-    movie = {"src/movieplayer.cpp", "src/movietexture.cpp"},
+    movie = {"src/movieplayer.cpp", "src/movietexture.cpp", "src/srt.cpp"},
     backgrounds = {"src/backgroundsystem.cpp", "src/backgroundmath.cpp"},
     particles = {"src/particlesystem.cpp"},
 }
