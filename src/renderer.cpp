@@ -26,6 +26,7 @@
 #if PSXSPLASH_FEATURE_LIGHTS
 #include "lightgte.hh"
 #endif
+#include "screenfx.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
 #include "tilesystem.hh"
@@ -166,6 +167,8 @@ void psxsplash::Renderer::SetVideoMode(uint8_t videoMode) {
     m_gpu.enableScissor();
     write<Register::OFX, Safe>(uint32_t(mode.width / 2) << 16);
     write<Register::OFY, Safe>(uint32_t(mode.height / 2) << 16);
+    // Fades, bars and shake cover the new screen; 640x480 has one buffer, so no trail.
+    ScreenFx::get().setScreen(mode.width, mode.height, !mode.interlaced);
     if (m_currentCamera) setProjectionH(screenProjH());
     ClearFramebuffers(m_gpu);
     // This frame's chain is already queued for the next flip, drawn and
@@ -1218,6 +1221,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
     psyqo::Kernel::assert(m_currentCamera != nullptr, "PSXSPLASH: Tried to render without an active camera");
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     setProjectionH(screenProjH());
+    ScreenFx::get().beginFrame();
     beginSplitFrame();
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
@@ -1260,6 +1264,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+    ScreenFx::get().drawWorld(ot, balloc, parity, m_otSize);
 #if PSXSPLASH_FEATURE_SPRITES
     if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
@@ -1285,6 +1290,7 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
+    ScreenFx::get().drawOverlay(m_gpu, balloc);
     reportPeaks();
     m_frameCount++;
 }
@@ -1294,6 +1300,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     if (!bvh.isLoaded()) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     setProjectionH(screenProjH());
+    ScreenFx::get().beginFrame();
     beginSplitFrame();
     uint8_t parity = m_gpu.getParity();
     auto& ot = *m_ots[parity]; auto& clear = m_clear[parity]; auto& balloc = *m_ballocs[parity];
@@ -1381,6 +1388,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+    ScreenFx::get().drawWorld(ot, balloc, parity, m_otSize);
 #if PSXSPLASH_FEATURE_SPRITES
     if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
@@ -1406,6 +1414,7 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
+    ScreenFx::get().drawOverlay(m_gpu, balloc);
     reportPeaks();
     m_frameCount++;
 }
@@ -1633,6 +1642,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     if (roomCount == 0 || rooms == nullptr) { Render(objects); return; }
     // Re-sync GTE H register each frame (supports dynamic FOV / cutscene H tracks)
     setProjectionH(screenProjH());
+    ScreenFx::get().beginFrame();
     beginSplitFrame();
 
     uint8_t parity = m_gpu.getParity();
@@ -2115,6 +2125,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #endif
     // Sprites go in before the UI: both head-insert, so inserting the UI
     // later is what keeps it on top within its band.
+    ScreenFx::get().drawWorld(ot, balloc, parity, m_otSize);
 #if PSXSPLASH_FEATURE_SPRITES
     if (m_tileSystem) m_tileSystem->renderOT(ot, balloc);
     if (m_spriteSystem) m_spriteSystem->renderOT(ot, balloc);
@@ -2140,6 +2151,7 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
 #ifdef PSXSPLASH_PROFILER
     psxsplash::debug::Profiler::getInstance().renderText(m_gpu);
 #endif
+    ScreenFx::get().drawOverlay(m_gpu, balloc);
     reportPeaks();
     m_frameCount++;
 }
