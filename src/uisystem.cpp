@@ -66,6 +66,9 @@ void UISystem::loadFromSplashpack(uint8_t* data, uint16_t canvasCount,
         uint32_t dataOff = *reinterpret_cast<uint32_t*>(ptr + 8);
         fd.pixelDataSize = *reinterpret_cast<uint32_t*>(ptr + 12);
         fd.pixelData     = (dataOff != 0) ? (data + dataOff) : nullptr;
+        // A 16-entry palette (32 bytes) after the sheet goes in the row below it
+        fd.clutY         = (fd.pixelDataSize >= 128u * fd.textureH + 32)
+                           ? (uint16_t)(fd.vramY + fd.textureH) : fd.vramY;
         // Read 96 advance width bytes
         for (int i = 0; i < 96; i++) {
             fd.advanceWidths[i] = ptr[16 + i];
@@ -479,6 +482,15 @@ void UISystem::uploadFonts(psyqo::GPU& gpu) {
             (int16_t)fd.vramX, (int16_t)fd.vramY,
             64, (int16_t)fd.textureH);
 
+        if (fd.clutY != fd.vramY) {
+            // Font's own palette, in the row below the sheet
+            Renderer::GetInstance().VramUpload(
+                reinterpret_cast<const uint16_t*>(fd.pixelData + 128u * fd.textureH),
+                (int16_t)fd.vramX, (int16_t)fd.clutY,
+                16, 1);
+            continue;
+        }
+
         // Upload white CLUT at font CLUT position (entry 0=transparent, entry 1=white).
         // Sprite color tinting will produce the desired text color.
         static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
@@ -510,7 +522,7 @@ void UISystem::renderProportionalText(int fontIdx, int16_t x, int16_t y,
     tpageAttr.setDithering(false);
 
     // CLUT reference for this font
-    psyqo::Vertex clutPos = {{.x = (int16_t)fd.vramX, .y = (int16_t)fd.vramY}};
+    psyqo::Vertex clutPos = {{.x = (int16_t)fd.vramX, .y = (int16_t)fd.clutY}};
     psyqo::PrimPieces::ClutIndex clutIdx(clutPos);
 
     psyqo::Color color = {.r = r, .g = g, .b = b};
