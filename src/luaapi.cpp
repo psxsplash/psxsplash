@@ -746,6 +746,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Movie_Play);
     L.setField(-2, "Play");
 
+    L.push(Movie_Stop);
+    L.setField(-2, "Stop");
+
     L.push(Movie_IsPlaying);
     L.setField(-2, "IsPlaying");
 
@@ -4525,7 +4528,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
     }
 
     // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2,
-    // thenScene=n, rgb24=bool, onComplete=function}
+    // thenScene=n, rgb24=bool, onComplete=function, onUpdate=function}
     bool rgb24Set = false;
     if (lua.isTable(2)) {
         lua.getField(2, "skip");
@@ -4570,6 +4573,13 @@ int LuaAPI::Movie_Play(lua_State* L) {
         } else {
             lua.pop();
         }
+
+        lua.getField(2, "onUpdate");
+        if (lua.isFunction(-1) && request.thenScene < 0) {
+            request.onUpdate = lua.ref();
+        } else {
+            lua.pop();
+        }
     }
 
     // A 16-bit UI image, drawn behind the scene, that the movie plays into as the game runs.
@@ -4580,6 +4590,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
         lua.pop();
         if (wanted && !ready) {
             if (request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+            if (request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onUpdate);
             lua.push(false);
             return 1;
         }
@@ -4589,11 +4600,19 @@ int LuaAPI::Movie_Play(lua_State* L) {
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
     if (request.rgb24 || request.thenScene >= 0 || request.behind()) request.overlay = false;  // nothing to lay it over
-    if (request.loop && !request.behind()) request.skippable = true;  // no script runs to end it; behind, the scene's load does
+    // No script runs to end a looping movie unless onUpdate does (Movie.Stop); behind, the scene's load does.
+    if (request.loop && request.onUpdate == MoviePlayer::c_noRef && !request.behind()) request.skippable = true;
 
     const bool queued = s_sceneManager->requestMovie(request);
     if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+    if (!queued && request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onUpdate);
     lua.push(queued);
+    return 1;
+}
+
+int LuaAPI::Movie_Stop(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && s_sceneManager->stopMovie());
     return 1;
 }
 
@@ -4620,6 +4639,12 @@ int LuaAPI::Movie_PlayOn(lua_State* L) {
 
     char name[9];
     if (!s_sceneManager || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+        lua.push(false);
+        return 1;
+    }
+    // One stream at a time: a full-screen or behind movie has the drive.
+    if (s_sceneManager->movieStreaming()) {
+        printf("Movie %s: not while a movie plays\n", name);
         lua.push(false);
         return 1;
     }
