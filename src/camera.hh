@@ -21,6 +21,12 @@ class Camera {
 
     void SetRotation(psyqo::Angle x, psyqo::Angle y, psyqo::Angle z);
     psyqo::Matrix33& GetRotation();
+    /// Sets the world-to-view matrix as given (a baked background's exact
+    /// pose); the angles are what GetAngle* report.
+    void SetRotationMatrix(const psyqo::Matrix33& m, int16_t angleX, int16_t angleY, int16_t angleZ) {
+        m_rotationMatrix = m;
+        m_angleX = angleX, m_angleY = angleY, m_angleZ = angleZ;
+    }
 
     void SetProjectionH(int32_t h) { m_projH = h; }
     int32_t GetProjectionH() const { return m_projH; }

@@ -21,6 +21,11 @@ with the global `marker` = 43, then continue to `BOOT OK: luadebug 43`. With `NO
 without `luabp.txt`: no debugger, no stop, the same pass line.
 
     tests/boot/luadebug.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 120
+A third, `fixture-particles/`, has two particle emitters (splashpack v32): its scene script finds
+them by name, checks which one autoplays and bursts the other; the crate's script stops the playing
+one from Lua at update 240 and passes once its particles have all lived out their lifetime:
+
+    tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe 300 tests/boot/fixture-particles 'BOOT OK: particles'
 
 `fetch-redux.sh` downloads the newest Linux dev build of pcsx-redux and unpacks the AppImage, so
 no FUSE is needed. Any other `pcsx-redux` binary works as the first argument.
@@ -41,5 +46,6 @@ reading the committed version (the job then fails with the engine's own version 
 
 `--lua-debug` keeps the line numbers and local names the debugger needs (Play does the same while
 a project has breakpoints); `fixture-luadebug/luabp.txt` is written by hand.
+    build/cli/splashpack-cli export tests/boot/scene/particles.scene -o tests/boot/fixture-particles/scene_0.splashpack
 
 The export writes `scene_0.vram` and `scene_0.spu` beside the `.splashpack`. Commit all three.
