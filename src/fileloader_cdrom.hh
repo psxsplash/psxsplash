@@ -191,6 +191,28 @@ class FileLoaderCDRom final : public FileLoader {
         return resolveEntryBlocking(path, outLBA, outSize);
     }
 
+    /**
+     * Scoped directory cache for a scene load.  Every open walks the root and
+     * then the scene's directory; while a DirBatch lives, those sectors are read
+     * once and kept on the heap, and they are freed when it goes out of scope,
+     * so nothing stays resident between loads.  Outside a batch every lookup
+     * reads its directory sectors as before.
+     */
+    class DirBatch {
+      public:
+        explicit DirBatch(FileLoaderCDRom& loader) : m_loader(loader) { loader.m_dirCache = new DirCache{}; }
+        ~DirBatch() {
+            for (uint8_t* data : m_loader.m_dirCache->data) delete[] data;
+            delete m_loader.m_dirCache;
+            m_loader.m_dirCache = nullptr;
+        }
+        DirBatch(const DirBatch&) = delete;
+        DirBatch& operator=(const DirBatch&) = delete;
+
+      private:
+        FileLoaderCDRom& m_loader;
+    };
+
   private:
     // -- resolveEntryBlocking -------------------------------------
     // Walks the ISO9660 directory tree to find `path`, using only the
@@ -227,21 +249,33 @@ class FileLoaderCDRom final : public FileLoader {
 
             bool found = false;
             const uint32_t dirSectors = (dirSize + 2047) / 2048;
+            // In a batch the whole directory comes from the cache: the root in
+            // slot 0, the last subdirectory walked in slot 1.
+            const uint8_t* cached = nullptr;
+            if (m_dirCache) {
+                cached = cachedDir(dirLBA == m_rootLBA ? 0 : 1, dirLBA, dirSectors);
+                if (!cached) return false;
+            }
             for (uint32_t s = 0; s < dirSectors && !found; ++s) {
-                if (!m_cdrom.readSectorsBlocking(dirLBA + s, 1, m_dirBuf, *m_gpu)) return false;
+                const uint8_t* sector = m_dirBuf;
+                if (cached) {
+                    sector = cached + s * 2048;
+                } else if (!m_cdrom.readSectorsBlocking(dirLBA + s, 1, m_dirBuf, *m_gpu)) {
+                    return false;
+                }
 
                 uint32_t off = 0;
                 while (off < 2048) {
-                    const uint8_t recLen = m_dirBuf[off];
+                    const uint8_t recLen = sector[off];
                     if (recLen == 0) break;  // rest of this sector is padding
-                    const uint8_t nameLen = m_dirBuf[off + 32];
-                    const uint8_t* nm = m_dirBuf + off + 33;
+                    const uint8_t nameLen = sector[off + 32];
+                    const uint8_t* nm = sector + off + 33;
                     // Skip the "." (0x00) and ".." (0x01) self/parent entries.
                     const bool special = (nameLen == 1 && (nm[0] == 0 || nm[0] == 1));
                     if (!special && nameLen == segLen &&
                         __builtin_memcmp(nm, seg, segLen) == 0) {
-                        dirLBA = readLE32(m_dirBuf + off + 2);
-                        dirSize = readLE32(m_dirBuf + off + 10);
+                        dirLBA = readLE32(sector + off + 2);
+                        dirSize = readLE32(sector + off + 10);
                         found = true;
                         break;
                     }
@@ -259,6 +293,23 @@ class FileLoaderCDRom final : public FileLoader {
         return true;
     }
 
+    // -- cachedDir ------------------------------------------------
+    // Returns all `sectors` sectors of the directory at `lba`, reading them in
+    // one request the first time `slot` is asked for that directory.
+    const uint8_t* cachedDir(int slot, uint32_t lba, uint32_t sectors) {
+        DirCache& c = *m_dirCache;
+        if (c.data[slot] && c.lba[slot] == lba) return c.data[slot];
+        delete[] c.data[slot];
+        c.data[slot] = new uint8_t[sectors * 2048];
+        c.lba[slot] = lba;
+        if (!m_cdrom.readSectorsBlocking(lba, sectors, c.data[slot], *m_gpu)) {
+            delete[] c.data[slot];
+            c.data[slot] = nullptr;
+            return nullptr;
+        }
+        return c.data[slot];
+    }
+
     static uint32_t readLE32(const uint8_t* p) {
         return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
     }
@@ -271,6 +322,13 @@ class FileLoaderCDRom final : public FileLoader {
     bool m_haveRoot = false;
     uint32_t m_rootLBA = 0;
     uint32_t m_rootSize = 0;
+
+    // Directory sectors kept for the life of a DirBatch (null otherwise).
+    struct DirCache {
+        uint32_t lba[2];
+        uint8_t* data[2];
+    };
+    DirCache* m_dirCache = nullptr;
 
     // Sub-queues (not nested in the parent queue's fixed_vector storage).
     psyqo::TaskQueue m_initQueue;

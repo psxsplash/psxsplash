@@ -15,6 +15,7 @@
 #include "networkmanager.hh"
 
 #include "renderer.hh"
+#include "screenfx.hh"
 
 #include <psyqo/atan2.hh>
 #include <psyqo/gte-math.hh>
@@ -500,6 +501,34 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setField(-2, "SetH");
     
     L.setGlobal("Camera");
+
+    // ========================================================================
+    // SCREEN API - fades, flash, shake, letterbox and trail
+    // ========================================================================
+    L.newTable();
+
+    L.push(Screen_FadeOut);
+    L.setField(-2, "FadeOut");
+
+    L.push(Screen_FadeIn);
+    L.setField(-2, "FadeIn");
+
+    L.push(Screen_Flash);
+    L.setField(-2, "Flash");
+
+    L.push(Screen_Shake);
+    L.setField(-2, "Shake");
+
+    L.push(Screen_Letterbox);
+    L.setField(-2, "Letterbox");
+
+    L.push(Screen_Trail);
+    L.setField(-2, "Trail");
+
+    L.push(Screen_IsFading);
+    L.setField(-2, "IsFading");
+
+    L.setGlobal("Screen");
     
     // ========================================================================
     // AUDIO API (Placeholder)
@@ -942,6 +971,24 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.setGlobal("Light");
 #else
     RegisterCompiledOut(L, "Light", "lights");
+#endif
+
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+    // ========================================================================
+    // BACKGROUND API
+    // ========================================================================
+    L.newTable();  // Background table
+
+    L.push(Background_Show);
+    L.setField(-2, "Show");
+    L.push(Background_Hide);
+    L.setField(-2, "Hide");
+    L.push(Background_Current);
+    L.setField(-2, "Current");
+
+    L.setGlobal("Background");
+#else
+    RegisterCompiledOut(L, "Background", "backgrounds");
 #endif
 
 #if PSXSPLASH_FEATURE_SPRITES
@@ -3551,6 +3598,62 @@ int LuaAPI::Camera_SetH(lua_State* L) {
 }
 
 // ============================================================================
+// SCREEN API IMPLEMENTATION
+// ============================================================================
+
+static uint8_t screenByte(psyqo::Lua& lua, int i) {
+    int32_t v = lua.isNumber(i) ? static_cast<int32_t>(lua.toNumber(i)) : 0;
+    return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
+}
+
+static int32_t screenInt(psyqo::Lua& lua, int i) {
+    return lua.isNumber(i) ? static_cast<int32_t>(lua.toNumber(i)) : 0;
+}
+
+int LuaAPI::Screen_FadeOut(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().fadeOut(screenByte(lua, 1), screenByte(lua, 2), screenByte(lua, 3), screenInt(lua, 4));
+    return 0;
+}
+
+int LuaAPI::Screen_FadeIn(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().fadeIn(screenInt(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Screen_Flash(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().startFlash(screenByte(lua, 1), screenByte(lua, 2), screenByte(lua, 3), screenInt(lua, 4));
+    return 0;
+}
+
+int LuaAPI::Screen_Shake(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().state().startShake(screenInt(lua, 1), screenInt(lua, 2));
+    return 0;
+}
+
+int LuaAPI::Screen_Letterbox(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto& fx = ScreenFx::get();
+    fx.state().startLetterbox(screenInt(lua, 1), screenInt(lua, 2), fx.height());
+    return 0;
+}
+
+int LuaAPI::Screen_Trail(lua_State* L) {
+    psyqo::Lua lua(L);
+    ScreenFx::get().trail(screenInt(lua, 1));
+    return 0;
+}
+
+int LuaAPI::Screen_IsFading(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(ScreenFx::get().state().isFading());
+    return 1;
+}
+
+// ============================================================================
 // AUDIO API IMPLEMENTATION
 // ============================================================================
 
@@ -3875,8 +3978,8 @@ static inline bool projectToScreen(int32_t vx, int32_t vy, int32_t vz,
     int32_t projH, int16_t& sx, int16_t& sy) {
     if (vz <= 0) return false;
     int32_t vzs = vz >> 4; if (vzs <= 0) vzs = 1;
-    int32_t rawX = ((vx * projH) / vz) + 160;
-    int32_t rawY = ((vy * projH) / vz) + 120;
+    int32_t rawX = ((vx * projH) / vz) + currentScreen().width / 2;
+    int32_t rawY = ((vy * projH) / vz) + currentScreen().height / 2;
     if (rawX < -2048) rawX = -2048; else if (rawX > 2048) rawX = 2048;
     if (rawY < -2048) rawY = -2048; else if (rawY > 2048) rawY = 2048;
     sx = (int16_t)rawX;
@@ -3920,7 +4023,7 @@ int LuaAPI::Math_Convert3DTo2D(lua_State* L)
     auto& cam = s_sceneManager->getCamera();
     psyqo::Vec3 camPos = cam.GetPosition();
     psyqo::Matrix33 camRotationMatrix = cam.GetRotation();
-    int32_t projH = cam.GetProjectionH();
+    int32_t projH = scaledProjectionH(cam.GetProjectionH(), currentScreen());
 
     int16_t screenX = 0;
     int16_t screenY = 0;
@@ -5636,6 +5739,33 @@ int LuaAPI::Tile_ObjectAt(lua_State* L) {
     return 4;
 }
 
+
+#endif
+#if PSXSPLASH_FEATURE_BACKGROUNDS
+// ============================================================================
+// BACKGROUND API IMPLEMENTATION
+// ============================================================================
+
+int LuaAPI::Background_Show(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && lua.isString(1) && s_sceneManager->showBackground(lua.toString(1)));
+    return 1;
+}
+
+int LuaAPI::Background_Hide(lua_State* L) {
+    if (s_sceneManager) s_sceneManager->hideBackground();
+    return 0;
+}
+
+int LuaAPI::Background_Current(lua_State* L) {
+    psyqo::Lua lua(L);
+    const char* name = s_sceneManager ? s_sceneManager->currentBackground() : nullptr;
+    if (name)
+        lua.push(name);
+    else
+        lua.push();
+    return 1;
+}
 
 #endif
 #if PSXSPLASH_FEATURE_LIGHTS
