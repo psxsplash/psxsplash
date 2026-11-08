@@ -188,6 +188,34 @@ TEST(shake_offsets_bounded_moving_deterministic) {
     CHECK_EQ(dy, 0);
 }
 
+TEST(shake_interlaced_holds_offset_for_both_fields) {
+    // 640x480 draws one field per frame: frames 2k and 2k+1 must share an
+    // offset, or one field always lands left and the other right.
+    State s, p;
+    s.startShake(12, 100);
+    p.startShake(12, 100);
+    int split = 0, stuck = 0;
+    int32_t pdx = 0;
+    for (int i = 0; i < 40; i++) {
+        s.tick(kFrame);
+        p.tick(kFrame);
+        int32_t dx, dy, ex, ey, qx, qy;
+        s.shakeOffsets(dx, dy, true);
+        // Progressive is unchanged by the interlaced path.
+        p.shakeOffsets(qx, qy);
+        shakeOffset(s.shakeStep, s.shake.value, ex, ey);
+        if (qx != ex || qy != ey) split++;
+        if (s.shakeStep & 1) {
+            if (i > 0 && (dx > 0) != (pdx > 0)) split++;  // second field changed side
+        } else if (i > 0 && s.shake.value >= 2 && (dx > 0) == (pdx > 0)) {
+            stuck++;  // a new pair still changes side
+        }
+        pdx = dx;
+    }
+    CHECK_EQ(split, 0);
+    CHECK_EQ(stuck, 0);
+}
+
 TEST(letterbox_clamps_to_half_screen) {
     State s;
     s.startLetterbox(500, 0, 240);
