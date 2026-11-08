@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Build a psxsplash disc image for LOADER=archive with PCSX-Redux's `authoring` tool.
+"""Build a psxsplash disc image with PCSX-Redux's `authoring` tool.
 
 usage: tools/mkdisc.py <authoring> <psxsplash.ps-exe> <export dir> <out.bin> [volume id]
 
-The export dir holds the files SplashEdit writes for PCdrv (scene_0.splashpack,
+The export dir holds the files SplashEdit exports (scene_0.splashpack,
 scene_0.vram, ...). Each one goes into the archive under its own name, which is
 the name the engine asks for, in the order loadScene reads a scene's files.
+Movie textures and subtitles beside them (.SBS, .SRT) go in as MOVIES/<file>.
+An .STR is left out: the engine plays it from a stream entry (raw Form 2
+sectors), and `authoring` does not write those.
 The image boots on a console and in an emulator, and the same image placed in
 the PCdrv directory as psxsplash.bin is what the engine reads when there is no
 disc.
@@ -20,6 +23,8 @@ import tempfile
 # SceneManager::loadScene reads the loading screen, VRAM, SPU, splashpack, then
 # the streamed geometry; keeping that order keeps the drive reading forwards.
 KINDS = ["loading", "vram", "spu", "splashpack", "geo"]
+# Movie files, by extension; the engine asks for MOVIES/<NAME>.<EXT>.
+MOVIES = (".SBS", ".SRT")
 
 
 def main():
@@ -43,6 +48,12 @@ def main():
         scene += 1
     if scene == 0:
         sys.exit(f"mkdisc: no scene_0.splashpack in {export}")
+    for name in sorted(os.listdir(export)):
+        ext = os.path.splitext(name)[1].upper()
+        if ext == ".STR":
+            print(f"mkdisc: {name} left out, authoring writes no stream entries", file=sys.stderr)
+        elif ext in MOVIES:
+            files.append({"path": os.path.join(export, name), "name": "MOVIES/" + name})
 
     index = {"executable": exe, "files": files, "pvd": {"volume_id": volume}}
     with tempfile.TemporaryDirectory() as tmp:

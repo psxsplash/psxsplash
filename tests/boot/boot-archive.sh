@@ -1,6 +1,6 @@
 #!/bin/bash
-# Boot the archive engine (LOADER=archive) on the test scene both ways it can
-# read its image: from the CD drive, and over PCdrv with no disc.
+# Boot the engine on the test scene both ways it can read its image: from the
+# CD drive, and over PCdrv with no disc.
 # usage: tests/boot/boot-archive.sh <pcsx-redux> <openbios.bin> <psxsplash.ps-exe> <authoring> [seconds]
 set -u
 redux=$1; bios=$2; exe=$(realpath "$3"); authoring=$(realpath "$4"); limit=${5:-120}

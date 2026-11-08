@@ -6,10 +6,11 @@
 # continue to "BOOT OK: luadebug 43".
 #
 # With NOBP=1 it runs without luabp.txt: no debugger, no stop, the pass line
-# all the same.
-# usage: tests/boot/luadebug.sh <pcsx-redux> <openbios.bin> <psxsplash.ps-exe> [seconds per step]
+# all the same. The scene is packed into psxsplash.bin (tools/mkdisc.py) and
+# read over PCdrv; luabp.txt and luabp.cmd are host files beside it.
+# usage: tests/boot/luadebug.sh <pcsx-redux> <openbios.bin> <psxsplash.ps-exe> <authoring> [seconds per step]
 set -u
-redux=$1; bios=$2; exe=$3; limit=${4:-120}
+redux=$1; bios=$2; exe=$(realpath "$3"); authoring=$(realpath "$4"); limit=${5:-120}
 here=$(cd "$(dirname "$0")" && pwd)
 fixture=$here/fixture-luadebug
 pid=
@@ -17,7 +18,7 @@ work=$(mktemp -d)
 log=$work/log.txt
 # BOOT_LOG=<file> keeps the emulator log.
 trap '[ -n "$pid" ] && kill $pid 2>/dev/null; [ -n "${BOOT_LOG:-}" ] && cp "$log" "$BOOT_LOG"; rm -rf "$work"' EXIT
-cp "$fixture"/scene_0.* "$work/" || exit 1
+python3 "$here/../../tools/mkdisc.py" "$authoring" "$exe" "$fixture" "$work/psxsplash.bin" > /dev/null || exit 1
 [ -n "${NOBP:-}" ] || cp "$fixture/luabp.txt" "$work/" || exit 1
 
 fail() {
@@ -44,6 +45,7 @@ pid=$!
 
 if [ -n "${NOBP:-}" ]; then
   waitfor 'BOOT OK: luadebug 43'
+  expect 'via PCdrv psxsplash.bin'
   absent 'psxsplash: lua debugger on'
   absent 'psxsplash: lua break'
   echo "pass: no breakpoints, no stop"
@@ -51,6 +53,7 @@ if [ -n "${NOBP:-}" ]; then
 fi
 
 waitfor 'psxsplash: lua break end 1'
+expect 'via PCdrv psxsplash.bin'
 expect 'psxsplash: lua debugger on, 1 breakpoints'
 expect 'psxsplash: lua break 1 11 scripts/luadebug_check.lua'
 expect 'psxsplash: lua local answer number 42'
