@@ -661,6 +661,7 @@ void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint
 
 void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     LuaAPI::IncrementFrameCount();
+    m_music.tick();
 
     {
         uint32_t now = gpu.now();
