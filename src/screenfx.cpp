@@ -85,7 +85,7 @@ void ScreenFx::trail(int32_t on) {
 void ScreenFx::beginFrame() {
     SCREENFX_COST();
     int32_t dx = 0, dy = 0;
-    m_state.shakeOffsets(dx, dy);
+    m_state.shakeOffsets(dx, dy, !m_doubleBuffered);
     // Renderer::Init set the centre; rewrite only while shaking and once after.
     const bool shaking = (dx | dy) != 0;
     if (!shaking && !m_offsetSet) return;

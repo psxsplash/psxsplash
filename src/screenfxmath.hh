@@ -206,7 +206,11 @@ struct State {
     }
 
     // ----- What the renderer draws -----
-    void shakeOffsets(int32_t& dx, int32_t& dy) const { shakeOffset(shakeStep, shake.value, dx, dy); }
+    // Interlaced modes draw one field per frame, so each offset is held for two
+    // frames: both fields of a pair share it instead of combing left and right.
+    void shakeOffsets(int32_t& dx, int32_t& dy, bool interlaced = false) const {
+        shakeOffset(interlaced ? shakeStep >> 1 : shakeStep, shake.value, dx, dy);
+    }
     // Fade to colour, as GPU passes over the whole screen. The GPU cannot
     // scale what is on screen by an arbitrary factor: it can blend 50/50,
     // subtract a constant and add one. Up to half way the fade blends the
