@@ -18,11 +18,16 @@ public:
     void setCDDAVolume(int left, int right);
     bool isPlayingCDDA() const { return mPlayingCDDA; }
 
+    // Per frame: once a stopped (or finished) track leaves the CD-ROM device
+    // idle, silence the drive. psyqo's stopCDDA() has no completion callback.
+    void tick();
+
     void setCDRomDevice(psyqo::CDRomDevice* device) { mCDRomDevice = device; }
 private:
     psyqo::CDRomDevice* mCDRomDevice = nullptr;
     bool mPlayingCDDA = false;
     int mCurrentCDDATrack = -1;
+    bool mSilenceWhenIdle = false;
 };
 
 } // namespace psxsplash

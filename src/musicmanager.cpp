@@ -26,6 +26,7 @@ void MusicManager::playCDDATrack(int trackNum) {
         return;
     }
 #endif
+    mSilenceWhenIdle = false;
     CDRomHelper::WakeDrive();
 
     if (!(SPU_CTRL & 0x1)) {
@@ -68,6 +69,24 @@ void MusicManager::stopCDDA() {
     mCDRomDevice->stopCDDA();
     mCurrentCDDATrack = -1;
     mPlayingCDDA = false;
+    mSilenceWhenIdle = true;
+}
+
+void MusicManager::tick() {
+    if (!mCDRomDevice) return;
+    if (!mCDRomDevice->isIdle()) return;
+    // Idle while a track was playing: it ran to its end.
+    if (mPlayingCDDA) {
+        mPlayingCDDA = false;
+        mCurrentCDDATrack = -1;
+        mSilenceWhenIdle = true;
+    }
+    // STOP answers INT3, then INT2 about a second later; the device is idle
+    // only after the INT2, so masking CauseMask here cannot eat it.
+    if (mSilenceWhenIdle) {
+        mSilenceWhenIdle = false;
+        CDRomHelper::SilenceDrive();
+    }
 }
 
 void MusicManager::tellCDDA(lua_State* L) {
