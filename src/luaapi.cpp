@@ -4854,11 +4854,20 @@ int LuaAPI::SkinnedAnim_Play(lua_State* L) {
     if (clipIdx < 0) return 0;
 
     bool loop = false;
+    uint16_t fade = 0;
     int onCompleteRef = LUA_NOREF;
 
     if (lua.isTable(3)) {
         lua.getField(3, "loop");
         if (lua.isBoolean(-1)) loop = lua.toBoolean(-1);
+        lua.pop();
+
+        // fade: crossfade length in 30 fps frames from the pose being drawn.
+        lua.getField(3, "fade");
+        if (lua.isNumber(-1)) {
+            int32_t f = static_cast<int32_t>(lua.toNumber(-1));
+            fade = f <= 0 ? 0 : (f > 0xFFFF ? 0xFFFF : (uint16_t)f);
+        }
         lua.pop();
 
         lua.getField(3, "onComplete");
@@ -4869,6 +4878,8 @@ int LuaAPI::SkinnedAnim_Play(lua_State* L) {
         }
     }
 
+    // Snapshot the outgoing clip before it is replaced (fade 0: snap).
+    SkinPose_BeginFade(animSet, &animState, fade);
     animState.currentClip = (uint8_t)clipIdx;
     animState.currentFrame = 0;
     animState.subFrame = 0;
@@ -4893,6 +4904,7 @@ int LuaAPI::SkinnedAnim_Stop(lua_State* L) {
 
     SkinAnimState& animState = s_sceneManager->getSkinAnimState(si);
     animState.playing = false;
+    SkinPose_BeginFade(s_sceneManager->getSkinAnimSet(si), &animState, 0);  // freeze on the current clip
 
     // Release callback
     if (animState.luaCallbackRef != LUA_NOREF) {
@@ -4954,23 +4966,16 @@ int LuaAPI::SkinnedAnim_GetBone(lua_State* L) {
     } else if (lua.isNumber(2)) {
         bi = static_cast<int>(lua.toNumber(2));
     }
-    const BakedBoneMatrix* a;
-    const BakedBoneMatrix* b;
-    uint16_t blend;
+    // The same pose the renderer draws, frame lerp and crossfade included.
+    BakedBoneMatrix pose;
     if (!go || !set.bindPositions || bi < 0 || bi >= set.boneCount ||
-        !SkinMesh_CurrentFrames(set, state, &a, &b, &blend)) {
+        !SkinPose_ComputeBone(set, state, bi, &pose)) {
         lua.push();
         return 1;
     }
-
-    // The same blend the renderer draws.
     int16_t m[12];
-    for (int k = 0; k < 9; k++) m[k] = a[bi].r[k];
-    for (int k = 0; k < 3; k++) m[9 + k] = a[bi].t[k];
-    if (b) {
-        for (int k = 0; k < 9; k++) m[k] += ((b[bi].r[k] - a[bi].r[k]) * blend) >> 12;
-        for (int k = 0; k < 3; k++) m[9 + k] += ((b[bi].t[k] - a[bi].t[k]) * blend) >> 12;
-    }
+    for (int k = 0; k < 9; k++) m[k] = pose.r[k];
+    for (int k = 0; k < 3; k++) m[9 + k] = pose.t[k];
     psyqo::Matrix33 boneRot;
     for (int r = 0; r < 3; r++) {
         boneRot.vs[r].x.value = m[r * 3];

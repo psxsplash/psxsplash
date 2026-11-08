@@ -25,6 +25,7 @@ SPRITE_SRCS := $(SRC_DIR)/spritemath.cpp
 TILE_SRCS   := $(SRC_DIR)/tilemath.cpp
 LIGHT_SRCS  := $(SRC_DIR)/lightmath.cpp
 STREAM_SRCS := $(SRC_DIR)/streamplanner.cpp
+SKIN_SRCS   := $(SRC_DIR)/skinpose.cpp
 SRT_SRCS    := $(SRC_DIR)/srt.cpp
 SCREEN_SRCS := $(SRC_DIR)/screenmode.cpp
 BG_SRCS     := $(SRC_DIR)/backgroundmath.cpp
@@ -41,6 +42,7 @@ FADE_BIN   := $(BUILD)/fade_tests
 SHADOW_BIN := $(BUILD)/shadow_tests
 SHINE_BIN  := $(BUILD)/shine_tests
 JUMP_BIN   := $(BUILD)/jump_tests
+SKIN_BIN   := $(BUILD)/skinpose_tests
 BLEND_BIN  := $(BUILD)/uiblend_tests
 TEXTRI_BIN := $(BUILD)/uitextri_tests
 SRT_BIN    := $(BUILD)/srt_tests
@@ -96,6 +98,9 @@ $(SHINE_BIN): test_shine.cpp testing.hh compat.hh $(SRC_DIR)/shinemath.hh | $(BU
 # jumpmath.hh is header-only.
 $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_jump.cpp
+# skinpose.cpp is split out of skinmesh.cpp so it carries no psyqo dependency.
+$(SKIN_BIN): test_skinpose.cpp testing.hh compat.hh $(SKIN_SRCS) $(SRC_DIR)/skinpose.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_skinpose.cpp $(SKIN_SRCS)
 # uiblend.hh is header-only.
 $(BLEND_BIN): test_uiblend.cpp testing.hh compat.hh $(SRC_DIR)/uiblend.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_uiblend.cpp
@@ -132,7 +137,7 @@ $(SRT_BIN): test_srt.cpp testing.hh compat.hh $(SRT_SRCS) $(SRC_DIR)/srt.hh | $(
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(BLEND_BIN) $(TEXTRI_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(BLEND_BIN) $(TEXTRI_BIN) $(SKIN_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== pcdrvsocket =="
@@ -179,6 +184,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(PARTICLE_BIN)
 	@echo "== uitextri =="
 	@$(TEXTRI_BIN)
+	@echo "== skinpose =="
+	@$(SKIN_BIN)
 
 vectors: $(GEN_BIN)
 	@mkdir -p $(VEC_DIR)

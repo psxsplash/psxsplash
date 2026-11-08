@@ -16,7 +16,7 @@ local feature_srcs = {
            "src/luatableserializer.cpp"},
     ui = {"src/uisystem.cpp", "src/loadingscreen.cpp"},
     sprites = {"src/spritesystem.cpp", "src/spritemath.cpp", "src/tilesystem.cpp", "src/tilemath.cpp"},
-    skin = {"src/skinmesh.cpp"},
+    skin = {"src/skinmesh.cpp", "src/skinpose.cpp"},
     cutscene = {"src/cutscene.cpp", "src/interpolation.cpp", "src/animation.cpp"},
     lights = {"src/lightmath.cpp"},
     streaming = {"src/streamreader.cpp", "src/streamselftest.cpp", "src/worldstreamer.cpp",
