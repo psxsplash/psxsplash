@@ -2,8 +2,6 @@
 
 #if PSXSPLASH_FEATURE_MOVIE
 
-#if defined(LOADER_CDROM)
-
 #include <EASTL/algorithm.h>
 #include <new>
 
@@ -14,8 +12,7 @@
 #include <psyqo/primitives/rectangles.hh>
 #include <psyqo/xprintf.h>
 
-#include "fileloader.hh"
-#include "fileloader_cdrom.hh"
+#include "fileloader_archive.hh"
 #include "scenemanager.hh"
 
 namespace {
@@ -124,9 +121,9 @@ static void reportSubtitle(void* name, unsigned number, psxsplash::srt::Problem 
     }
 }
 
-void psxsplash::MoviePlayer::loadSubtitles(FileLoaderCDRom& loader, Request& request) {
+void psxsplash::MoviePlayer::loadSubtitles(FileLoaderArchive& loader, Request& request) {
     char path[24];
-    snprintf(path, sizeof path, "MOVIES/%s.SRT;1", request.name);
+    snprintf(path, sizeof path, "MOVIES/%s.SRT", request.name);
     int size = 0;
     uint8_t* file = loader.LoadFileSyncIfThere(path, size);
     if (!file) return;
@@ -142,24 +139,25 @@ void psxsplash::MoviePlayer::loadSubtitles(FileLoaderCDRom& loader, Request& req
 
 bool psxsplash::MoviePlayer::start(psyqo::GPU& gpu, Controls& pad) {
     m_gpu = &gpu;
-    auto& loader = static_cast<FileLoaderCDRom&>(FileLoader::Get());
+    auto& loader = FileLoaderArchive::Get();
     psyqo::CDRomDevice* cdrom = loader.getCDRomDevice();
+    if (!cdrom) return false;  // over PCdrv: SceneManager::startMovie does not get here
 
+    // A STREAM entry of the archive: raw sectors from an absolute LBA.
     char path[24];
-    snprintf(path, sizeof path, "MOVIES/%s.STR;1", m_request.name);
-    uint32_t lba = 0, size = 0;
-    if (!loader.resolveBlocking(path, lba, size)) {
+    snprintf(path, sizeof path, "MOVIES/%s.STR", m_request.name);
+    uint32_t lba = 0, sectors = 0;
+    if (!psyqo::paths::resolveMovie(loader.archive(), eastl::string_view(path), &lba, &sectors)) {
         printf("Movie %s: not on the disc\n", m_request.name);
         return false;
     }
-    const uint32_t sectors = (size + 2047) / 2048;
 
     if (!m_request.behind()) loadSubtitles(loader, m_request);
     if (m_request.subtitleCount) m_request.rgb24 = false;
 
     StrPlayer::Options options;
     options.rgb24 = m_request.rgb24;
-    options.doubleSpeed = m_request.speed ? m_request.speed == 2 : FileLoaderCDRom::discDoubleSpeed();
+    options.doubleSpeed = m_request.speed ? m_request.speed == 2 : FileLoaderArchive::discDoubleSpeed();
     uint16_t width = 0, height = 0;
     sizeBuffers(*cdrom, gpu, lba, sectors, options, width, height);
     // The player centers the picture in the display size it is given, so a
@@ -338,19 +336,5 @@ void psxsplash::MoviePlayer::restoreDisplay() {
     }
     m_held = false;
 }
-
-#else  // PCdrv: there is no drive to stream from.
-
-bool psxsplash::MoviePlayer::request(const Request&) { return false; }
-bool psxsplash::MoviePlayer::start(psyqo::GPU&, Controls&) { return false; }
-bool psxsplash::MoviePlayer::frame(Controls&, Result&) { return true; }
-bool psxsplash::MoviePlayer::skipPressed(Controls&) { return false; }
-void psxsplash::MoviePlayer::finish() {}
-void psxsplash::MoviePlayer::abandon() {}
-uint32_t psxsplash::MoviePlayer::framesShown() const { return 0; }
-void psxsplash::MoviePlayer::releaseSubtitles() {}
-void psxsplash::MoviePlayer::restoreDisplay() {}
-
-#endif  // LOADER_CDROM
 
 #endif  // PSXSPLASH_FEATURE_MOVIE

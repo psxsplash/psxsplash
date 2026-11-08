@@ -31,7 +31,7 @@
 #include "animation.hh"
 #include "skinmesh.hh"
 #include "spritesystem.hh"
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
 #include "perfmap.hh"
 #endif
 #include "tilesystem.hh"
@@ -593,19 +593,19 @@ namespace psxsplash {
         // The scene's video mode while a movie plays in its place at 320x240.
         uint8_t m_movieSceneVideoMode = VIDEO_MODE_320x240;
 #endif
-#if PSXSPLASH_DISC
         void settleDrive(psyqo::GPU& gpu);
-#endif
 
-        // Hot reload for an editor driving a PCdrv build: when "reload.flag"
-        // exists beside the scene at boot, its contents are re-read every few
-        // frames and a change reloads the current scene, keeping the player
-        // where they stand. Absent at boot, nothing is ever polled.
+        // Hot reload for an editor that runs the game over PCdrv: when the
+        // archive is read over PCdrv and "reload.flag" exists beside the image
+        // at boot, its contents are re-read every few frames, and a change
+        // reads the image's index again (the editor rewrote the image) and
+        // reloads the current scene, keeping the player where they stand.
+        // Absent at boot, nothing is ever polled.
         void pollHotReload();
 
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
         // Performance map walk (src/perfmap.hh): with "perfmap.pos" beside the
-        // first scene, pins the player to each point and yaw in turn and prints
+        // image on the PCdrv host at the first scene, pins the player to each point and yaw in turn and prints
         // the profiler's readings per pose.
         void perfMapSceneStart(bool isFirstScene);
         void perfMapPin();
@@ -768,6 +768,7 @@ namespace psxsplash {
         static constexpr uint8_t HOT_RELOAD_PERIOD = 15;  // frames between polls
         bool m_hotReloadWatch = false;
         bool m_hotReloadKeepPose = false;
+        bool m_hotReloadIndex = false;  // the next load reads the archive index first
         uint8_t m_hotReloadCountdown = 0;
         uint8_t m_hotReloadTagLen = 0;
         uint8_t m_hotReloadTag[HOT_RELOAD_TAG_MAX];

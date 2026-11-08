@@ -2,9 +2,10 @@
 
 // Performance map walk: the pure half (file parse and the per-pose state
 // machine), kept free of psyqo so tests/host can build it natively. The engine
-// half is in scenemanager.cpp, under PSXSPLASH_PROFILER and PCDRV_SUPPORT.
+// half is in scenemanager.cpp, under PSXSPLASH_PROFILER.
 //
-// A profiler dev build reads "perfmap.pos" beside the scene at scene start.
+// A profiler build whose archive is read over PCdrv reads "perfmap.pos" from
+// beside the image on the host at the first scene's start.
 // When it is there, the engine walks the player through every point and yaw
 // and prints one "psxsplash: perf point ..." line per pose, which the editor
 // paints on the nav mesh. Absent, nothing changes.

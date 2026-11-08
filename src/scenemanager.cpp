@@ -13,7 +13,7 @@
 #include "loadingscreen.hh"
 #include "gtemath.hh"
 #include "networkmanager.hh"
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
 #include "common/syscalls/syscalls.h"
 #endif
 
@@ -21,10 +21,8 @@
 #include <psyqo/soft-math.hh>
 #include <psyqo/trigonometry.hh>
 
-#if PSXSPLASH_DISC
 #include "cdromhelper.hh"
-#include "fileloader_disc.hh"
-#endif
+#include "fileloader_archive.hh"
 
 #if PSXSPLASH_FEATURE_STREAMING
 #include "streamreader.hh"
@@ -90,10 +88,8 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     // IRQs), so a second psyqo::SPU::initialize() would only reset the voices
     // and rewrite the 16-byte dummy sample at 0x1000 again.
 
-#if PSXSPLASH_DISC
-    m_music.setCDRomDevice(static_cast<psxsplash::DiscLoader&>(
-        psxsplash::FileLoader::Get()).getCDRomDevice());
-#endif
+    // Null when the image is read over PCdrv: no drive, so no CD-DA.
+    m_music.setCDRomDevice(FileLoaderArchive::Get().getCDRomDevice());
 
     // Register the Lua API
     CutscenePlayer* cutscenePlayer = nullptr;
@@ -689,7 +685,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     NetworkManager::Get().preTick(*this, m_dt12);
 #endif
 
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
     perfMapPin();
 #endif
 #ifdef PSXSPLASH_PROFILER
@@ -989,7 +985,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     // (no nav regions / no PSXPlayer), the camera is driven entirely
     // by cutscenes and Lua. After a cutscene ends in free mode, the
     // camera stays at the last cutscene position.
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
     // Again after controls, collision, nav and Lua had their go, so the
     // camera follows the pinned pose.
     perfMapPin();
@@ -1044,7 +1040,7 @@ void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
 #ifdef PSXSPLASH_PROFILER
     uint32_t frameEnd = gpu.now();
     psxsplash::debug::Profiler::getInstance().endFrame(frameEnd - frameStart);
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
     // After the frame is closed, so the walk's own output is not measured.
     perfMapFrameEnded();
 #endif
@@ -1484,17 +1480,14 @@ void psxsplash::SceneManager::requestSceneLoad(int sceneIndex) {
 }
 
 bool psxsplash::SceneManager::readHotReloadTag(uint8_t* tag, uint8_t& len) {
-#if PSXSPLASH_DISC
-    return false;
-#else
+    // A host file beside the image; there is none unless it is read over PCdrv.
     int size = 0;
-    uint8_t* data = FileLoader::Get().LoadFileSync("reload.flag", size);
+    uint8_t* data = FileLoader::Get().loadHostFile("reload.flag", size);
     if (!data) return false;
     len = size > HOT_RELOAD_TAG_MAX ? HOT_RELOAD_TAG_MAX : (size < 0 ? 0 : (uint8_t)size);
     for (int i = 0; i < len; i++) tag[i] = data[i];
     FileLoader::Get().FreeFile(data);
     return true;
-#endif
 }
 
 void psxsplash::SceneManager::pollHotReload() {
@@ -1513,6 +1506,7 @@ void psxsplash::SceneManager::pollHotReload() {
     m_hotReloadTagLen = len;
     for (int i = 0; i < len; i++) m_hotReloadTag[i] = tag[i];
     m_hotReloadKeepPose = true;
+    m_hotReloadIndex = true;
     m_pendingSceneIndex = m_currentSceneIndex;
 }
 
@@ -1526,7 +1520,6 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
     loadScene(gpu, targetIndex, /*isFirstScene=*/false);
 }
 
-#if PSXSPLASH_DISC
 // CD-DA music keeps a CDRomDevice action active for the entire track (the
 // drive reports position and the end-of-track IRQ through it).  While that
 // action is pending, any blocking data read aborts with "readSectorsBlocking
@@ -1549,8 +1542,7 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
 //   2. If it settled on playing, stop it and drain back to idle.
 void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
     // Null when the archive backend reads its image over PCdrv: no drive, no CD-DA.
-    psyqo::CDRomDevice* cdrom = static_cast<psxsplash::DiscLoader&>(
-        psxsplash::FileLoader::Get()).getCDRomDevice();
+    psyqo::CDRomDevice* cdrom = FileLoaderArchive::Get().getCDRomDevice();
     if (!cdrom) return;
     while (!cdrom->isIdle() && !m_music.isPlayingCDDA()) {
         gpu.pumpCallbacks();
@@ -1562,12 +1554,16 @@ void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
         }
     }
 }
-#endif
 
 #if PSXSPLASH_FEATURE_MOVIE
 void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
     const MoviePlayer::Request& request = m_movie.takeRequest();
-#if defined(LOADER_CDROM)
+    // Movies stream off the drive. Over PCdrv there is none, and they fail as
+    // they always have there, before anything of the scene is touched.
+    if (!FileLoaderArchive::Get().getCDRomDevice()) {
+        finishMovie(gpu, MoviePlayer::Result::FAILED);
+        return;
+    }
     // Gameplay reads and CD music have to let go of the drive first. A scene that
     // stays keeps what it queued: its streamer is waiting on those reads.
 #if PSXSPLASH_FEATURE_STREAMING
@@ -1605,25 +1601,23 @@ void psxsplash::SceneManager::startMovie(psyqo::GPU& gpu) {
     }
 
     if (m_movie.start(gpu, m_controls[0])) return;
-#endif
     finishMovie(gpu, MoviePlayer::Result::FAILED);
 }
 
 bool psxsplash::SceneManager::playMovieOn(const char* name, const GameObject* target,
                                           const MovieTexture::Options& options) {
-#if defined(LOADER_CDROM)
+    // Movies are a disc's: over PCdrv there are none (see startMovie).
+    if (!FileLoaderArchive::Get().getCDRomDevice()) return false;
     // Lua runs with the drive's interrupts off (SilenceDrive), and the read needs them.
     CDRomHelper::WakeDrive();
     const bool playing = m_movieTexture.play(name, target, options);
     CDRomHelper::SilenceDrive();
     return playing;
-#else
-    return false;
-#endif
 }
 
 bool psxsplash::SceneManager::playMovieOnImage(const char* name, int element, const MovieTexture::Options& options) {
-#if defined(LOADER_CDROM) && PSXSPLASH_FEATURE_UI
+#if PSXSPLASH_FEATURE_UI
+    if (!FileLoaderArchive::Get().getCDRomDevice()) return false;
     const UIImageData* image = m_uiSystem.getImageData(element);
     if (!image || image->bitDepth != 2) {
         printf("Movie %s: the target needs a 16-bit image\n", name);
@@ -1718,15 +1712,15 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
             m_controls[i].SettleButtons();
         }
     }
-#if defined(LOADER_CDROM)
-    if (request.thenScene >= 0) {
+    // Without a drive startMovie left the scene alone, and it stays.
+    psyqo::CDRomDevice* cdrom = FileLoaderArchive::Get().getCDRomDevice();
+    if (cdrom && request.thenScene >= 0) {
         m_movie.restoreDisplay();
         m_movieSceneVideoMode = VIDEO_MODE_320x240;
         loadScene(gpu, request.thenScene, /*isFirstScene=*/true);
         return;
     }
     CDRomHelper::SilenceDrive();
-#endif
     m_lastFrameTime = 0;  // the movie's length is not a frame's
 
     fireMovieComplete(request.onComplete, result == MoviePlayer::Result::ENDED     ? "ended"
@@ -1745,11 +1739,9 @@ void psxsplash::SceneManager::finishMovie(psyqo::GPU& gpu, MoviePlayer::Result r
 }
 
 int psxsplash::SceneManager::readSpeed() {
-#if defined(LOADER_CDROM)
-    return static_cast<FileLoaderCDRom&>(FileLoader::Get()).getCDRomDevice()->isDoubleSpeed() ? 2 : 1;
-#else
-    return 0;
-#endif
+    // 0 over PCdrv: there is no drive.
+    psyqo::CDRomDevice* cdrom = FileLoaderArchive::Get().getCDRomDevice();
+    return cdrom ? (cdrom->isDoubleSpeed() ? 2 : 1) : 0;
 }
 
 void psxsplash::SceneManager::fireMovieComplete(int ref, const char* result, int shown, int dropped) {
@@ -1794,20 +1786,17 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #endif
 
     // Restore CD-ROM controller and CPU IRQ state for file loading.
-#if PSXSPLASH_DISC
     CDRomHelper::WakeDrive();
 
     // The per-scene Lua VM (which owns music state) is torn down in clearScene()
     // and the next scene restarts its own track, so a full stop is correct.
     settleDrive(gpu);
 
-#if defined(LOADER_CDROM)
-    // Every file below opens through the root and this scene's directory;
-    // read those once for the whole load instead of once per file.
-    psxsplash::FileLoaderCDRom::DirBatch dirBatch(
-        static_cast<psxsplash::FileLoaderCDRom&>(psxsplash::FileLoader::Get()));
-#endif
-#endif
+    // A hot reload: the host rewrote the image, so every entry may have moved.
+    if (m_hotReloadIndex) {
+        m_hotReloadIndex = false;
+        FileLoaderArchive::Get().reloadIndex();
+    }
 
     // Loading runs at 320x240: the loading screen draws into the two 320x240
     // buffers, and a 320x240 scene's textures are uploaded where a 640x480
@@ -1921,11 +1910,6 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         newData = FileLoader::Get().LoadFileSync(filename, fileSize);
     }
 
-    if (!newData && isFirstScene) {
-        // Fallback: try legacy name for backwards compatibility (PCdrv only)
-        newData = FileLoader::Get().LoadFileSync("output.bin", fileSize);
-    }
-
     if (!newData) {
         return;
     }
@@ -1938,9 +1922,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
 #endif
 
     // Stop the CD-ROM motor and mask all interrupts for gameplay.
-#if PSXSPLASH_DISC
     CDRomHelper::SilenceDrive();
-#endif
 
     // A hot reload keeps the player where they stand; anything else starts
     // the scene from its spawn point.
@@ -1964,7 +1946,7 @@ void psxsplash::SceneManager::loadScene(psyqo::GPU& gpu, int sceneIndex, bool is
         playerRotationZ = keptRotZ;
     }
     if (isFirstScene) m_hotReloadWatch = readHotReloadTag(m_hotReloadTag, m_hotReloadTagLen);
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
     perfMapSceneStart(isFirstScene);
 #endif
 }
@@ -2610,7 +2592,7 @@ void psxsplash::SceneManager::tickAgentStateMachine(uint16_t actorId, AgentRunti
 // PERFORMANCE MAP WALK (profiler dev builds, src/perfmap.hh)
 // ============================================================================
 
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
 void psxsplash::SceneManager::perfMapSceneStart(bool isFirstScene) {
     auto& profiler = debug::Profiler::getInstance();
     if (m_perfMapWalk.walking()) {
@@ -2627,7 +2609,7 @@ void psxsplash::SceneManager::perfMapSceneStart(bool isFirstScene) {
     if (!isFirstScene) return;
 
     int size = 0;
-    uint8_t* data = FileLoader::Get().LoadFileSync("perfmap.pos", size);
+    uint8_t* data = FileLoader::Get().loadHostFile("perfmap.pos", size);
     if (!data) return;
     perfmap::Header h;
     if (!perfmap::parse(data, size, h)) {

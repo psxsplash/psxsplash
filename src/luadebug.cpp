@@ -2,8 +2,6 @@
 
 #include "fileloader.hh"
 
-#if !PSXSPLASH_DISC
-
 #include <psyqo-lua/lua.hh>
 #include <psyqo/xprintf.h>
 
@@ -199,7 +197,9 @@ void psxsplash::LuaDebugger::attach(lua_State* L) {
     m_hooked = false;  // a fresh VM has no hook
     if (!m_checked) {
         char probe[4];
-        m_session = readSmall("luabp.txt", probe, sizeof(probe)) >= 0;
+        // Only an archive read over PCdrv has a host to hold luabp.txt; on a
+        // disc a PCopen would have no driver to answer it.
+        m_session = FileLoader::Get().overPCdrv() && readSmall("luabp.txt", probe, sizeof(probe)) >= 0;
         if (m_session) {
             s_bps = new Breakpoint[kMaxBreakpoints];
             s_file = new char[kFileCap];
@@ -293,14 +293,3 @@ void psxsplash::LuaDebugger::stop(lua_State* L, lua_Debug* ar) {
     m_countdown = LUA_DEBUG_PERIOD;
     m_inStop = false;
 }
-
-#else  // A disc build (cdrom, archive): no PCdrv assumed, no debugger.
-
-psxsplash::LuaDebugger& psxsplash::LuaDebugger::Get() {
-    static LuaDebugger instance;
-    return instance;
-}
-void psxsplash::LuaDebugger::attach(lua_State*) {}
-void psxsplash::LuaDebugger::poll() {}
-
-#endif

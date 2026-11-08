@@ -70,16 +70,13 @@ local function selected_features()
 end
 
 -- Every build is its own target with its own file, so building one never
--- overwrites another: psxsplash (PCdrv, for emulators and SIO1),
--- psxsplash-cdrom (disc images), psxsplash-archive (a Redux `authoring` image,
--- from the drive or over PCdrv), and the PCdrv builds with on-screen
--- overlays, -perf (FPS counter and heap bar), -rooms (room wireframe) and
--- -perf-rooms. Without the bootlogo feature each name ends in -nologo.
--- `xmake` builds them all; `xmake build psxsplash-cdrom.ps-exe` builds one.
+-- overwrites another: psxsplash, and the same engine with on-screen overlays,
+-- -perf (FPS counter and heap bar), -rooms (room wireframe) and -perf-rooms.
+-- Each reads a Redux `authoring` image (tools/mkdisc.py) from the drive, or
+-- over PCdrv as psxsplash.bin. Without the bootlogo feature each name ends in
+-- -nologo. `xmake` builds them all; `xmake build psxsplash-perf.ps-exe` builds one.
 local variants = {
     {name = "psxsplash"},
-    {name = "psxsplash-cdrom", cdrom = true},
-    {name = "psxsplash-archive", archive = true},
     {name = "psxsplash-perf", perf = true},
     {name = "psxsplash-rooms", rooms = true},
     {name = "psxsplash-perf-rooms", perf = true, rooms = true},
@@ -113,20 +110,15 @@ for _, variant in ipairs(variants) do
             end
         end
 
-        if variant.cdrom then
-            add_defines("LOADER_CDROM")
-            if features.movie then
-                -- psyqo-paths has no xmake target; the player and its decoder are all a movie needs.
-                add_files("third_party/nugget/psyqo-paths/src/str-player.cpp")
-                add_files("third_party/nugget/bsdec/bsdec.c", {cflags = "-O3"})
-                add_files("third_party/nugget/common/crt0/clz.c")
-            end
-        elseif variant.archive then
-            add_defines("LOADER_ARCHIVE")
-            add_files("third_party/nugget/psyqo-paths/src/archive-manager.cpp",
-                      "third_party/nugget/ucl-demo/n2e-d.S", "third_party/nugget/lz4/lz4.c")
-        else
-            add_defines("PCDRV_SUPPORT=1")
+        -- psyqo-paths has no xmake target: the archive manager and its
+        -- decompressors, and for movies the player and its decoder, are the
+        -- parts of libpsyqo-paths.a the Makefile's link pulls in.
+        add_files("third_party/nugget/psyqo-paths/src/archive-manager.cpp",
+                  "third_party/nugget/ucl-demo/n2e-d.S", "third_party/nugget/lz4/lz4.c")
+        if features.movie then
+            add_files("third_party/nugget/psyqo-paths/src/str-player.cpp")
+            add_files("third_party/nugget/bsdec/bsdec.c", {cflags = "-O3"})
+            add_files("third_party/nugget/common/crt0/clz.c")
         end
         if variant.perf then add_defines("PSXSPLASH_MEMOVERLAY", "PSXSPLASH_FPSOVERLAY") end
         if variant.rooms then add_defines("PSXSPLASH_ROOM_DEBUG") end

@@ -2,8 +2,6 @@
 
 #include "fileloader.hh"
 
-#if PSXSPLASH_DISC
-
 #include <psyqo/hardware/cpu.hh>
 #include <psyqo/hardware/cdrom.hh>
 
@@ -63,4 +61,3 @@ class CDRomHelper {
 
 }  // namespace psxsplash
 
-#endif  // PSXSPLASH_DISC

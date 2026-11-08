@@ -1,13 +1,14 @@
 #pragma once
 
-// Lua breakpoints for an editor driving a PCdrv build (SplashEdit's Play).
+// Lua breakpoints for an editor running the game over PCdrv (SplashEdit's Play).
 //
-// When "luabp.txt" exists in the PCdrv directory at the first scene load,
-// the session is on: the engine re-reads the file every LUA_DEBUG_PERIOD
-// frames and, while it lists any breakpoint, runs the VM with a line hook.
+// When the archive is read over PCdrv and "luabp.txt" exists beside the image
+// on the host at the first scene load, the session is on: the engine re-reads
+// the file every LUA_DEBUG_PERIOD frames and, while it lists any breakpoint,
+// runs the VM with a line hook.
 // Without the file nothing is installed and nothing is polled, so a game
-// that is not being debugged runs the VM exactly as before. LOADER=cdrom
-// builds have no PCdrv and compile this to nothing.
+// that is not being debugged runs the VM exactly as before. A disc is never
+// probed: there may be no PCdrv driver to answer.
 //
 // On a hit (or the next line after a step) the engine prints, on the TTY the
 // editor reads:

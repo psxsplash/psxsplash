@@ -16,7 +16,8 @@ namespace psxsplash {
 /**
  * MoviePlayer - full-screen STR movies off the disc, through psyqo's StrPlayer.
  *
- * A movie is MOVIES/<NAME>.STR;1 on the disc, and it plays one of two ways:
+ * A movie is the archive's STREAM entry MOVIES/<NAME>.STR (raw Form 2 sectors),
+ * so it plays from a disc only, never over PCdrv. It plays one of two ways:
  *
  *  - In place: the scene stays in RAM and simply stops ticking, and the game
  *    carries on from where it was when the movie ends. The picture is 15-bit,
@@ -113,7 +114,7 @@ class MoviePlayer {
 
     // The scene behind the movie is going: it stops where it is, and nothing of it runs.
     void abandon();
-    static void loadSubtitles(class FileLoaderCDRom& loader, Request& request);
+    static void loadSubtitles(class FileLoaderArchive& loader, Request& request);
 
     // The display back as the game left it, once no movie follows: a movie that
     // ends leaves its last picture up, so one that follows starts from it.
