@@ -13,6 +13,7 @@
 #include "tilesystem.hh"
 #include "particlesystem.hh"
 #include "uisystem.hh"
+#include "uitextri.hh"
 #include "networkmanager.hh"
 
 #include "renderer.hh"
@@ -746,6 +747,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     L.push(Movie_Play);
     L.setField(-2, "Play");
 
+    L.push(Movie_Stop);
+    L.setField(-2, "Stop");
+
     L.push(Movie_IsPlaying);
     L.setField(-2, "IsPlaying");
 
@@ -921,6 +925,9 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
 
     L.push(UI_DrawTriangle);
     L.setField(-2, "DrawTriangle");
+
+    L.push(UI_DrawTexturedTriangle);
+    L.setField(-2, "DrawTexturedTriangle");
 
     L.setGlobal("UI");
 #else
@@ -4525,7 +4532,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
     }
 
     // Optional second argument: {skip=bool, loop=bool, overlay=bool, x=n, y=n, speed=1|2,
-    // thenScene=n, rgb24=bool, onComplete=function}
+    // thenScene=n, rgb24=bool, onComplete=function, onUpdate=function}
     bool rgb24Set = false;
     if (lua.isTable(2)) {
         lua.getField(2, "skip");
@@ -4570,6 +4577,13 @@ int LuaAPI::Movie_Play(lua_State* L) {
         } else {
             lua.pop();
         }
+
+        lua.getField(2, "onUpdate");
+        if (lua.isFunction(-1) && request.thenScene < 0) {
+            request.onUpdate = lua.ref();
+        } else {
+            lua.pop();
+        }
     }
 
     // A 16-bit UI image, drawn behind the scene, that the movie plays into as the game runs.
@@ -4580,6 +4594,7 @@ int LuaAPI::Movie_Play(lua_State* L) {
         lua.pop();
         if (wanted && !ready) {
             if (request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+            if (request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onUpdate);
             lua.push(false);
             return 1;
         }
@@ -4589,11 +4604,19 @@ int LuaAPI::Movie_Play(lua_State* L) {
     if (request.thenScene >= 0 && !rgb24Set) request.rgb24 = true;
     if (request.thenScene < 0) request.rgb24 = false;
     if (request.rgb24 || request.thenScene >= 0 || request.behind()) request.overlay = false;  // nothing to lay it over
-    if (request.loop && !request.behind()) request.skippable = true;  // no script runs to end it; behind, the scene's load does
+    // No script runs to end a looping movie unless onUpdate does (Movie.Stop); behind, the scene's load does.
+    if (request.loop && request.onUpdate == MoviePlayer::c_noRef && !request.behind()) request.skippable = true;
 
     const bool queued = s_sceneManager->requestMovie(request);
     if (!queued && request.onComplete != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onComplete);
+    if (!queued && request.onUpdate != MoviePlayer::c_noRef) luaL_unref(L, LUA_REGISTRYINDEX, request.onUpdate);
     lua.push(queued);
+    return 1;
+}
+
+int LuaAPI::Movie_Stop(lua_State* L) {
+    psyqo::Lua lua(L);
+    lua.push(s_sceneManager && s_sceneManager->stopMovie());
     return 1;
 }
 
@@ -4620,6 +4643,12 @@ int LuaAPI::Movie_PlayOn(lua_State* L) {
 
     char name[9];
     if (!s_sceneManager || !lua.isString(2) || !copyMovieName(lua.toString(2), name, sizeof name)) {
+        lua.push(false);
+        return 1;
+    }
+    // One stream at a time: a full-screen or behind movie has the drive.
+    if (s_sceneManager->movieStreaming()) {
+        printf("Movie %s: not while a movie plays\n", name);
         lua.push(false);
         return 1;
     }
@@ -5544,6 +5573,143 @@ int LuaAPI::UI_DrawTriangle(lua_State* L) {
     thisTri.setColorC(psyqo::Color{ r3, g3, b3 });
 
     gpu.sendPrimitive(thisTri);
+
+    return 0;
+}
+
+namespace {
+
+// t[1], t[2] (and t[3]) of the table at idx, as integers.
+int32_t tableInt(psyqo::Lua& lua, int idx, int i) {
+    lua.rawGetI(idx, i);
+    int32_t v = (int32_t)lua.checkNumber(-1);
+    lua.pop();
+    return v;
+}
+
+psyqo::Color tableColor(psyqo::Lua& lua, int idx) {
+    return psyqo::Color{.r = (uint8_t)tableInt(lua, idx, 1),
+                        .g = (uint8_t)tableInt(lua, idx, 2),
+                        .b = (uint8_t)tableInt(lua, idx, 3)};
+}
+
+// Missing sheets already logged, so a script drawing one every frame prints
+// its name once.
+uitextri::ReportedNames s_missingSheets;
+
+}  // namespace
+
+// parameters: UI.DrawTexturedTriangle(sheet, p1, p2, p3, uv1, uv2, uv3 [, c1, c2, c3] [, blend])
+// sheet is a sprite sheet's name or index. p* are {x, y} screen points, uv*
+// {u, v} texels from the sheet texture's top-left, c* {r, g, b} tints (all
+// three or none; none is 128, the plain texture). blend is "half", "add",
+// "subtract", "addQuarter" or 1-4; omitted, "opaque" or 0 is opaque. A
+// textured triangle blends only the texels with STP set: the editor's sprite
+// sheet "Semi-transparent" option. An unknown sheet draws a flat magenta
+// triangle and logs its name once.
+int LuaAPI::UI_DrawTexturedTriangle(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_uiSystem || !lua.isTable(2) || !lua.isTable(3) || !lua.isTable(4) || !lua.isTable(5) || !lua.isTable(6) ||
+        !lua.isTable(7))
+        return 0;
+
+    psyqo::Vertex p[3];
+    uint8_t u[3], v[3];
+    int32_t uvRel[3][2];
+    for (int i = 0; i < 3; i++) {
+        p[i].x = (int16_t)tableInt(lua, 2 + i, 1);
+        p[i].y = (int16_t)tableInt(lua, 2 + i, 2);
+        uvRel[i][0] = tableInt(lua, 5 + i, 1);
+        uvRel[i][1] = tableInt(lua, 5 + i, 2);
+    }
+
+    // Colours are three tables or none; the blend follows them or the UVs.
+    psyqo::Color c[3] = {{.r = 128, .g = 128, .b = 128}, {.r = 128, .g = 128, .b = 128}, {.r = 128, .g = 128, .b = 128}};
+    int blendArg = 8;
+    if (lua.isTable(8)) {
+        if (!lua.isTable(9) || !lua.isTable(10)) return luaL_error(L, "UI.DrawTexturedTriangle: give all three colours or none");
+        for (int i = 0; i < 3; i++) c[i] = tableColor(lua, 8 + i);
+        blendArg = 11;
+    }
+    UIBlend blend = UIBlend::Opaque;
+    if (lua_type(L, blendArg) == LUA_TSTRING) blend = uitextri::blendFromName(lua.toString(blendArg));
+    else if (lua_type(L, blendArg) == LUA_TNUMBER) blend = uitextri::blendFromCode((int32_t)lua.toNumber(blendArg));
+
+    // The sheet, by name or index. lua_type, not isString: a number is a
+    // string to lua_isstring.
+    const SpriteSheet* sheet = nullptr;
+    const char* name = nullptr;
+    int32_t index = -1;
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        name = lua.toString(1);
+#if PSXSPLASH_FEATURE_SPRITES
+        if (s_spriteSystem) index = s_spriteSystem->sheetIndex(name);
+#endif
+    } else {
+        index = (int32_t)lua.toNumber(1);
+    }
+#if PSXSPLASH_FEATURE_SPRITES
+    if (s_spriteSystem) sheet = s_spriteSystem->sheet(index);
+#endif
+
+    auto& gpu = Renderer::GetInstance().getGPU();
+
+    if (!sheet) {
+        // Untextured, the primitive takes its blend from the draw mode: set it.
+        if (name ? s_missingSheets.first(uitextri::nameKey(name)) : s_missingSheets.first(uitextri::indexKey(index))) {
+            if (name) printf("UI.DrawTexturedTriangle: no sprite sheet named '%s', drawing magenta\n", name);
+            else printf("UI.DrawTexturedTriangle: no sprite sheet %d, drawing magenta\n", (int)index);
+        }
+        psyqo::Prim::Triangle tri(psyqo::Color{.r = 255, .g = 0, .b = 255});
+        tri.pointA = p[0];
+        tri.pointB = p[1];
+        tri.pointC = p[2];
+        if (blend == UIBlend::Opaque) {
+            tri.setOpaque();
+        } else {
+            psyqo::Prim::TPage tp;
+            tp.attr.set(static_cast<psyqo::Prim::TPageAttr::SemiTrans>(uiblend::gpuMode(blend)));
+            gpu.sendPrimitive(tp);
+            tri.setSemiTrans();
+        }
+        gpu.sendPrimitive(tri);
+        return 0;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        u[i] = uitextri::texCoord(sheet->u0, uvRel[i][0]);
+        v[i] = uitextri::texCoord(sheet->v0, uvRel[i][1]);
+    }
+
+    // As UISystem::makeTPage and renderElement's Image case, plus the blend.
+    psyqo::PrimPieces::TPageAttr tpage;
+    tpage.setPageX(sheet->texpageX);
+    tpage.setPageY(sheet->texpageY);
+    switch (sheet->bitDepth) {
+        case 0: tpage.set(psyqo::Prim::TPageAttr::Tex4Bits); break;
+        case 1: tpage.set(psyqo::Prim::TPageAttr::Tex8Bits); break;
+        default: tpage.set(psyqo::Prim::TPageAttr::Tex16Bits); break;
+    }
+    tpage.setDithering(false);
+    if (blend != UIBlend::Opaque)
+        tpage.set(static_cast<psyqo::Prim::TPageAttr::SemiTrans>(uiblend::gpuMode(blend)));
+
+    psyqo::Prim::GouraudTexturedTriangle tri;
+    tri.pointA = p[0];
+    tri.pointB = p[1];
+    tri.pointC = p[2];
+    tri.uvA.u = u[0]; tri.uvA.v = v[0];
+    tri.uvB.u = u[1]; tri.uvB.v = v[1];
+    tri.uvC.u = u[2]; tri.uvC.v = v[2];
+    tri.tpage = tpage;
+    tri.clutIndex = psyqo::PrimPieces::ClutIndex(sheet->clutX, sheet->clutY);
+    tri.setColorA(c[0]);
+    tri.setColorB(c[1]);
+    tri.setColorC(c[2]);
+    if (blend == UIBlend::Opaque) tri.setOpaque();
+    else tri.setSemiTrans();
+    gpu.sendPrimitive(tri);
 
     return 0;
 }

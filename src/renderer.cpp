@@ -45,6 +45,54 @@
 #ifdef PSXSPLASH_PROFILER
 #include "profiler.hh"
 #endif
+#include "scratchstack.hh"
+
+// psxsplash_callOnStack(fn, arg, top): fn(arg) with the stack below top. The
+// frame keeps the 16 bytes under the saved sp/ra free, as o32 lets the callee
+// store its arguments there.
+__asm__(R"(
+    .section .text.psxsplash_callOnStack, "ax", @progbits
+    .global psxsplash_callOnStack
+    .type psxsplash_callOnStack, @function
+    .set push
+    .set noreorder
+psxsplash_callOnStack:
+    addiu $a2, $a2, -24
+    sw    $sp, 16($a2)
+    sw    $ra, 20($a2)
+    move  $sp, $a2
+    jalr  $a0
+    move  $a0, $a1
+    lw    $ra, 20($sp)
+    lw    $sp, 16($sp)
+    jr    $ra
+    nop
+    .set pop
+    .size psxsplash_callOnStack, . - psxsplash_callOnStack
+)");
+
+namespace {
+// Where the RAM stack was when the scratchpad run started.
+uintptr_t s_ramSp;
+
+// f() with the stack in the scratchpad.
+template <typename F>
+inline void onScratchpadStack(F&& f) {
+    if (psxsplash::onScratchpad()) {
+        f();
+        return;
+    }
+    s_ramSp = (psxsplash::currentSp() - 64) & ~uintptr_t(7);
+    psxsplash::callOnStack(psxsplash::SCRATCHPAD_TOP, f);
+}
+
+// f() back on the RAM stack, for the paths too deep for the scratchpad.
+template <typename F>
+inline void offScratchpad(F&& f) {
+    if (psxsplash::onScratchpad()) psxsplash::callOnStack(s_ramSp, f);
+    else f();
+}
+}  // namespace
 
 using namespace psyqo::fixed_point_literals;
 using namespace psyqo::trig_literals;
@@ -752,13 +800,17 @@ void psxsplash::Renderer::processTriangle(
                 unsigned edges = warpEdge(px[0], py[0], pz[0], px[1], py[1], pz[1], q, zSplit) |
                                  warpEdge(px[1], py[1], pz[1], px[2], py[2], pz[2], q, zSplit) << 1 |
                                  warpEdge(px[2], py[2], pz[2], px[0], py[0], pz[0], q, zSplit) << 2;
-                if (edges && splitTriangle(tri, edges, fogFarSZ, ot, balloc, uvOffset, depth, env)) return;
+                if (edges) {
+                    bool done = false;
+                    offScratchpad([&] { done = splitTriangle(tri, edges, fogFarSZ, ot, balloc, uvOffset, depth, env); });
+                    if (done) return;
+                }
             }
         }
     }
 
     if (nearPlane | offBox) {
-        clipTriangle(tri, projected, fogFarSZ, ot, balloc, uvOffset, env);
+        offScratchpad([&] { clipTriangle(tri, projected, fogFarSZ, ot, balloc, uvOffset, env); });
         return;
     }
 
@@ -1272,8 +1324,10 @@ void psxsplash::Renderer::Render(eastl::vector<GameObject*>& objects) {
         setupObjectTransform(obj, cameraPosition);
         tagObject(&obj - objects.data(), obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
-        for (int i = 0; i < obj->polyCount; i++)
-            processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, obj->uvOffset);
+        onScratchpadStack([&] {
+            for (int i = 0; i < obj->polyCount; i++)
+                processTriangle(obj->polygons[i], fogFarSZ, ot, balloc, obj->uvOffset);
+        });
     }
 #if PSXSPLASH_FEATURE_SKIN
     renderSkinnedObjects(objects, cameraPosition, fogFarSZ, ot, balloc);
@@ -1356,34 +1410,36 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
     int16_t lastObjectIndex = -1;
     bool lastObjCulled = false;
     RENDER_LOST(uint32_t submitted = 0);
-    for (int i = 0; i < visibleCount; i++) {
-        const TriangleRef& ref = m_visibleRefs[i];
-        if (ref.objectIndex >= objects.size()) continue;
-        GameObject* obj = objects[ref.objectIndex];
-        if (!obj->isDrawn()) continue;
-        if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass - rendered below
-        if (obj->isSkinned()) continue;  // Skip skinned objects - rendered in skinned pass
-        if (ref.triangleIndex >= obj->polyCount) continue;
-        if (ref.objectIndex != lastObjectIndex) {
-            lastObjectIndex = ref.objectIndex;
+    onScratchpadStack([&] {
+        for (int i = 0; i < visibleCount; i++) {
+            const TriangleRef& ref = m_visibleRefs[i];
+            if (ref.objectIndex >= objects.size()) continue;
+            GameObject* obj = objects[ref.objectIndex];
+            if (!obj->isDrawn()) continue;
+            if (obj->isDynamicMoved()) continue;  // Skip dynamic objects in BVH pass - rendered below
+            if (obj->isSkinned()) continue;  // Skip skinned objects - rendered in skinned pass
+            if (ref.triangleIndex >= obj->polyCount) continue;
+            if (ref.objectIndex != lastObjectIndex) {
+                lastObjectIndex = ref.objectIndex;
 
-            BVHNode objBox;
-            objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
-            objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
-            if (!frustum.testAABB(objBox)) {
-                lastObjCulled = true;
-                continue;
+                BVHNode objBox;
+                objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+                objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+                if (!frustum.testAABB(objBox)) {
+                    lastObjCulled = true;
+                    continue;
+                }
+                lastObjCulled = false;
+                setupObjectTransform(obj, cameraPosition);
+                tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
             }
-            lastObjCulled = false;
-            setupObjectTransform(obj, cameraPosition);
-            tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
+            if (lastObjCulled) continue;
+            // polyCount is 0 while a streamed object's geometry is not resident.
+            if (ref.triangleIndex >= obj->polyCount) continue;
+            RENDER_LOST(submitted++);
+            processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, obj->uvOffset);
         }
-        if (lastObjCulled) continue;
-        // polyCount is 0 while a streamed object's geometry is not resident.
-        if (ref.triangleIndex >= obj->polyCount) continue;
-        RENDER_LOST(submitted++);
-        processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, obj->uvOffset);
-    }
+    });
     RENDER_LOST(m_lost.tris += submitted);
 
     // Second pass: render dynamically-moved objects (their BVH references are stale).
@@ -1399,9 +1455,11 @@ void psxsplash::Renderer::RenderWithBVH(eastl::vector<GameObject*>& objects, con
         setupObjectTransform(obj, cameraPosition);
         tagObject(oi, obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
-        for (int t = 0; t < obj->polyCount; t++) {
-            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
-        }
+        onScratchpadStack([&] {
+            for (int t = 0; t < obj->polyCount; t++) {
+                processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
+            }
+        });
     }
 
 #if PSXSPLASH_FEATURE_SKIN
@@ -1740,32 +1798,34 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
     auto renderTriRefs = [&](const TriangleRef* refs, int count,
                              int16_t& lastObj, bool& lastObjCulled) {
         RENDER_LOST(uint32_t submitted = 0);
-        for (int ti = 0; ti < count; ti++) {
-            const TriangleRef& ref = refs[ti];
-            if (ref.objectIndex >= objects.size()) continue;
-            GameObject* obj = objects[ref.objectIndex];
-            if (!obj->isDrawn()) continue;
-            if (obj->isDynamicMoved()) continue;  // Rendered in dynamic pass below
-            if (obj->isSkinned()) continue;  // Rendered in skinned pass
-            if (ref.triangleIndex >= obj->polyCount) continue;
-            if (ref.objectIndex != lastObj) {
-                lastObj = ref.objectIndex;
-                BVHNode objBox;
-                objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
-                objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
-                if (!frustum.testAABB(objBox)) {
-                    lastObjCulled = true;
-                    continue;
+        onScratchpadStack([&] {
+            for (int ti = 0; ti < count; ti++) {
+                const TriangleRef& ref = refs[ti];
+                if (ref.objectIndex >= objects.size()) continue;
+                GameObject* obj = objects[ref.objectIndex];
+                if (!obj->isDrawn()) continue;
+                if (obj->isDynamicMoved()) continue;  // Rendered in dynamic pass below
+                if (obj->isSkinned()) continue;  // Rendered in skinned pass
+                if (ref.triangleIndex >= obj->polyCount) continue;
+                if (ref.objectIndex != lastObj) {
+                    lastObj = ref.objectIndex;
+                    BVHNode objBox;
+                    objBox.minX = obj->aabbMinX; objBox.minY = obj->aabbMinY; objBox.minZ = obj->aabbMinZ;
+                    objBox.maxX = obj->aabbMaxX; objBox.maxY = obj->aabbMaxY; objBox.maxZ = obj->aabbMaxZ;
+                    if (!frustum.testAABB(objBox)) {
+                        lastObjCulled = true;
+                        continue;
+                    }
+                    lastObjCulled = false;
+                    setupObjectTransform(obj, cameraPosition);
+                    tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
                 }
-                lastObjCulled = false;
-                setupObjectTransform(obj, cameraPosition);
-                tagObject(ref.objectIndex, obj->polygons, obj->polyCount);
+                if (lastObjCulled) continue;
+                if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
+                RENDER_LOST(submitted++);
+                processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, obj->uvOffset);
             }
-            if (lastObjCulled) continue;
-            if (ref.triangleIndex >= obj->polyCount) continue;  // streamed out
-            RENDER_LOST(submitted++);
-            processTriangle(obj->polygons[ref.triangleIndex], fogFarSZ, ot, balloc, obj->uvOffset);
-        }
+        });
         RENDER_LOST(m_lost.tris += submitted);
     };
 
@@ -2142,9 +2202,11 @@ void psxsplash::Renderer::RenderWithRooms(eastl::vector<GameObject*>& objects,
         setupObjectTransform(obj, cameraPosition);
         tagObject(oi, obj->polygons, obj->polyCount);
         RENDER_LOST(m_lost.tris += obj->polyCount);
-        for (int t = 0; t < obj->polyCount; t++) {
-            processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
-        }
+        onScratchpadStack([&] {
+            for (int t = 0; t < obj->polyCount; t++) {
+                processTriangle(obj->polygons[t], fogFarSZ, ot, balloc, obj->uvOffset);
+            }
+        });
     }
 
 #if PSXSPLASH_FEATURE_SKIN

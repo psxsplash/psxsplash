@@ -43,6 +43,8 @@ SHADOW_BIN := $(BUILD)/shadow_tests
 SHINE_BIN  := $(BUILD)/shine_tests
 JUMP_BIN   := $(BUILD)/jump_tests
 SKIN_BIN   := $(BUILD)/skinpose_tests
+BLEND_BIN  := $(BUILD)/uiblend_tests
+TEXTRI_BIN := $(BUILD)/uitextri_tests
 SRT_BIN    := $(BUILD)/srt_tests
 PCNET_BIN  := $(BUILD)/pcdrvsocket_tests
 LUADEBUG_BIN := $(BUILD)/luadebug_tests
@@ -99,6 +101,12 @@ $(JUMP_BIN): test_jump.cpp testing.hh compat.hh $(SRC_DIR)/jumpmath.hh | $(BUILD
 # skinpose.cpp is split out of skinmesh.cpp so it carries no psyqo dependency.
 $(SKIN_BIN): test_skinpose.cpp testing.hh compat.hh $(SKIN_SRCS) $(SRC_DIR)/skinpose.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_skinpose.cpp $(SKIN_SRCS)
+# uiblend.hh is header-only.
+$(BLEND_BIN): test_uiblend.cpp testing.hh compat.hh $(SRC_DIR)/uiblend.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_uiblend.cpp
+# uitextri.hh is header-only.
+$(TEXTRI_BIN): test_uitextri.cpp testing.hh compat.hh $(SRC_DIR)/uitextri.hh $(SRC_DIR)/uiblend.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_uitextri.cpp
 # luadebugmath.hh is header-only.
 $(LUADEBUG_BIN): test_luadebug.cpp testing.hh compat.hh $(SRC_DIR)/luadebugmath.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_luadebug.cpp
@@ -129,7 +137,7 @@ $(SRT_BIN): test_srt.cpp testing.hh compat.hh $(SRT_SRCS) $(SRC_DIR)/srt.hh | $(
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(SKIN_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(BLEND_BIN) $(TEXTRI_BIN) $(SKIN_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== pcdrvsocket =="
@@ -156,6 +164,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(SHINE_BIN)
 	@echo "== jump =="
 	@$(JUMP_BIN)
+	@echo "== uiblend =="
+	@$(BLEND_BIN)
 	@echo "== srt =="
 	@$(SRT_BIN)
 	@echo "== luadebug =="
@@ -172,6 +182,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(REVERB_BIN)
 	@echo "== particle =="
 	@$(PARTICLE_BIN)
+	@echo "== uitextri =="
+	@$(TEXTRI_BIN)
 	@echo "== skinpose =="
 	@$(SKIN_BIN)
 

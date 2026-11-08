@@ -477,6 +477,8 @@ namespace psxsplash {
         bool requestMovie(const MoviePlayer::Request& request) { return m_movie.request(request); }
         bool isMovieBusy() const { return m_movie.busy(); }
         uint32_t movieFramesShown() const { return m_movie.framesShown(); }
+        // Movie.Stop: false when no movie plays.
+        bool stopMovie() { return m_movie.askStop(); }
         // What the drive reads at now: 1 or 2, or 0 on a build that has no drive.
         int readSpeed();
         // Points a request at a 16-bit UI image and draws that image behind the scene.
@@ -585,6 +587,7 @@ namespace psxsplash {
         void startMovie(psyqo::GPU& gpu);
         void finishMovie(psyqo::GPU& gpu, MoviePlayer::Result result);
         void fireMovieComplete(int ref, const char* result, int shown = -1, int dropped = -1);
+        bool updateMovie();
         MoviePlayer m_movie;
         MovieTexture m_movieTexture;
         // The scene's video mode while a movie plays in its place at 320x240.

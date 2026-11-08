@@ -32,16 +32,20 @@ namespace psxsplash {
  * Disc builds only: the player streams sectors off the drive, which a PCdrv
  * build does not have.
  *
- * Nothing else runs while a movie plays: no game logic, no Lua, no scene audio.
- * Scene voices and CD music are stopped first; a script restarts its music in
- * onComplete. A movie that loops can only end by the pad, so it is always skippable.
+ * Nothing else runs while a movie plays: no game logic, no scene audio, and no
+ * Lua but the movie's own onUpdate. Scene voices and CD music are stopped first;
+ * a script restarts its music in onComplete. onUpdate runs every frame with the
+ * frames shown and the pad, and Movie.Stop() in it ends the movie there: a
+ * decision counted in the movie's frames, for a game made of movies. It runs
+ * while the movie streams, so what reads the disc waits for onComplete. Without
+ * it, a movie that loops can only end by the pad, so it is always skippable.
  *
  * In place, a movie smaller than the screen plays on black, or with `overlay`
  * as a window over the frozen last frame, at `x`, `y` or else centered.
  */
 class MoviePlayer {
   public:
-    enum class Result : uint8_t { ENDED, SKIPPED, FAILED };
+    enum class Result : uint8_t { ENDED, SKIPPED, FAILED, STOPPED };
 
     static constexpr int c_noRef = -2;  // LUA_NOREF
 
@@ -54,6 +58,7 @@ class MoviePlayer {
         char name[9] = {};      // "INTRO": A-Z, 0-9 and _, 8 characters at most
         int thenScene = -1;     // the scene to load after it, or -1 to stay
         int onComplete = c_noRef;
+        int onUpdate = c_noRef;  // every frame it plays, with the frames shown
         int16_t x = -1, y = -1;  // the picture's corner, -1 to center it
         bool skippable = false;
         bool rgb24 = false;
@@ -90,6 +95,14 @@ class MoviePlayer {
 
     const Request& request() const { return m_request; }
 
+    // Movie.Stop: the movie playing ends at its next frame(), its picture up.
+    bool askStop() {
+        if (!m_playing) return false;
+        m_stopAsked = true;
+        return true;
+    }
+    bool stopAsked() const { return m_stopAsked; }
+
     // Frames shown so far, for a scene that follows the movie.
     uint32_t framesShown() const;
     uint32_t lastShown() const { return m_lastShown; }
@@ -116,6 +129,7 @@ class MoviePlayer {
     bool m_pending = false;
     bool m_playing = false;
     bool m_skipHeld = false;
+    bool m_stopAsked = false;
     bool m_clockStarted = false;
     uint32_t m_lastShown = 0, m_lastDropped = 0;
     uint32_t m_clockStart = 0;
