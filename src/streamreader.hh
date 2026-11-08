@@ -13,9 +13,8 @@ namespace psxsplash {
  * read), then read from at any time without touching the filesystem again.
  */
 struct StreamFile {
-    uint32_t lba = 0;       // CD-ROM: first sector of the file
+    uint32_t lba = 0;       // first sector of the entry in the image
     uint32_t size = 0;      // bytes
-    char name[32] = {};     // PCdrv: host-side filename
     bool valid = false;
 
     uint32_t sectorCount() const { return (size + 2047) / 2048; }
@@ -35,8 +34,8 @@ struct StreamFile {
  * CD-DA for the rest of the scene. Reads still wait for an idle drive, in case
  * a track was already playing when the reservation was made.
  *
- * On PCdrv the read is synchronous inside update() and the callback is still
- * deferred, so game code sees the same ordering on both backends.
+ * With the image over PCdrv the read is synchronous inside update() and the
+ * callback is still deferred, so game code sees the same ordering both ways.
  */
 class StreamReader {
   public:

@@ -24,13 +24,14 @@ This builds every engine into `build/psx/mipsel/release/`, each under its own na
 
 | File | Use |
 |------|-----|
-| `psxsplash.ps-exe` | Loads scenes over PCdrv: pcsx-redux, or a console over a serial cable |
-| `psxsplash-cdrom.ps-exe` | Loads scenes from the CD: disc images |
-| `psxsplash-perf.ps-exe` | PCdrv, with the FPS counter and heap usage overlay |
-| `psxsplash-rooms.ps-exe` | PCdrv, with the room debug overlay |
-| `psxsplash-perf-rooms.ps-exe` | PCdrv, with both |
+| `psxsplash.ps-exe` | The engine |
+| `psxsplash-perf.ps-exe` | With the FPS counter and heap usage overlay |
+| `psxsplash-rooms.ps-exe` | With the room debug overlay |
+| `psxsplash-perf-rooms.ps-exe` | With both |
 
-`xmake build psxsplash-cdrom.ps-exe` builds one of them. Options, set with `xmake f` before building and applied to every engine:
+Every engine reads its scenes from one archive in a disc image that `tools/mkdisc.py` builds with PCSX-Redux's `authoring` tool: from the CD drive, or, with no disc, over PCdrv as `psxsplash.bin` (pcsx-redux, or a console over a serial cable).
+
+`xmake build psxsplash-perf.ps-exe` builds one of them. Options, set with `xmake f` before building and applied to every engine:
 
 | Option | Description |
 |--------|-------------|
@@ -40,7 +41,7 @@ This builds every engine into `build/psx/mipsel/release/`, each under its own na
 | `--bump_size=N` | Bump allocator size when a scene does not set one |
 | `--profiler=y` | Per-frame profiler overlay and PCSX variable export |
 
-The Makefile still builds one engine at a time (`make LOADER=cdrom`, `MEMOVERLAY=1`, `FPSOVERLAY=1`, `ROOMDEBUG=1`, `NOPARSER=1`, `FEATURES=...`), always as `psxsplash.ps-exe`, so each build replaces the last. CI builds with both.
+The Makefile still builds one engine at a time (`MEMOVERLAY=1`, `FPSOVERLAY=1`, `ROOMDEBUG=1`, `NOPARSER=1`, `FEATURES=...`), always as `psxsplash.ps-exe`, so each build replaces the last. CI builds with both.
 
 ## Contributing
 

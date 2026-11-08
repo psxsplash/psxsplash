@@ -68,13 +68,9 @@ SRCS += $(sort $(foreach f,$(FEATURES),$(FEATURE_SRCS_$(f))))
 feature_uc = $(subst a,A,$(subst b,B,$(subst c,C,$(subst d,D,$(subst e,E,$(subst g,G,$(subst h,H,$(subst i,I,$(subst k,K,$(subst l,L,$(subst m,M,$(subst n,N,$(subst o,O,$(subst p,P,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(subst v,V,$(subst w,W,$(1)))))))))))))))))))))
 CPPFLAGS += $(foreach f,$(ALL_FEATURES),-DPSXSPLASH_FEATURE_$(call feature_uc,$(f))=$(if $(filter $(f),$(FEATURES)),1,0))
 
-# LOADER=cdrom  → CD-ROM backend (for ISO builds on real hardware)
-# LOADER=pcdrv  → PCdrv backend (default, emulator + SIO1)
-ifeq ($(LOADER),cdrom)
-CPPFLAGS += -DLOADER_CDROM
-else
-CPPFLAGS += -DPCDRV_SUPPORT=1
-endif
+# Files come from one psyqo-paths archive in a Redux `authoring` image
+# (tools/mkdisc.py), read from the drive, or over PCdrv as psxsplash.bin when
+# there is no disc (src/fileloader_archive.hh).
 
 # MEMOVERLAY=1  → Enable runtime heap/RAM usage overlay
 ifeq ($(MEMOVERLAY),1)
@@ -137,17 +133,15 @@ CPPFLAGS += -DBUMP_SIZE=$(BUMP_SIZE)
 endif
 
 include third_party/nugget/psyqo-lua/psyqo-lua.mk
+# The archive manager, its decompressors and the movie player.
+include third_party/nugget/psyqo-paths/psyqo-paths.mk
+# psyqo-paths calls into libpsyqo, so it has to come first on the link line.
+LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-paths.a,$(LIBRARIES))
+# common.mk read the link rule's prerequisites when psyqo-lua.mk pulled it in,
+# before this library was on the list, so name it as one here.
+$(BINDIR)$(TARGET).elf: $(PSYQOPATHSDIR)libpsyqo-paths.a
 include third_party/nugget/psyqo/psyqo.mk
 
-# Movies stream off the drive, so only a disc build links the player. Its
-# library comes first: it calls into psyqo, and the linker reads them in order.
-ifeq ($(LOADER),cdrom)
-ifneq ($(filter movie,$(FEATURES)),)
-include third_party/nugget/psyqo-paths/psyqo-paths.mk
-LIBRARIES := $(filter %libpsyqo-paths.a,$(LIBRARIES)) $(filter-out %libpsyqo-paths.a,$(LIBRARIES))
-$(BINDIR)$(TARGET).elf: $(PSYQOPATHSDIR)libpsyqo-paths.a
-endif
-endif
 # The renderer's per-triangle code runs faster at -O2 than at -Os on a real
 # PS1 (about 15% less render time on a courtyard walk), for 13 KB of code.
 src/renderer.o: CPPFLAGS += -O2

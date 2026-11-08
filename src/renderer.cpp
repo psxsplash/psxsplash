@@ -5,6 +5,7 @@
 #endif
 
 #include "fade.hh"
+#include "fileloader.hh"
 #include "otdepth.hh"
 #include "palettecycler.hh"
 
@@ -100,13 +101,10 @@ using namespace psyqo::GTE;
 using psxsplash::currentScreen;
 using psxsplash::ScreenMode;
 
-// Development builds count the triangles the renderer loses or bends
-// (m_lost, printed by reportPeaks); other builds compile the counting out.
-#ifdef PCDRV_SUPPORT
+// The triangles the renderer loses or bends (m_lost, printed by reportPeaks).
+// A few adds a frame, kept in every build: the same engine is the editor's
+// and the disc's, and only its report is the editor's.
 #define RENDER_LOST(...) __VA_ARGS__
-#else
-#define RENDER_LOST(...)
-#endif
 
 psxsplash::Renderer* psxsplash::Renderer::instance = nullptr;
 
@@ -287,10 +285,9 @@ void psxsplash::Renderer::ReserveVisibleTriangles(uint32_t count) {
 }
 
 void psxsplash::Renderer::reportPeaks() {
-#ifdef PCDRV_SUPPORT
-    // Development builds tell the editor what a scene really used, at most
-    // once a second and only when a peak grew.
-    if (m_frameCount % 60 != 0 || reportsHeld()) return;
+    // Run over PCdrv, the engine tells the editor what a scene really used, at
+    // most once a second and only when a peak grew. A disc prints nothing.
+    if (m_frameCount % 60 != 0 || reportsHeld() || !FileLoader::Get().overPCdrv()) return;
     // And how many triangles it lost or bent over that second, when any.
     // The clip, split, threshold and refused fields go last, so parsers of the fields before them keep working.
     if (m_lost.ot || m_lost.skinNear || m_lost.leaf || m_lost.clamp || m_lost.clip || m_lost.split || m_lost.refused)
@@ -304,7 +301,6 @@ void psxsplash::Renderer::reportPeaks() {
     m_reportedBump = m_peakBump;
     ramsyscall_printf("psxsplash: render peak depth %d of %u, bump %u of %u\n", (int)m_peakZ, m_otSize,
                       m_peakBump, m_bumpSize);
-#endif
 }
 
 void psxsplash::Renderer::SetCamera(psxsplash::Camera& camera) {

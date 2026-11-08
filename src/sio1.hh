@@ -26,7 +26,7 @@ namespace psxsplash {
 /// that because it already uses psyqo's own drivers (CDRomDevice + ISO9660Parser,
 /// AdvancedPad, MemoryCard), each of which branches on isKernelTakenOver().
 ///
-/// CURRENTLY OFF: enabling it faults at boot on the LOADER=cdrom build, before a
+/// CURRENTLY OFF: enabling it faulted at boot on the old CD-ROM loader build, before a
 /// frame is drawn, with `ReservedInstruction from 0x00005704`. That address is
 /// BIOS kernel space the 4KB memset does not reach, so it is not wiped memory
 /// being executed - something transferred INTO kernel code and landed
@@ -39,7 +39,7 @@ namespace psxsplash {
 ///     initializer before Application::prepare(), so every driver sees
 ///     isKernelTakenOver() == true when it picks its IRQ path.
 ///   - Not PCdrv, which is incompatible but absent from this build: the Makefile
-///     defines PCDRV_SUPPORT only in the non-cdrom branch.
+///     defined PCDRV_SUPPORT only in the non-cdrom branch.
 ///   - Not a stale instruction cache: Kernel::flushCache() is psyqo's own rather
 ///     than the A0 syscall, so it still works after the vectors are replaced.
 ///   - Not a stray BIOS syscall: takeOverKernel's replacement stubs redirect

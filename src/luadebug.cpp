@@ -1,6 +1,6 @@
 #include "luadebug.hh"
 
-#if !defined(LOADER_CDROM)
+#include "fileloader.hh"
 
 #include <psyqo-lua/lua.hh>
 #include <psyqo/xprintf.h>
@@ -8,7 +8,7 @@
 #include "common/hardware/counters.h"
 #include "common/syscalls/syscalls.h"
 #include "luadebugmath.hh"
-#include "pcdrv_handler.hh"
+#include "common/kernel/pcdrv.h"
 
 namespace {
 
@@ -28,10 +28,10 @@ char* s_file = nullptr;
 
 // Reads `name` from the PCdrv directory into `buf`; -1 when it does not exist.
 int readSmall(const char* name, char* buf, int cap) {
-    int fd = pcdrv_open(name, 0, 0);
+    int fd = PCopen(name, 0, 0);
     if (fd < 0) return -1;
-    int n = pcdrv_read(fd, buf, cap);
-    pcdrv_close(fd);
+    int n = PCread(fd, buf, cap);
+    PCclose(fd);
     return n < 0 ? 0 : n;
 }
 
@@ -197,7 +197,9 @@ void psxsplash::LuaDebugger::attach(lua_State* L) {
     m_hooked = false;  // a fresh VM has no hook
     if (!m_checked) {
         char probe[4];
-        m_session = readSmall("luabp.txt", probe, sizeof(probe)) >= 0;
+        // Only an archive read over PCdrv has a host to hold luabp.txt; on a
+        // disc a PCopen would have no driver to answer it.
+        m_session = FileLoader::Get().overPCdrv() && readSmall("luabp.txt", probe, sizeof(probe)) >= 0;
         if (m_session) {
             s_bps = new Breakpoint[kMaxBreakpoints];
             s_file = new char[kFileCap];
@@ -291,14 +293,3 @@ void psxsplash::LuaDebugger::stop(lua_State* L, lua_Debug* ar) {
     m_countdown = LUA_DEBUG_PERIOD;
     m_inStop = false;
 }
-
-#else  // LOADER_CDROM: no PCdrv, no debugger.
-
-psxsplash::LuaDebugger& psxsplash::LuaDebugger::Get() {
-    static LuaDebugger instance;
-    return instance;
-}
-void psxsplash::LuaDebugger::attach(lua_State*) {}
-void psxsplash::LuaDebugger::poll() {}
-
-#endif

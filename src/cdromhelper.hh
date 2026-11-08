@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(LOADER_CDROM)
+#include "fileloader.hh"
 
 #include <psyqo/hardware/cpu.hh>
 #include <psyqo/hardware/cdrom.hh>
@@ -11,7 +11,11 @@ namespace psxsplash {
 
 class CDRomHelper {
   public:
+    /** False when the disc image is read over PCdrv: there is no drive to drive then. */
+    static void SetDriveInUse(bool inUse) { s_inUse = inUse; }
+
     static void SilenceDrive() {
+        if (!s_inUse) return;
         psyqo::Hardware::CPU::IMask.clear(psyqo::Hardware::CPU::IRQ::CDRom);
         psyqo::Hardware::CPU::flushWriteQueue();
         psyqo::Hardware::CDRom::CauseMask = 0;
@@ -20,7 +24,7 @@ class CDRomHelper {
     }
 
     static void WakeDrive() {
-        if (!s_silenced) return;
+        if (!s_inUse || !s_silenced) return;
         s_silenced = false;
 
         drainController();
@@ -34,6 +38,7 @@ class CDRomHelper {
 
   private:
     static inline bool s_silenced = false;
+    static inline bool s_inUse = true;
 
     static void drainController() {
         uint8_t cause = psyqo::Hardware::CDRom::Cause;
@@ -56,4 +61,3 @@ class CDRomHelper {
 
 }  // namespace psxsplash
 
-#endif  // LOADER_CDROM

@@ -17,7 +17,7 @@ MusicManager::MusicManager() {
 }
 
 void MusicManager::playCDDATrack(int trackNum) {
-#ifdef LOADER_CDROM
+    if (!mCDRomDevice) return;  // archive image read over PCdrv: no drive, no CD-DA
     // A streaming scene needs the drive for data: CD-DA and streaming are
     // mutually exclusive, so such a scene uses sequenced music instead.
 #if PSXSPLASH_FEATURE_STREAMING
@@ -40,11 +40,10 @@ void MusicManager::playCDDATrack(int trackNum) {
             if (mPlayingCDDA)
                 mCurrentCDDATrack = trackNum;
     });
-#endif // LOADER_CDROM
 }
 
 void MusicManager::resumeCDDA() {
-#ifdef LOADER_CDROM
+    if (!mCDRomDevice) return;
 #if PSXSPLASH_FEATURE_STREAMING
     if (StreamReader::Get().driveReserved()) return;
 #endif
@@ -54,28 +53,25 @@ void MusicManager::resumeCDDA() {
                 mPlayingCDDA = true;
         });
     }
-#endif // LOADER_CDROM
 }
 
 void MusicManager::pauseCDDA() {
-#ifdef LOADER_CDROM
+    if (!mCDRomDevice) return;
     if (mCurrentCDDATrack >= 0 && mPlayingCDDA) {
         mCDRomDevice->pauseCDDA();
         mPlayingCDDA = false;
     }
-#endif // LOADER_CDROM
 }
 
 void MusicManager::stopCDDA() {
-#ifdef LOADER_CDROM
+    if (!mCDRomDevice) return;
     mCDRomDevice->stopCDDA();
     mCurrentCDDATrack = -1;
     mPlayingCDDA = false;
-#endif // LOADER_CDROM
 }
 
 void MusicManager::tellCDDA(lua_State* L) {
-#ifdef LOADER_CDROM
+    if (!mCDRomDevice) return;
     if (!L) return;
     psyqo::Lua luaState(L);
     int cb = LUA_NOREF;
@@ -109,12 +105,10 @@ void MusicManager::tellCDDA(lua_State* L) {
         // per call whenever no CD action was in progress.
         luaState.unref(LUA_REGISTRYINDEX, cb);
     });
-#endif // LOADER_CDROM
 }
 
 void MusicManager::setCDDAVolume(int left, int right) {
-#ifdef LOADER_CDROM
+    if (!mCDRomDevice) return;
     mCDRomDevice->setVolume(left, 0, 0, right);
-#endif // LOADER_CDROM
 }
 } // namespace psxsplash

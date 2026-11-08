@@ -3,9 +3,10 @@
 #include <psyqo/xprintf.h>
 
 #include "common/hardware/counters.h"
+#include "common/hardware/pcsxhw.h"
+#include "common/kernel/pcdrv.h"
 #include "netinterp.hh"
 
-#include "pcdrv_handler.hh"
 #include "scenemanager.hh"
 #include "sio1.hh"
 
@@ -33,6 +34,34 @@ struct RecordWire {
 // with no monitor just goes on to SIO1, and a disc under a cart's monitor gets the
 // socket like anything else.
 namespace {
+#define SIO1_CTRL (*(volatile uint16_t*)0x1F80105A)
+
+// psxmon (the pcsx-redux debug monitor) hooks the kernel when it starts. It
+// copies the exception trampoline at 0x80 to the debug vector at 0x40
+// (without it 0x40 holds zeros on a retail BIOS, or a jump of its own under
+// Unirom), and it may patch slot 4 of the kernel's exception handler with a
+// call to itself: lui at / ori at, at / jalr at. Only through that slot does
+// it see a `break` here, because psyqo's kernel setup empties the handler
+// chain it also registers on.
+bool psxmon_owns_breaks() {
+    volatile const uint32_t* vec = (volatile const uint32_t*)0x80000040;
+    for (int i = 0; i < 4; i++) {
+        if (vec[i] != vec[i + 16]) return false;
+    }
+    // The trampoline is lui k0, hi / addiu k0, k0, lo / jr k0.
+    const uint32_t lui = vec[16], addiu = vec[17];
+    if ((lui >> 16) != 0x3c1a || (addiu >> 16) != 0x275a) return false;
+    const uint32_t handler = ((lui << 16) + (int16_t)(addiu & 0xffff)) | 0x80000000;
+    if (handler & 3) return false;
+    volatile const uint32_t* slot = (volatile const uint32_t*)(handler + 0xa0);
+    return (slot[0] >> 16) == 0x3c01 && (slot[1] >> 16) == 0x3421 && slot[2] == 0x0020f809;
+}
+
+// The emulator and a slotted psxmon both answer `break 0, 0x10x` (pcdrv.h). Keep
+// pcsx_present() first: with its kernel checker on, PCSX-Redux pauses on a
+// user-mode read of 0x40.
+bool pcdrv_uses_break() { return pcsx_present() || psxmon_owns_breaks(); }
+
 int pcnetOpen(const char* name) { return pcdrv_uses_break() ? PCopen(name, 0, 0) : -1; }
 int pcnetClose(int fd) { return PCclose(fd); }
 int pcnetRead(int fd, void* buf, int len) { return PCread(fd, buf, len); }

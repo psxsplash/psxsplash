@@ -231,7 +231,6 @@ class Renderer final {
     int32_t m_peakZ = 0;
     int32_t m_reportedZ = 0;
     uint32_t m_reportedBump = 0;
-#ifdef PCDRV_SUPPORT
     // Triangles the renderer lost or bent since the last report, by cause:
     // dropped past the ordering table, `skinNear` skinned ones whose view-space
     // edges do not fit the 16 bits the clipper takes them in (they went
@@ -248,7 +247,6 @@ class Renderer final {
         uint32_t eqLo = 0xffffffff, eqHi = 0;
     };
     LostCounts m_lost;
-#endif
     void reportPeaks();
     void notePeakBump(const Balloc& balloc) {
         if (balloc.used() > m_peakBump) m_peakBump = balloc.used();
@@ -474,7 +472,7 @@ class Renderer final {
                               const Frustum* frustum = nullptr);
 #endif
 
-#if defined(PSXSPLASH_PROFILER) && defined(PCDRV_SUPPORT)
+#if defined(PSXSPLASH_PROFILER)
   public:
     // While the perf map walks, reportPeaks prints nothing: its printf runs
     // inside the measured rendering section. Peaks keep being tracked, so a

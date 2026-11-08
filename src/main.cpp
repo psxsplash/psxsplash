@@ -27,9 +27,7 @@ extern volatile uint32_t g_netTestFailed;
 }
 #endif
 
-#if defined(LOADER_CDROM)
-#include "fileloader_cdrom.hh"
-#endif
+#include "fileloader_archive.hh"
 
 namespace {
 
@@ -103,11 +101,8 @@ void PSXSplash::prepare() {
     psxsplash::Sio1::Get().init();
 #endif
 
-#if defined(LOADER_CDROM)
-    // The CD-ROM backend needs a GPU pointer for LoadFileSync's spin loop.
-    static_cast<psxsplash::FileLoaderCDRom&>(
-        psxsplash::FileLoader::Get()).setGPU(&gpu());
-#endif
+    // The loader needs a GPU pointer for LoadFileSync's spin loop.
+    psxsplash::FileLoaderArchive::Get().setGPU(&gpu());
 }
 
 void PSXSplash::createScene() {
@@ -121,9 +116,8 @@ void MainScene::start(StartReason reason) {
     // Initialise the FileLoader backend, then load scene 0 through
     // the same SceneManager::loadScene() path used for all transitions.
     //
-    // For PCdrv the init task resolves synchronously so both steps
-    // execute in one go.  For CD-ROM the init is async (drive reset +
-    // ISO9660 parse) and yields to the main loop until complete.
+    // The init is async (drive reset, then the archive index from the disc
+    // or, with no disc, over PCdrv) and yields to the main loop until complete.
 
 #if PSXSPLASH_FEATURE_BOOTLOGO
     // The logo plays while the loader initialises; scene 0 loads in frame()
@@ -174,7 +168,7 @@ void MainScene::frame() {
 #endif
 
     // Don't run the game loop while FileLoader init is still executing
-    // (only relevant for the async CD-ROM backend).
+    // (it is async: a drive reset and an index read).
     if (!m_ready) return;
 
 #if PSXSPLASH_FEATURE_MOVIE

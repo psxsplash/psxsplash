@@ -2,12 +2,13 @@
 
 #if PSXSPLASH_FEATURE_MOVIE
 
-#if defined(LOADER_CDROM)
-
 #include <psyqo/alloc.h>
 #include <psyqo/xprintf.h>
 
 #include <EASTL/algorithm.h>
+
+// Before hwregs.h, whose register macros would rewrite psyqo's names.
+#include "fileloader_archive.hh"
 
 extern "C" {
 #include "bsdec/bsdec.h"
@@ -15,8 +16,6 @@ extern "C" {
 #include "common/hardware/dma.h"
 #include "common/hardware/hwregs.h"
 
-#include "fileloader.hh"
-#include "fileloader_cdrom.hh"
 #if PSXSPLASH_FEATURE_STREAMING
 #include "streamreader.hh"
 #endif
@@ -144,8 +143,10 @@ bool psxsplash::MovieTexture::play(const char* name, int16_t x, int16_t y, uint3
         return false;
     }
 
-    auto& loader = static_cast<FileLoaderCDRom&>(FileLoader::Get());
-    if (!loader.getCDRomDevice()->isIdle()) {
+    auto& loader = FileLoaderArchive::Get();
+    psyqo::CDRomDevice* cdrom = loader.getCDRomDevice();
+    if (!cdrom) return false;  // over PCdrv: SceneManager does not get here
+    if (!cdrom->isIdle()) {
         printf("Movie %s: the drive is busy, start it before CD music\n", name);
         return false;
     }
@@ -157,14 +158,14 @@ bool psxsplash::MovieTexture::play(const char* name, int16_t x, int16_t y, uint3
 #endif
 
     char path[24];
-    snprintf(path, sizeof path, "MOVIES/%s.SBS;1", name);
-    uint32_t lba = 0, bytes = 0;
-    if (!loader.resolveBlocking(path, lba, bytes)) {
+    snprintf(path, sizeof path, "MOVIES/%s.SBS", name);
+    const uint32_t bytes = loader.loadSize(path);
+    if (!bytes) {
         printf("Movie %s: not on the disc\n", name);
         return false;
     }
     // The loader allocates with `new`, and nothing can see that fail (MoviePlayer).
-    void* room = psyqo_malloc((bytes + 2047) & ~2047u);
+    void* room = psyqo_malloc(bytes);
     if (!room) {
         printf("Movie %s: the file does not fit in the heap\n", name);
         return false;
@@ -300,14 +301,5 @@ bool psxsplash::MovieTexture::tick(psyqo::GPU& gpu) {
     if (!decode(index, gpu)) stop();
     return false;
 }
-
-#else  // PCdrv: the file reads from the disc.
-
-bool psxsplash::MovieTexture::play(const char*, const GameObject*, const Options&) { return false; }
-void psxsplash::MovieTexture::stop() {}
-bool psxsplash::MovieTexture::tick(psyqo::GPU&) { return false; }
-bool psxsplash::MovieTexture::decode(uint32_t, psyqo::GPU&) { return false; }
-
-#endif  // LOADER_CDROM
 
 #endif  // PSXSPLASH_FEATURE_MOVIE

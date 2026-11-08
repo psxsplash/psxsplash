@@ -2,38 +2,11 @@
 
 #include <psyqo/kernel.hh>
 
-#include "fileloader.hh"
+#include "cdromhelper.hh"
+#include "fileloader_archive.hh"
 #include "renderer.hh"
 
-#if defined(LOADER_CDROM)
-#include "cdromhelper.hh"
-#include "fileloader_cdrom.hh"
-#else
-#include "pcdrv_handler.hh"
-#endif
-
 namespace psxsplash {
-
-#if !defined(LOADER_CDROM)
-static bool readPcdrv(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount, void* buffer) {
-    bool ok = false;
-    int fd = pcdrv_open(file.name, 0, 0);
-    if (fd >= 0) {
-        uint32_t offset = firstSector * 2048;
-        uint32_t want = sectorCount * 2048;
-        // The last sector of a file is short; pad it with zeros like a CD read.
-        uint32_t avail = file.size > offset ? file.size - offset : 0;
-        uint32_t len = want < avail ? want : avail;
-        if (pcdrv_seek(fd, static_cast<int>(offset), 0) == static_cast<int>(offset) &&
-            pcdrv_read(fd, buffer, static_cast<int>(len)) == static_cast<int>(len)) {
-            __builtin_memset(static_cast<uint8_t*>(buffer) + len, 0, want - len);
-            ok = true;
-        }
-        pcdrv_close(fd);
-    }
-    return ok;
-}
-#endif
 
 StreamReader& StreamReader::Get() {
     static StreamReader instance;
@@ -42,18 +15,8 @@ StreamReader& StreamReader::Get() {
 
 bool StreamReader::Open(const char* filename, StreamFile& out) {
     out = StreamFile{};
-#if defined(LOADER_CDROM)
-    auto& loader = static_cast<FileLoaderCDRom&>(FileLoader::Get());
+    auto& loader = FileLoaderArchive::Get();
     if (!loader.resolveBlocking(filename, out.lba, out.size)) return false;
-#else
-    int fd = pcdrv_open(filename, 0, 0);
-    if (fd < 0) return false;
-    int size = pcdrv_seek(fd, 0, 2);
-    pcdrv_close(fd);
-    if (size <= 0) return false;
-    out.size = static_cast<uint32_t>(size);
-#endif
-    for (unsigned i = 0; i < sizeof(out.name) - 1 && filename[i]; i++) out.name[i] = filename[i];
     out.valid = true;
     return true;
 }
@@ -61,13 +24,7 @@ bool StreamReader::Open(const char* filename, StreamFile& out) {
 bool StreamReader::ReadBlocking(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount,
                                 void* buffer) {
     if (!file.valid || sectorCount == 0 || firstSector + sectorCount > file.sectorCount()) return false;
-#if defined(LOADER_CDROM)
-    auto* cdrom = static_cast<FileLoaderCDRom&>(FileLoader::Get()).getCDRomDevice();
-    return cdrom->readSectorsBlocking(file.lba + firstSector, sectorCount, buffer,
-                                      Renderer::GetInstance().getGPU());
-#else
-    return readPcdrv(file, firstSector, sectorCount, buffer);
-#endif
+    return FileLoaderArchive::Get().readSectorsBlocking(file.lba + firstSector, sectorCount, buffer);
 }
 
 bool StreamReader::request(const StreamFile& file, uint32_t firstSector, uint32_t sectorCount,
@@ -95,31 +52,34 @@ void StreamReader::update() {
 }
 
 bool StreamReader::startRead(Request& req) {
-#if defined(LOADER_CDROM)
-    auto* cdrom = static_cast<FileLoaderCDRom&>(FileLoader::Get()).getCDRomDevice();
+    auto& loader = FileLoaderArchive::Get();
+    auto* cdrom = loader.getCDRomDevice();
+    if (!cdrom) {
+        // The image over PCdrv: a synchronous read, completed on the main loop
+        // as a drive read is, so callbacks keep their ordering.
+        bool ok = loader.readSectorsBlocking(req.file.lba + req.firstSector, req.sectorCount, req.buffer);
+        m_inFlight = true;
+        psyqo::Kernel::queueCallback([this, ok, callback = eastl::move(req.callback)]() mutable {
+            m_inFlight = false;
+            if (callback) callback(ok);
+        });
+        return true;
+    }
     if (!cdrom->isIdle()) return false;
 
     m_inFlight = true;
     CDRomHelper::WakeDrive();
-    cdrom->readSectors(req.file.lba + req.firstSector, req.sectorCount, req.buffer,
-                       [this, cdrom, callback = eastl::move(req.callback)](bool success) mutable {
-                           // Runs on the main loop after the action has completed, so the
-                           // device is idle unless something queued behind us already
-                           // started. Silence only an idle drive: CD-DA needs its IRQs.
-                           if (cdrom->isIdle()) CDRomHelper::SilenceDrive();
-                           m_inFlight = false;
-                           if (callback) callback(success);
-                       });
+    // A read that fails goes again at single speed (FileLoaderArchive::readSectorsAsync).
+    loader.readSectorsAsync(req.file.lba + req.firstSector, req.sectorCount, req.buffer,
+                            [this, cdrom, callback = eastl::move(req.callback)](bool success) mutable {
+                                // Runs on the main loop after the action has completed, so the
+                                // device is idle unless something queued behind us already
+                                // started. Silence only an idle drive: CD-DA needs its IRQs.
+                                if (cdrom->isIdle()) CDRomHelper::SilenceDrive();
+                                m_inFlight = false;
+                                if (callback) callback(success);
+                            });
     return true;
-#else
-    bool ok = readPcdrv(req.file, req.firstSector, req.sectorCount, req.buffer);
-    m_inFlight = true;
-    psyqo::Kernel::queueCallback([this, ok, callback = eastl::move(req.callback)]() mutable {
-        m_inFlight = false;
-        if (callback) callback(ok);
-    });
-    return true;
-#endif
 }
 
 void StreamReader::drain() {

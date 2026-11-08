@@ -4,9 +4,7 @@
 
 #include "fileloader.hh"
 
-#if defined(LOADER_CDROM)
 #include "cdromhelper.hh"
-#endif
 
 namespace psxsplash {
 
@@ -21,15 +19,11 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
     char name[32];
     FileLoader::BuildGeoFilename(sceneIndex, name, sizeof(name));
 
-#if defined(LOADER_CDROM)
     // InitializeScene runs after loadScene has silenced the drive.
     CDRomHelper::WakeDrive();
-#endif
     if (!StreamReader::Open(name, m_file)) {
         printf("WorldStreamer: %s missing, streamed geometry will not draw\n", name);
-#if defined(LOADER_CDROM)
         CDRomHelper::SilenceDrive();
-#endif
         return;
     }
 
@@ -46,9 +40,7 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
         printf("WorldStreamer: no RAM for %u KB of streaming slots, streamed geometry will not draw\n",
                poolBytes / 1024);
         shutdown();
-#if defined(LOADER_CDROM)
         CDRomHelper::SilenceDrive();
-#endif
         return;
     }
     m_planner.reset(m_table, m_regions);
@@ -72,9 +64,7 @@ void WorldStreamer::init(uint8_t* data, uint32_t tableOffset, int sceneIndex,
         attach(region, off);
     }
 
-#if defined(LOADER_CDROM)
     CDRomHelper::SilenceDrive();
-#endif
 }
 
 void WorldStreamer::shutdown() {
