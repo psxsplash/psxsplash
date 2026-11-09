@@ -16,7 +16,7 @@ namespace psxsplash {
 MusicManager::MusicManager() {
 }
 
-void MusicManager::playCDDATrack(int trackNum) {
+void MusicManager::playCDDATrack(int trackNum, bool loop) {
     if (!mCDRomDevice) return;  // archive image read over PCdrv: no drive, no CD-DA
     // A streaming scene needs the drive for data: CD-DA and streaming are
     // mutually exclusive, so such a scene uses sequenced music instead.
@@ -26,7 +26,12 @@ void MusicManager::playCDDATrack(int trackNum) {
         return;
     }
 #endif
-    mSilenceWhenIdle = false;
+    // A track still playing is paused by tick() first, then this one starts.
+    if (mState.play(trackNum, loop, mCDRomDevice->isIdle())) startTrack();
+}
+
+// mState has just entered Starting for mState.track().
+void MusicManager::startTrack() {
     CDRomHelper::WakeDrive();
 
     if (!(SPU_CTRL & 0x1)) {
@@ -35,12 +40,8 @@ void MusicManager::playCDDATrack(int trackNum) {
         SPU_VOL_CD_RIGHT = 0x7fff;
     }
 
-    mCDRomDevice->playCDDATrack(trackNum,
-        [this, trackNum](bool success) {
-            mPlayingCDDA = success;
-            if (mPlayingCDDA)
-                mCurrentCDDATrack = trackNum;
-    });
+    // Called twice: when the track starts, and when it is over (see cddastate.hh).
+    mCDRomDevice->playCDDATrack(mState.track(), [this](bool success) { mState.callback(success); });
 }
 
 void MusicManager::resumeCDDA() {
@@ -48,44 +49,41 @@ void MusicManager::resumeCDDA() {
 #if PSXSPLASH_FEATURE_STREAMING
     if (StreamReader::Get().driveReserved()) return;
 #endif
-    if (mCurrentCDDATrack >= 0 && !mPlayingCDDA) {
-        mCDRomDevice->resumeCDDA([this](bool success) {
-            if (success)
-                mPlayingCDDA = true;
-        });
+    if (mState.resume(mCDRomDevice->isIdle())) {
+        CDRomHelper::WakeDrive();
+        mCDRomDevice->resumeCDDA([this](bool success) { mState.callback(success); });
     }
 }
 
 void MusicManager::pauseCDDA() {
     if (!mCDRomDevice) return;
-    if (mCurrentCDDATrack >= 0 && mPlayingCDDA) {
-        mCDRomDevice->pauseCDDA();
-        mPlayingCDDA = false;
-    }
+    if (mState.pause()) mCDRomDevice->pauseCDDA();
 }
 
 void MusicManager::stopCDDA() {
     if (!mCDRomDevice) return;
-    mCDRomDevice->stopCDDA();
-    mCurrentCDDATrack = -1;
-    mPlayingCDDA = false;
-    mSilenceWhenIdle = true;
+    if (mState.stop()) mCDRomDevice->stopCDDA();
 }
 
 void MusicManager::tick() {
     if (!mCDRomDevice) return;
-    if (!mCDRomDevice->isIdle()) return;
-    // Idle while a track was playing: it ran to its end.
-    if (mPlayingCDDA) {
-        mPlayingCDDA = false;
-        mCurrentCDDATrack = -1;
-        mSilenceWhenIdle = true;
-    }
-    // STOP answers INT3, then INT2 about a second later; the device is idle
-    // only after the INT2, so masking CauseMask here cannot eat it.
-    if (mSilenceWhenIdle) {
-        mSilenceWhenIdle = false;
-        CDRomHelper::SilenceDrive();
+    switch (mState.tick(mCDRomDevice->isIdle())) {
+        case CDDAState::Action::Play:  // a loop coming round, or a play that waited
+            startTrack();
+            break;
+        case CDDAState::Action::Pause:  // making way for the next Audio.PlayCDDA
+            mCDRomDevice->pauseCDDA();
+            break;
+        case CDDAState::Action::Stop:  // Audio.StopCDDA came while the track was starting
+            mCDRomDevice->stopCDDA();
+            break;
+        case CDDAState::Action::Silence:
+            // STOP answers INT3, then INT2 about a second later; the device is
+            // idle only after the INT2, so masking CauseMask here cannot eat it.
+            CDRomHelper::SilenceDrive();
+            break;
+        case CDDAState::Action::None:
+            break;
     }
 }
 
@@ -99,6 +97,14 @@ void MusicManager::tellCDDA(lua_State* L) {
     }
     else {
         luaState.pop();
+    }
+
+    // psyqo answers GETLOCP only once the track plays: asked while a play is
+    // still starting (as a looping track is each time it comes round), the
+    // reply lands in the startup handshake and aborts. No location, no call.
+    if (!mState.playing()) {
+        if (cb != LUA_NOREF) luaState.unref(LUA_REGISTRYINDEX, cb);
+        return;
     }
 
     mCDRomDevice->getPlaybackLocation([L, cb](psyqo::CDRomDevice::PlaybackLocation* location) {

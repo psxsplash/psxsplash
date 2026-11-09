@@ -581,7 +581,11 @@ private:
     // Audio.StopAll()
     static int Audio_StopAll(lua_State* L);
 
-    // Audio.PlayCDDA(trackNo)
+    // Audio.PlayCDDA(trackNo[, loop])
+    // Plays CD audio track trackNo once. With loop true, the track starts again
+    // each time it reaches its end, until Audio.PauseCDDA, Audio.StopCDDA,
+    // another Audio.PlayCDDA, a scene load or a movie. A track already playing
+    // is paused first and the new one starts on the next frame.
     static int Audio_PlayCDDA(lua_State* L);
 
     // Audio.ResumeCDDA()
