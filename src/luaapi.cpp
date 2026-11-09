@@ -3822,11 +3822,12 @@ static int refuseWhileMovie(lua_State* L, const char* what) {
     return luaL_error(L, "%s: not while a movie plays (the drive is streaming it); call it from onComplete", what);
 }
 
+// Audio.PlayCDDA(trackNo[, loop]): loop true plays the track again each time it ends (luaapi.hh).
 int LuaAPI::Audio_PlayCDDA(lua_State *L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager) return 0;
     if (s_sceneManager->movieStreaming()) return refuseWhileMovie(L, "Audio.PlayCDDA");
-    s_sceneManager->getMusic().playCDDATrack(static_cast<int>(lua.toNumber(1)));
+    s_sceneManager->getMusic().playCDDATrack(static_cast<int>(lua.toNumber(1)), lua.toBoolean(2));
     return 0;
 }
 

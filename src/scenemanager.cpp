@@ -661,7 +661,8 @@ void psxsplash::SceneManager::driveActorWithController(int controllerIndex, uint
 
 void psxsplash::SceneManager::GameTick(psyqo::GPU& gpu) {
     LuaAPI::IncrementFrameCount();
-    m_music.tick();
+    // Behind a movie the game still ticks, but the drive is the movie's.
+    if (!movieStreaming()) m_music.tick();
 
     {
         uint32_t now = gpu.now();
@@ -1542,6 +1543,9 @@ void psxsplash::SceneManager::processPendingSceneLoad() {
 //      "safe to stop now" signal; combined with !isIdle() it means state==100.
 //   2. If it settled on playing, stop it and drain back to idle.
 void psxsplash::SceneManager::settleDrive(psyqo::GPU& gpu) {
+    // A looping track (or a play queued behind one) must not start again from
+    // MusicManager::tick() once the drive is handed over.
+    m_music.cancelLoop();
     // Null when the archive backend reads its image over PCdrv: no drive, no CD-DA.
     psyqo::CDRomDevice* cdrom = FileLoaderArchive::Get().getCDRomDevice();
     if (!cdrom) return;
