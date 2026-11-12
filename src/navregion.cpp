@@ -1,4 +1,5 @@
 #include "navregion.hh"
+#include "navmath.hh"
 
 #include <psyqo/fixed-point.hh>
 #include <psyqo/vector.hh>
@@ -21,17 +22,9 @@ namespace psxsplash {
 // ============================================================================
 
 static constexpr int FRAC_BITS = 12;
-static constexpr int32_t FP_ONE = 1 << FRAC_BITS;
 
 static inline int32_t fpmul(int32_t a, int32_t b) {
     return (int32_t)(((int64_t)a * b) >> FRAC_BITS);
-}
-
-static inline int32_t fpdiv(int32_t a, int32_t b) {
-    if (b == 0) return 0;
-    int32_t q = a / b;
-    int32_t r = a - q * b;
-    return q * FP_ONE + (r << FRAC_BITS) / b;
 }
 
 // ============================================================================
@@ -61,27 +54,7 @@ const uint8_t* NavRegionSystem::initializeFromData(const uint8_t* data) {
 bool NavRegionSystem::pointInConvexPoly(int32_t px, int32_t pz,
                                          const int32_t* vertsX, const int32_t* vertsZ,
                                          int vertCount) {
-    if (vertCount < 3) return false;
-
-    // For CCW winding, all cross products must be >= 0.
-    // cross = (bx - ax) * (pz - az) - (bz - az) * (px - ax)
-    for (int i = 0; i < vertCount; i++) {
-        int next = (i + 1) % vertCount;
-        int32_t ax = vertsX[i], az = vertsZ[i];
-        int32_t bx = vertsX[next], bz = vertsZ[next];
-
-        // Edge direction
-        int32_t edgeX = bx - ax;
-        int32_t edgeZ = bz - az;
-        // Point relative to edge start
-        int32_t relX = px - ax;
-        int32_t relZ = pz - az;
-
-        // Cross product (64-bit to prevent overflow)
-        int64_t cross = (int64_t)edgeX * relZ - (int64_t)edgeZ * relX;
-        if (cross < 0) return false;
-    }
-    return true;
+    return navmath::pointInConvexPoly(px, pz, vertsX, vertsZ, vertCount);
 }
 
 // ============================================================================
@@ -92,27 +65,7 @@ void NavRegionSystem::closestPointOnSegment(int32_t px, int32_t pz,
                                              int32_t ax, int32_t az,
                                              int32_t bx, int32_t bz,
                                              int32_t& outX, int32_t& outZ) {
-    int32_t abx = bx - ax;
-    int32_t abz = bz - az;
-    int32_t lenSq = fpmul(abx, abx) + fpmul(abz, abz);
-    if (lenSq == 0) {
-        outX = ax; outZ = az;
-        return;
-    }
-
-    int32_t dot = fpmul(px - ax, abx) + fpmul(pz - az, abz);
-    // t = dot / lenSq, clamped to [0, 1]
-    int32_t t;
-    if (dot <= 0) {
-        t = 0;
-    } else if (dot >= lenSq) {
-        t = FP_ONE;
-    } else {
-        t = fpdiv(dot, lenSq);
-    }
-
-    outX = ax + fpmul(t, abx);
-    outZ = az + fpmul(t, abz);
+    navmath::closestPointOnSegment(px, pz, ax, az, bx, bz, outX, outZ);
 }
 
 // ============================================================================
@@ -310,37 +263,7 @@ bool NavRegionSystem::isOffNavRegion(int32_t x, int32_t y, int32_t z) const {
 // ============================================================================
 
 void NavRegionSystem::clampToRegion(int32_t& x, int32_t& z, uint16_t regionIndex) const {
-    if (regionIndex >= m_header.regionCount) return;
-    const auto& reg = m_regions[regionIndex];
-
-    if (pointInConvexPoly(x, z, reg.vertsX, reg.vertsZ, reg.vertCount))
-        return; // Already inside
-
-    // Find closest point on any edge of the polygon
-    int32_t bestX = x, bestZ = z;
-    int64_t bestDistSq = 0x7FFFFFFFFFFFFFFFLL;
-
-    for (int i = 0; i < reg.vertCount; i++) {
-        int next = (i + 1) % reg.vertCount;
-        int32_t cx, cz;
-        closestPointOnSegment(x, z,
-                              reg.vertsX[i], reg.vertsZ[i],
-                              reg.vertsX[next], reg.vertsZ[next],
-                              cx, cz);
-
-        int64_t dx = (int64_t)(x - cx);
-        int64_t dz = (int64_t)(z - cz);
-        int64_t distSq = dx * dx + dz * dz;
-
-        if (distSq < bestDistSq) {
-            bestDistSq = distSq;
-            bestX = cx;
-            bestZ = cz;
-        }
-    }
-
-    x = bestX;
-    z = bestZ;
+    navmath::clampNearby(x, z, regionIndex, false, m_regions, m_header.regionCount, m_portals, m_header.portalCount);
 }
 
 // ============================================================================
@@ -348,45 +271,7 @@ void NavRegionSystem::clampToRegion(int32_t& x, int32_t& z, uint16_t regionIndex
 // ============================================================================
 
 void NavRegionSystem::clampToRegionSelective(int32_t& x, int32_t& z, uint16_t regionIndex) const {
-    if (regionIndex >= m_header.regionCount) return;
-    const auto& reg = m_regions[regionIndex];
-
-    if (pointInConvexPoly(x, z, reg.vertsX, reg.vertsZ, reg.vertCount))
-        return; // Already inside
-
-    // Find which edge the player is closest to.
-    // If that edge is a walkoff edge, let them leave without clamping.
-    int32_t bestX = x, bestZ = z;
-    int64_t bestDistSq = 0x7FFFFFFFFFFFFFFFLL;
-    int bestEdge = -1;
-
-    for (int i = 0; i < reg.vertCount; i++) {
-        int next = (i + 1) % reg.vertCount;
-        int32_t cx, cz;
-        closestPointOnSegment(x, z,
-                              reg.vertsX[i], reg.vertsZ[i],
-                              reg.vertsX[next], reg.vertsZ[next],
-                              cx, cz);
-
-        int64_t dx = (int64_t)(x - cx);
-        int64_t dz = (int64_t)(z - cz);
-        int64_t distSq = dx * dx + dz * dz;
-
-        if (distSq < bestDistSq) {
-            bestDistSq = distSq;
-            bestX = cx;
-            bestZ = cz;
-            bestEdge = i;
-        }
-    }
-
-    // If the closest edge allows walkoff, do not clamp
-    if (bestEdge >= 0 && (reg.walkoffEdgeMask & (1 << bestEdge))) {
-        return;
-    }
-
-    x = bestX;
-    z = bestZ;
+    navmath::clampNearby(x, z, regionIndex, true, m_regions, m_header.regionCount, m_portals, m_header.portalCount);
 }
 
 // ============================================================================
