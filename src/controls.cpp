@@ -404,29 +404,28 @@ void psxsplash::Controls::HandleControls(psyqo::Vec3 &playerPosition, psyqo::Ang
 
     // Rotation (right stick or L1/R1)
     if (__builtin_abs(rightXOffset) > m_stickDeadzone) {
-        psyqo::Angle rotDelta = (rightXOffset * rotSpeed) >> 7;
-        rotDelta.value = (int32_t)(((int64_t)rotDelta.value * dt12) >> 12);
-        playerRotationY += rotDelta;
+        playerRotationY.value += movemath::turn(rightXOffset, rotSpeed.value, dt12, m_yawCarry);
+    } else {
+        m_yawCarry = 0;
     }
     if (__builtin_abs(rightYOffset) > m_stickDeadzone) {
-        psyqo::Angle rotDelta = (rightYOffset * rotSpeed) >> 7;
-        rotDelta.value = (int32_t)(((int64_t)rotDelta.value * dt12) >> 12);
-        playerRotationX -= rotDelta;
+        playerRotationX.value -= movemath::turn(rightYOffset, rotSpeed.value, dt12, m_pitchCarry);
         playerRotationX = eastl::clamp(playerRotationX, -0.5_pi, 0.5_pi);
+    } else {
+        m_pitchCarry = 0;
     }
 
     // Movement (left stick or D-pad)
-    if (__builtin_abs(leftYOffset) > m_stickDeadzone) {
-        psyqo::FixedPoint<12> forward = -(leftYOffset * speed) >> 7;
-        forward.value = (int32_t)(((int64_t)forward.value * dt12) >> 12);
-        playerPosition.x += s_trig.sin(playerRotationY) * forward;
-        playerPosition.z += s_trig.cos(playerRotationY) * forward;
-    }
-    if (__builtin_abs(leftXOffset) > m_stickDeadzone) {
-        psyqo::FixedPoint<12> strafe = -(leftXOffset * speed) >> 7;
-        strafe.value = (int32_t)(((int64_t)strafe.value * dt12) >> 12);
-        playerPosition.x -= s_trig.cos(playerRotationY) * strafe;
-        playerPosition.z += s_trig.sin(playerRotationY) * strafe;
+    int32_t walkX = __builtin_abs(leftXOffset) > m_stickDeadzone ? leftXOffset : 0;
+    int32_t walkY = __builtin_abs(leftYOffset) > m_stickDeadzone ? leftYOffset : 0;
+    if (walkX != 0 || walkY != 0) {
+        int32_t dx, dz;
+        movemath::walk(walkX, walkY, speed.value, dt12, s_trig.sin(playerRotationY).value,
+                       s_trig.cos(playerRotationY).value, m_walkCarry, dx, dz);
+        playerPosition.x.value += dx;
+        playerPosition.z.value += dz;
+    } else {
+        m_walkCarry = movemath::Carry{};
     }
 
     if (freecam) {
