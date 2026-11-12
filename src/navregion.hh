@@ -177,7 +177,8 @@ public:
     /// Is the player off the nav region?
     bool isOffNavRegion(int32_t x, int32_t y, int32_t z) const;
 
-    /// Clamp an XZ position to stay within a region's polygon boundary.
+    /// Clamp an XZ position off the region to the nearest boundary point of
+    /// the region or of a region a few portals away (navmath::clampNearby).
     void clampToRegion(int32_t& x, int32_t& z, uint16_t regionIndex) const;
 
     /// Clamp to non-walkoff boundary edges only. Walkoff edges are skipped,

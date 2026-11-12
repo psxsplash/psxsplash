@@ -6,6 +6,7 @@
 #include <psyqo/fixed-point.hh>
 
 #include "inputmap.hh"
+#include "movemath.hh"
 
 namespace psxsplash {
 
@@ -243,6 +244,11 @@ class Controls {
     static constexpr uint8_t m_stickDeadzone = 0x30;
     static constexpr psyqo::Angle rotSpeed = 0.02_pi;
     
+    // What each step left below one unit, carried to the next (movemath.hh).
+    movemath::Carry m_walkCarry;
+    int64_t m_yawCarry = 0;
+    int64_t m_pitchCarry = 0;
+
     // Configurable movement speeds (set from splashpack, or defaults)
     psyqo::FixedPoint<12> m_moveSpeed = 0.002_fp;
     psyqo::FixedPoint<12> m_sprintSpeed = 0.01_fp;
