@@ -47,14 +47,17 @@ constexpr SafeBox safeBoxFor(const ScreenMode& m) {
             int16_t(m.height / 2 - kSafeSpanY / 2), int16_t(m.height / 2 - kSafeSpanY / 2 + kSafeSpanY)};
 }
 
-const ScreenMode& currentScreen();
-void setCurrentScreen(const ScreenMode& m);
-
-// The current screen's safe box: read on every triangle, so a plain global
-// that setCurrentScreen keeps in step rather than a call.
+// Both are read from the renderer's per-triangle code, so they are plain
+// globals that setCurrentScreen keeps in step rather than calls: a call
+// there makes the compiler spill the triangle's live registers around it.
 namespace detail {
+extern ScreenMode g_screen;
 extern SafeBox g_safeBox;
 }
+inline const ScreenMode& currentScreen() { return detail::g_screen; }
+void setCurrentScreen(const ScreenMode& m);
+
+// The current screen's safe box.
 inline const SafeBox& safeBox() { return detail::g_safeBox; }
 
 }  // namespace psxsplash
