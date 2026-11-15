@@ -33,6 +33,16 @@ one from Lua at update 240 and passes once its particles have all lived out thei
 
     tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe <authoring> 300 tests/boot/fixture-particles 'BOOT OK: particles'
 
+A spawn pool fixture, `fixture-spawnpool/` (splashpack v33), exercises `Scene.Spawn`, `Scene.Despawn` and
+`Scene.PoolCount` on a pool of four copies of the crate. There is no editor support for pools yet, so the
+pack is built from `fixture-particles/` by `tools/add_spawn_pool.py` (run it with `python3 -I`; it clones the
+crate, grows the header to v33, moves every offset the engine reads and writes the pool table). The scene
+script prints `SPAWNPOOL OK 4 4` only when every expectation held, `SPAWNPOOL FAIL <reason>` otherwise:
+
+    python3 -I tests/boot/tools/add_spawn_pool.py tests/boot/fixture-particles tests/boot/fixture-spawnpool \
+        --scene-lua tests/boot/scene/scripts/spawnpool_check.lua --copy-lua tests/boot/scene/scripts/spawnpool_copy.lua
+    tests/boot/boot.sh <pcsx-redux> <openbios.bin> psxsplash.ps-exe <authoring> 120 tests/boot/fixture-spawnpool 'SPAWNPOOL OK 4 4'
+
 A fourth, `fixture-movie/`, plays `CLIP` with `Movie.Play`, then `TV` on a crate with
 `Movie.PlayOn`, and prints `BOOT OK: movies`. Movies stream off the drive and never over PCdrv, and
 the engine finds `MOVIES/CLIP.STR` as a stream entry of the archive (raw Form 2 sectors, so its
