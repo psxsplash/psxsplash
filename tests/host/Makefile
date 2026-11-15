@@ -54,6 +54,7 @@ SCREENFX_BIN := $(BUILD)/screenfx_tests
 DECAL_BIN  := $(BUILD)/decal_tests
 REVERB_BIN := $(BUILD)/reverb_tests
 PARTICLE_BIN := $(BUILD)/particle_tests
+SPAWNPOOL_BIN := $(BUILD)/spawnpool_tests
 CDDA_BIN   := $(BUILD)/cdda_tests
 MOVE_BIN   := $(BUILD)/move_tests
 NAVMATH_BIN := $(BUILD)/navmath_tests
@@ -141,6 +142,10 @@ $(NAVMATH_BIN): test_navmath.cpp testing.hh $(SRC_DIR)/navmath.hh | $(BUILD)
 $(PARTICLE_BIN): test_particle.cpp testing.hh compat.hh $(SRC_DIR)/particlemath.hh $(SRC_DIR)/splashpackversion.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_particle.cpp
 
+# spawnpool.cpp carries no psyqo dependency.
+$(SPAWNPOOL_BIN): test_spawnpool.cpp testing.hh compat.hh $(SRC_DIR)/spawnpool.cpp $(SRC_DIR)/spawnpool.hh $(SRC_DIR)/splashpackversion.hh | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ test_spawnpool.cpp $(SRC_DIR)/spawnpool.cpp
+
 $(PCNET_BIN): test_pcdrvsocket.cpp mocktransport.hh testing.hh compat.hh $(NET_SRCS) $(SRC_DIR)/pcdrvsocket.cpp $(SRC_DIR)/pcdrvsocket.hh | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ test_pcdrvsocket.cpp $(SRC_DIR)/pcdrvsocket.cpp $(NET_SRCS)
 
@@ -150,7 +155,7 @@ $(SRT_BIN): test_srt.cpp testing.hh compat.hh $(SRT_SRCS) $(SRC_DIR)/srt.hh | $(
 $(GEN_BIN): gen_vectors.cpp mocktransport.hh compat.hh $(NET_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gen_vectors.cpp $(NET_SRCS)
 
-test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(BLEND_BIN) $(TEXTRI_BIN) $(SKIN_BIN) $(CDDA_BIN) $(MOVE_BIN) $(NAVMATH_BIN)
+test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_BIN) $(BG_BIN) $(PERFMAP_BIN) $(FADE_BIN) $(JUMP_BIN) $(SHADOW_BIN) $(SHINE_BIN) $(REVERB_BIN) $(DECAL_BIN) $(SCREENFX_BIN) $(INPUT_BIN) $(PALCYCLE_BIN) $(PARTICLE_BIN) $(SPAWNPOOL_BIN) $(LUADEBUG_BIN) $(PCNET_BIN) $(SRT_BIN) $(BLEND_BIN) $(TEXTRI_BIN) $(SKIN_BIN) $(CDDA_BIN) $(MOVE_BIN) $(NAVMATH_BIN)
 	@echo "== netlink =="
 	@$(TEST_BIN)
 	@echo "== pcdrvsocket =="
@@ -195,6 +200,8 @@ test: $(TEST_BIN) $(SPRITE_BIN) $(TILE_BIN) $(LIGHT_BIN) $(STREAM_BIN) $(SCREEN_
 	@$(REVERB_BIN)
 	@echo "== particle =="
 	@$(PARTICLE_BIN)
+	@echo "== spawnpool =="
+	@$(SPAWNPOOL_BIN)
 	@echo "== uitextri =="
 	@$(TEXTRI_BIN)
 	@echo "== skinpose =="
