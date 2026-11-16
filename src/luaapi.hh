@@ -779,7 +779,7 @@ private:
     // SKINNED ANIMATION API - Bone-based mesh animation
     // ========================================================================
 
-    // SkinnedAnim.Play(objectName, clipName) or (objectName, clipName, {loop, onComplete})
+    // SkinnedAnim.Play(objectName, clipName) or (objectName, clipName, {loop, fade, onComplete})
     static int SkinnedAnim_Play(lua_State* L);
 
     // SkinnedAnim.Stop(objectName) -> nil
