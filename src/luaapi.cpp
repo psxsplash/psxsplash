@@ -670,6 +670,15 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
     
     L.push(Scene_GetIndex);
     L.setField(-2, "GetIndex");
+
+    L.push(Scene_Spawn);
+    L.setField(-2, "Spawn");
+
+    L.push(Scene_Despawn);
+    L.setField(-2, "Despawn");
+
+    L.push(Scene_PoolCount);
+    L.setField(-2, "PoolCount");
     
     L.setGlobal("Scene");
     
@@ -1311,6 +1320,15 @@ int LuaAPI::Entity_GetRotationY(lua_State* L) {
     return 1;
 }
 
+// Entity.SetRotationY and Scene.Spawn's rotation: the angle arrives in 20.12
+// and the matrix wants a FixedPoint<10> Angle.
+static void setRotationY(GameObject* go, psyqo::FixedPoint<12> fp12) {
+    psyqo::Angle angle;
+    angle.value = fp12.value >> 2;
+    go->rotation = psxsplash::transposeMatrix33(
+        psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig));
+}
+
 int LuaAPI::Entity_SetRotationY(lua_State* L) {
     psyqo::Lua lua(L);
 
@@ -1323,11 +1341,7 @@ int LuaAPI::Entity_SetRotationY(lua_State* L) {
     if (!go) return 0;
 
     // Accept FixedPoint or number, convert to Angle (FixedPoint<10>)
-    psyqo::FixedPoint<12> fp12 = readFP(lua, 2);
-    psyqo::Angle angle;
-    angle.value = fp12.value >> 2;
-    go->rotation = psxsplash::transposeMatrix33(
-        psyqo::SoftMath::generateRotationMatrix33(angle, psyqo::SoftMath::Axis::Y, s_trig));
+    setRotationY(go, readFP(lua, 2));
     return 0;
 }
 
@@ -4264,6 +4278,98 @@ int LuaAPI::Scene_GetIndex(lua_State* L) {
     
     lua.pushNumber(static_cast<lua_Number>(s_sceneManager->getCurrentSceneIndex()));
     return 1;
+}
+
+int LuaAPI::Scene_Spawn(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    if (!s_sceneManager || !lua.isString(1)) {
+        lua.push();
+        return 1;
+    }
+
+    const SpawnPools& pools = s_sceneManager->spawnPools();
+    const int pool = pools.find(lua.toString(1));
+    if (pool == SpawnPools::NONE) {
+        lua.push();
+        return 1;
+    }
+
+    const int index = pools.pickFree(pool, [](uint32_t i) {
+        GameObject* c = s_sceneManager->getGameObject(static_cast<uint16_t>(i));
+        return c && c->isActive();
+    });
+    GameObject* go = index >= 0 ? s_sceneManager->getGameObject(static_cast<uint16_t>(index)) : nullptr;
+    if (!go) {
+        lua.push();
+        return 1;
+    }
+
+    // The handle is checked first: a copy with no script handle is not handed
+    // out half set up. It is fetched again below, once onEnable has run, so the
+    // value returned is the top of the stack whatever that call left there.
+    lua.push(reinterpret_cast<uint8_t*>(go));
+    lua.rawGet(LUA_REGISTRYINDEX);
+    const bool hasHandle = lua.isTable(-1);
+    lua.pop();
+    if (!hasHandle) {
+        lua.push();
+        return 1;
+    }
+
+    // Placed like Entity.SetPosition, turned like Entity.SetRotationY, then
+    // activated by the path Entity.SetActive takes, so onEnable fires once.
+    LuaUtility::SetPosition(go, readFP(lua, 2), readFP(lua, 3), readFP(lua, 4));
+    if (lua.isNumber(5) || IsFixedPointSafe(lua, 5)) setRotationY(go, readFP(lua, 5));
+    s_sceneManager->setObjectActive(go, true);
+
+    lua.push(reinterpret_cast<uint8_t*>(go));
+    lua.rawGet(LUA_REGISTRYINDEX);
+    return 1;
+}
+
+int LuaAPI::Scene_Despawn(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    GameObject* go = nullptr;
+    if (s_sceneManager && lua.isTable(1)) {
+        lua.getField(1, "__cpp_ptr");
+        go = lua.toUserdata<GameObject>(-1);
+        lua.pop();
+    }
+
+    bool despawned = false;
+    if (go) {
+        const int index = s_sceneManager->objectIndexOf(go);
+        if (index >= 0 && s_sceneManager->spawnPools().poolOf(static_cast<uint32_t>(index)) != SpawnPools::NONE &&
+            go->isActive()) {
+            s_sceneManager->setObjectActive(go, false);
+            despawned = true;
+        }
+    }
+
+    lua.push(despawned);
+    return 1;
+}
+
+int LuaAPI::Scene_PoolCount(lua_State* L) {
+    psyqo::Lua lua(L);
+
+    uint16_t active = 0, capacity = 0;
+    if (s_sceneManager && lua.isString(1)) {
+        const SpawnPools& pools = s_sceneManager->spawnPools();
+        const int pool = pools.find(lua.toString(1));
+        if (pool != SpawnPools::NONE) {
+            capacity = pools.capacity(pool);
+            active = pools.activeCount(pool, [](uint32_t i) {
+                GameObject* c = s_sceneManager->getGameObject(static_cast<uint16_t>(i));
+                return c && c->isActive();
+            });
+        }
+    }
+    lua.pushNumber(static_cast<lua_Number>(active));
+    lua.pushNumber(static_cast<lua_Number>(capacity));
+    return 2;
 }
 
 // ============================================================================

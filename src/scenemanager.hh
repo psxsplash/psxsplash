@@ -37,6 +37,7 @@
 #include "tilesystem.hh"
 #include "backgroundsystem.hh"
 #include "particlesystem.hh"
+#include "spawnpool.hh"
 #include "uisystem.hh"
 #include "movieplayer.hh"
 #include "movietexture.hh"
@@ -471,6 +472,12 @@ namespace psxsplash {
         // GameObject state control with events
         void setObjectActive(GameObject* go, bool active);
 
+        // Spawn pools (v33+). Always built: the table is a few bytes and the
+        // Lua functions answer nil / false / 0, 0 when a scene has none.
+        const SpawnPools& spawnPools() const { return m_spawnPools; }
+        // Index of `go` in the object table, or -1 for a pointer that is not one of its objects.
+        int objectIndexOf(const GameObject* go) const;
+
         // Public accessors for Lua API
 #if PSXSPLASH_FEATURE_MOVIE
         // Movie.Play: queues the movie for the end of this frame.
@@ -707,6 +714,7 @@ namespace psxsplash {
 #if PSXSPLASH_FEATURE_PARTICLES
         ParticleSystem m_particleSystem;
 #endif
+        SpawnPools m_spawnPools;
         uint32_t m_authoredSceneHash = 0;
 
 #if PSXSPLASH_FEATURE_LIGHTS

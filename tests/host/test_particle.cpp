@@ -21,12 +21,13 @@ TEST(header_size_v32) {
     CHECK_EQ(splashpackHeaderSize(30), 168);
     CHECK_EQ(splashpackHeaderSize(31), 168);
     CHECK_EQ(splashpackHeaderSize(32), 172);
-    CHECK_EQ(splashpackHeaderSize(40), 172);
+    CHECK_EQ(splashpackHeaderSize(33), 176);
+    CHECK_EQ(splashpackHeaderSize(40), 176);
     // The particle table offset follows v29's background and v30's shine words.
     CHECK_EQ(kSplashpackHeaderSizeV32 - kSplashpackHeaderSizeV30, 4);
     CHECK_EQ(kSplashpackHeaderSizeV32 - kSplashpackHeaderSizeV28, 12);
     CHECK(splashpackVersionSupported(32));
-    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV32);
+    CHECK_EQ(splashpackHeaderSize(kSplashpackNewestVersion), kSplashpackHeaderSizeV33);
 }
 
 TEST(record_layout) {

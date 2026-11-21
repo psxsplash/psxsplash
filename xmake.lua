@@ -94,7 +94,7 @@ for _, variant in ipairs(variants) do
                   "src/worldcollision.cpp", "src/navregion.cpp", "src/random.cpp", "src/luautility.cpp",
                   "src/lua.cpp", "src/luaapi.cpp", "src/luadebug.cpp", "src/scenemanager.cpp", "src/fileloader.cpp",
                   "src/audiomanager.cpp", "src/reverb.cpp", "src/controls.cpp", "src/profiler.cpp", "src/bvh.cpp",
-                  "src/memoverlay.cpp", "src/musicmanager.cpp", "src/loadbuffer_patch.cpp")
+                  "src/memoverlay.cpp", "src/spawnpool.cpp", "src/musicmanager.cpp", "src/loadbuffer_patch.cpp")
 
         local features = selected_features()
         local added = {}
