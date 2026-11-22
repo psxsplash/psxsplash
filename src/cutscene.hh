@@ -23,7 +23,7 @@ struct SkinAnimState;
 class SceneManager;
 
 static constexpr int MAX_CUTSCENES         = 16;
-static constexpr int MAX_TRACKS            = 8;
+static constexpr int MAX_TRACKS            = 16;
 static constexpr int MAX_KEYFRAMES         = 64;
 static constexpr int MAX_AUDIO_EVENTS      = 64;
 static constexpr int MAX_SKIN_ANIM_EVENTS  = 16;
