@@ -310,8 +310,16 @@ psyqo::PrimPieces::TPageAttr UISystem::makeTPage(const UIImageData& img) {
 // draw mode (GP0 E1), which every textured primitive and every text TPage
 // overwrites. So a blended element sets the mode itself, with a TPage inserted
 // AFTER its primitive in the same bucket: insertion is LIFO, so the TPage draws
-// first. Images and text stay opaque: a textured primitive only blends texels
-// whose bit 15 is set, and the UI atlas does not set it.
+// first.
+//
+// A textured primitive (Image, custom-font Text) carries its own texpage, so
+// its mode goes in that TPage (setTexturedBlend) and the primitive is marked
+// semi-transparent. The GPU then blends only the texels whose STP bit (15) is
+// set: the editor sets it on a blended image's texels or CLUT, and on a custom
+// font's grey palette; the engine sets it on the white CLUT it uploads for a
+// one-bit font (uploadFonts). 0x0000 texels stay transparent. System-font
+// Text is drawn by psyqo's chainprintf, which re-uploads its own CLUT without
+// STP and draws opaque, so it ignores the blend.
 void UISystem::insertBlendMode(UIBlend blend, int z,
                                Renderer::OT& ot,
                                Renderer::Balloc& balloc) {
@@ -319,6 +327,12 @@ void UISystem::insertBlendMode(UIBlend blend, int z,
     tp.primitive.attr.set(
         static_cast<psyqo::Prim::TPageAttr::SemiTrans>(uiblend::gpuMode(blend)));
     ot.insert(tp, z);
+}
+
+// The blend mode in a textured primitive's texpage; Opaque leaves it as is.
+static void setTexturedBlend(psyqo::PrimPieces::TPageAttr& tpage, UIBlend blend) {
+    if (blend != UIBlend::Opaque)
+        tpage.set(static_cast<psyqo::Prim::TPageAttr::SemiTrans>(uiblend::gpuMode(blend)));
 }
 
 void UISystem::renderElement(UIElement& el,
@@ -383,6 +397,8 @@ void UISystem::renderElement(UIElement& el,
     case UIElementType::Image: {
         const UIImageData& img = el.image;
         psyqo::PrimPieces::TPageAttr tpage = makeTPage(img);
+        setTexturedBlend(tpage, el.blend);
+        const bool semi = el.blend != UIBlend::Opaque;
         psyqo::PrimPieces::ClutIndex clut(img.clutX, img.clutY);
         const int32_t z = el.behindScene ? int32_t(ot.size()) - 1 : 0;  // the far end of the table
         psyqo::Color tint = {.r = el.colorR, .g = el.colorG, .b = el.colorB};
@@ -397,15 +413,17 @@ void UISystem::renderElement(UIElement& el,
             spr.primitive.position = {.x = x, .y = y};
             spr.primitive.size = {.x = w, .y = h};
             spr.primitive.setColor(tint);
-            spr.primitive.setOpaque();
+            if (semi) spr.primitive.setSemiTrans();
+            else spr.primitive.setOpaque();
             psyqo::PrimPieces::TexInfo texInfo;
             texInfo.u = img.u0;
             texInfo.v = img.v0;
             texInfo.clut = clut;
             spr.primitive.texInfo = texInfo;
             ot.insert(spr, z);
-            // A sprite takes its texpage from draw mode. The OT is LIFO, so the
-            // TPage inserted after the sprite runs before it.
+            // A sprite takes its texpage, and so its blend mode, from draw
+            // mode. The OT is LIFO, so the TPage inserted after the sprite
+            // runs before it.
             auto& tp = balloc.allocateFragment<psyqo::Prim::TPage>();
             tp.primitive.attr = tpage;
             ot.insert(tp, z);
@@ -434,7 +452,8 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.setColorA(tint);
             tri.primitive.setColorB(tint);
             tri.primitive.setColorC(tint);
-            tri.primitive.setOpaque();
+            if (semi) tri.primitive.setSemiTrans();
+            else tri.primitive.setOpaque();
             ot.insert(tri, z);
         }
         // Triangle 1: top-right, bottom-right, bottom-left
@@ -451,7 +470,8 @@ void UISystem::renderElement(UIElement& el,
             tri.primitive.setColorA(tint);
             tri.primitive.setColorB(tint);
             tri.primitive.setColorC(tint);
-            tri.primitive.setOpaque();
+            if (semi) tri.primitive.setSemiTrans();
+            else tri.primitive.setOpaque();
             ot.insert(tri, z);
         }
         break;
@@ -463,9 +483,10 @@ void UISystem::renderElement(UIElement& el,
             // Custom font: render proportionally into OT
             renderProportionalText(fi - 1, x, y,
                                    el.colorR, el.colorG, el.colorB,
-                                   el.textBuf, ot, balloc);
+                                   el.blend, el.textBuf, ot, balloc);
         } else if (m_pendingTextCount < UI_MAX_ELEMENTS) {
-            // System font: queue for renderText phase (chainprintf)
+            // System font: queue for renderText phase (chainprintf), which
+            // draws opaque whatever el.blend says (see insertBlendMode).
             m_pendingTexts[m_pendingTextCount++] = {
                 x, y,
                 el.colorR, el.colorG, el.colorB,
@@ -569,8 +590,9 @@ void UISystem::uploadFonts(psyqo::GPU& gpu) {
         }
 
         // Upload white CLUT at font CLUT position (entry 0=transparent, entry 1=white).
-        // Sprite color tinting will produce the desired text color.
-        static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
+        // Sprite color tinting will produce the desired text color. White has
+        // STP set so a blended Text element blends; opaque text ignores it.
+        static const uint16_t whiteCLUT[2] = { 0x0000, uiblend::withStp(0x7FFF) };
         Renderer::GetInstance().VramUpload(
             whiteCLUT,
             (int16_t)fd.vramX, (int16_t)fd.vramY,
@@ -584,7 +606,7 @@ void UISystem::uploadFonts(psyqo::GPU& gpu) {
 
 void UISystem::renderProportionalText(int fontIdx, int16_t x, int16_t y,
                                        uint8_t r, uint8_t g, uint8_t b,
-                                       const char* text,
+                                       UIBlend blend, const char* text,
                                        Renderer::OT& ot,
                                        Renderer::Balloc& balloc) {
     UIFontDesc& fd = m_fontDescs[fontIdx];
@@ -597,6 +619,7 @@ void UISystem::renderProportionalText(int fontIdx, int16_t x, int16_t y,
     tpageAttr.setPageY(fd.vramY >> 8);
     tpageAttr.set(psyqo::Prim::TPageAttr::Tex4Bits);
     tpageAttr.setDithering(false);
+    setTexturedBlend(tpageAttr, blend);
 
     // CLUT reference for this font
     psyqo::Vertex clutPos = {{.x = (int16_t)fd.vramX, .y = (int16_t)fd.clutY}};
@@ -631,6 +654,7 @@ void UISystem::renderProportionalText(int fontIdx, int16_t x, int16_t y,
         int16_t spriteW = (advance > 0 && advance < fd.glyphW) ? (int16_t)advance : (int16_t)fd.glyphW;
         frag.primitive.size = {.x = spriteW, .y = (int16_t)fd.glyphH};
         frag.primitive.setColor(color);
+        if (blend != UIBlend::Opaque) frag.primitive.setSemiTrans();
         psyqo::PrimPieces::TexInfo texInfo;
         texInfo.u = u;
         texInfo.v = v;

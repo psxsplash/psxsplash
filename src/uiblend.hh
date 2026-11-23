@@ -44,6 +44,12 @@ constexpr UIBlend fromFlags(uint8_t flags) {
 /// Opaque: 0 = B/2+F/2, 1 = B+F, 2 = B-F, 3 = B+F/4.
 constexpr uint8_t gpuMode(UIBlend b) { return static_cast<uint8_t>(b) - 1; }
 
+/// A CLUT entry or 16 bpp texel with its STP bit (15) set, as a semi-
+/// transparent textured primitive needs to blend it. 0x0000 is the transparent
+/// colour and stays 0x0000: with STP it would be 0x8000, opaque black. An
+/// opaque primitive ignores STP, so a word with it set draws the same there.
+constexpr uint16_t withStp(uint16_t word) { return word == 0 ? 0 : uint16_t(word | 0x8000); }
+
 /// What the GPU writes for one 5-bit channel, B already in VRAM, F the
 /// element's colour. Used by the tests to pin the mode numbering to the math.
 constexpr uint8_t blendChannel(UIBlend b, uint8_t back, uint8_t front) {

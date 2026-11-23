@@ -43,4 +43,14 @@ TEST(gpu_mode_numbering_matches_the_math) {
     CHECK_EQ(blendChannel(UIBlend::Opaque, 10, 20), 20);
 }
 
+TEST(stp_marks_drawn_texels_and_keeps_the_transparent_colour) {
+    // A blended Image or Text blends only texels with bit 15 set.
+    CHECK_EQ((int)withStp(0x7FFF), 0xFFFF);  // the one-bit font's white
+    CHECK_EQ((int)withStp(0x001F), 0x801F);
+    CHECK_EQ((int)withStp(0x801F), 0x801F);  // already set: unchanged
+    CHECK_EQ((int)withStp(0x8000), 0x8000);  // opaque black stays opaque black
+    // 0x0000 is the transparent colour; 0x8000 would draw black on opaque prims.
+    CHECK_EQ((int)withStp(0x0000), 0x0000);
+}
+
 int main() { return psxsplash::test::runAll(); }

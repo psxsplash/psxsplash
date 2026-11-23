@@ -2038,8 +2038,10 @@ void psxsplash::SceneManager::uploadVramData(uint8_t* vramData, int vramSize) {
                     (int16_t)fontVramX, (int16_t)(fontVramY + textureH),
                     16, 1);
             } else {
-                // Upload white CLUT (entry 0=transparent, entry 1=white)
-                static const uint16_t whiteCLUT[2] = { 0x0000, 0x7FFF };
+                // Upload white CLUT (entry 0=transparent, entry 1=white). White
+                // carries STP so a blended Text element blends; an opaque one
+                // ignores the bit.
+                static const uint16_t whiteCLUT[2] = { 0x0000, uiblend::withStp(0x7FFF) };
                 renderer.VramUpload(whiteCLUT,
                     (int16_t)fontVramX, (int16_t)fontVramY,
                     2, 1);
