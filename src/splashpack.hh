@@ -41,10 +41,16 @@ struct SPLASHPACKTriggerBox {
     int16_t luaFileIndex;
     uint8_t reverbPreset;  // reverb.hh preset id while the player is inside, 0 = not a reverb zone (was padding)
     uint8_t padding;
-    uint32_t padding2;
+    // GameObject index + 1 of the entity the box moves with, 0 = fixed in the
+    // world (was padding, so older packs read 0). The bounds are still written
+    // in world space; the engine keeps them as an offset from where the entity
+    // stands at load.
+    uint16_t followObject;
+    uint16_t padding2;
 };
 static_assert(sizeof(SPLASHPACKTriggerBox) == 32, "SPLASHPACKTriggerBox must be 32 bytes");
 static_assert(offsetof(SPLASHPACKTriggerBox, reverbPreset) == 26, "reverbPreset is the low byte of the old padding word");
+static_assert(offsetof(SPLASHPACKTriggerBox, followObject) == 28, "followObject is the low half of the old padding2 word");
 
 /**
  * Agent configuration stored in the splashpack binary.  Replaces the old

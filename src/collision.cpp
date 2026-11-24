@@ -146,12 +146,13 @@ void CollisionSystem::registerCollider(uint16_t gameObjectIndex, const AABB& loc
     data.gameObjectIndex = gameObjectIndex;
 }
 
-void CollisionSystem::registerTriggerBox(const AABB& bounds, int16_t luaFileIndex) {
+void CollisionSystem::registerTriggerBox(const AABB& bounds, int16_t luaFileIndex, uint16_t followObject) {
     if (m_triggerBoxCount >= MAX_TRIGGER_BOXES) return;
 
     TriggerBoxData& tb = m_triggerBoxes[m_triggerBoxCount++];
     tb.bounds = bounds;
     tb.luaFileIndex = luaFileIndex;
+    tb.followObject = followObject;
 }
 
 void CollisionSystem::updateCollider(uint16_t gameObjectIndex, const psyqo::Vec3& position,
@@ -221,8 +222,18 @@ void CollisionSystem::detectTriggers(const AABB& playerAABB, SceneManager& scene
     // Test player against each trigger box
     for (int ti = 0; ti < m_triggerBoxCount; ti++) {
         const TriggerBoxData& tb = m_triggerBoxes[ti];
-        
-        if (!playerAABB.intersects(tb.bounds)) continue;
+
+        // A box on an entity goes where the entity is now.
+        AABB bounds = tb.bounds;
+        if (tb.followObject) {
+            const GameObject* go = scene.getGameObject(tb.followObject - 1);
+            if (go) {
+                bounds.min += go->position;
+                bounds.max += go->position;
+            }
+        }
+
+        if (!playerAABB.intersects(bounds)) continue;
         
         // Find existing pair
         bool found = false;
