@@ -415,9 +415,13 @@ private:
     static int Input_IsHeldPlayer1(lua_State* L);
     static int Input_IsHeldPlayer2(lua_State* L);
     
-    // Input.GetAnalog(stick) -> x, y
-    // Returns analog stick values (-128 to 127)
+    // Input.GetAnalogPlayer1([stick]) -> x, y
+    // Player 1's analog stick. stick 0 = left, 1 = right. Fixed-point, about
+    // -1.0 to 1.0 (0 = centered).
     static int Input_GetAnalogPlayer1(lua_State* L);
+
+    // Input.GetAnalogPlayer2([stick]) -> x, y
+    // Player 2's analog stick, same values as Input.GetAnalogPlayer1.
     static int Input_GetAnalogPlayer2(lua_State* L);
 
     // Input.IsPressed(player, button) -> boolean
