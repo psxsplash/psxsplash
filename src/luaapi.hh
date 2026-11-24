@@ -791,10 +791,15 @@ private:
     // SkinnedAnim.GetClip(objectName) -> string or nil
     static int SkinnedAnim_GetClip(lua_State* L);
 
-    // SkinnedAnim.GetBone(objectName, bone) -> position, rotation or nil
+    // SkinnedAnim.GetBone(objectName, bone[, offset[, rotation]]) -> position, rotation or nil
     // bone is a joint name or a 0-based joint index. position is in world
     // units like Entity.GetPosition; rotation is in the units and order
     // Entity.SetRotation takes. nil if the pack predates bone data (v26).
+    // offset (Vec3, world units) is a point in the bone's own frame, the frame
+    // the returned rotation describes: position is then that point as the bone
+    // carries it, e.g. a muzzle or a grip. rotation (Vec3, Entity.SetRotation
+    // units) turns the returned rotation within the bone's frame, so an item
+    // can sit at an angle to the hand. Both default to zero.
     static int SkinnedAnim_GetBone(lua_State* L);
 
     // Controls.SetEnabled(bool) - enable/disable all player input

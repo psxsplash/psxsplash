@@ -64,6 +64,26 @@ static psyqo::FixedPoint<12> readFP(psyqo::Lua& L, int idx) {
 static constexpr lua_Number kAngleScale = 1024;
 static psyqo::Trig<> s_trig;
 
+// Ry * Rx * Rz from three angles in pi units (0.5 = 90 deg): the matrix
+// Entity.SetRotation stores in GameObject::rotation.
+static psyqo::Matrix33 RotationFromPiUnits(psyqo::FixedPoint<12> x, psyqo::FixedPoint<12> y,
+                                           psyqo::FixedPoint<12> z) {
+    // Convert to Angle (FixedPoint<10>)
+    psyqo::Angle rx, ry, rz;
+    rx.value = x.value >> 2;
+    ry.value = y.value >> 2;
+    rz.value = z.value >> 2;
+
+    auto matY = psyqo::SoftMath::generateRotationMatrix33(ry, psyqo::SoftMath::Axis::Y, s_trig);
+    auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, s_trig);
+    auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, s_trig);
+    psyqo::Matrix33 temp;
+    psyqo::GteMath::multiplyMatrix33(matY, matX, &temp);
+    // Aliasing out onto an input is explicitly supported.
+    psyqo::GteMath::multiplyMatrix33(temp, matZ, &temp);
+    return psxsplash::transposeMatrix33(temp);
+}
+
 // ============================================================================
 // REGISTRATION
 // ============================================================================
@@ -1347,21 +1367,7 @@ int LuaAPI::Entity_SetRotation(lua_State* L) {
     // This matches psyqo::Angle convention used by the engine.
     psyqo::FixedPoint<12> x, y, z;
     ReadVec3(lua, 2, x, y, z);
-
-    // Convert to Angle (FixedPoint<10>) 
-    psyqo::Angle rx, ry, rz;
-    rx.value = x.value >> 2;
-    ry.value = y.value >> 2;
-    rz.value = z.value >> 2;
-
-    auto matY = psyqo::SoftMath::generateRotationMatrix33(ry, psyqo::SoftMath::Axis::Y, s_trig);
-    auto matX = psyqo::SoftMath::generateRotationMatrix33(rx, psyqo::SoftMath::Axis::X, s_trig);
-    auto matZ = psyqo::SoftMath::generateRotationMatrix33(rz, psyqo::SoftMath::Axis::Z, s_trig);
-    psyqo::Matrix33 temp;
-    psyqo::GteMath::multiplyMatrix33(matY, matX, &temp);
-    // Aliasing out onto an input is explicitly supported.
-    psyqo::GteMath::multiplyMatrix33(temp, matZ, &temp);
-    go->rotation = psxsplash::transposeMatrix33(temp);
+    go->rotation = RotationFromPiUnits(x, y, z);
 
     return 0;
 }
@@ -4946,6 +4952,66 @@ static uint32_t isqrt32(uint32_t v) {
     return r;
 }
 
+// A joint's posed world transform. The skin matrix M (rotation boneRot,
+// translation t) carries the joint's bind position, plus an offset given in the
+// bone's own frame, into object space; the object's transform then takes it to
+// the world. rot = objRot * boneRot, the frame the offset is measured in.
+static bool SkinBoneWorld(const SkinAnimSet& set, const SkinAnimState& state, const GameObject& go,
+                          int bi, const psyqo::Vec3& offset, psyqo::Vec3* pos, psyqo::Matrix33* rot) {
+    // The same pose the renderer draws, frame lerp and crossfade included.
+    BakedBoneMatrix pose;
+    if (!set.bindPositions || bi < 0 || bi >= set.boneCount ||
+        !SkinPose_ComputeBone(set, state, bi, &pose)) {
+        return false;
+    }
+    psyqo::Matrix33 boneRot;
+    for (int r = 0; r < 3; r++) {
+        boneRot.vs[r].x.value = pose.r[r * 3];
+        boneRot.vs[r].y.value = pose.r[r * 3 + 1];
+        boneRot.vs[r].z.value = pose.r[r * 3 + 2];
+    }
+
+    const int16_t* bind = &set.bindPositions[bi * 3];
+    psyqo::Vec3 p;
+    p.x.value = bind[0] + offset.x.value;
+    p.y.value = bind[1] + offset.y.value;
+    p.z.value = bind[2] + offset.z.value;
+    psyqo::Vec3 local;
+    psyqo::SoftMath::matrixVecMul3(boneRot, p, &local);
+    local.x.value += pose.t[0];
+    local.y.value += pose.t[1];
+    local.z.value += pose.t[2];
+
+    psyqo::SoftMath::matrixVecMul3(go.rotation, local, pos);
+    pos->x += go.position.x;
+    pos->y += go.position.y;
+    pos->z += go.position.z;
+    *rot = psyqo::SoftMath::multiplyMatrix33(boneRot, go.rotation);
+    return true;
+}
+
+// Splits R as Ry * Rx * Rz into three angles in pi units, the order and
+// units Entity.SetRotation takes.
+static psyqo::Vec3 RotationToPiUnits(const psyqo::Matrix33& rot) {
+    int32_t r10 = rot.vs[1].x.value, r11 = rot.vs[1].y.value, r12 = rot.vs[1].z.value;
+    int32_t c = isqrt32(static_cast<uint32_t>(r10 * r10) + static_cast<uint32_t>(r11 * r11));
+    psyqo::Angle rx = psyqo::atan2(-r12, c);
+    psyqo::Angle ry, rz;
+    if (c > 16) {
+        ry = psyqo::atan2(rot.vs[0].z.value, rot.vs[2].z.value);
+        rz = psyqo::atan2(r10, r11);
+    } else {
+        // Pointing straight up or down: roll and yaw are one axis.
+        ry = psyqo::atan2(-rot.vs[2].x.value, rot.vs[0].x.value);
+        rz.value = 0;
+    }
+    psyqo::Vec3 out;
+    out.x = LuaUtility::ToFp12(rx);
+    out.y = LuaUtility::ToFp12(ry);
+    out.z = LuaUtility::ToFp12(rz);
+    return out;
+}
+
 int LuaAPI::SkinnedAnim_GetBone(lua_State* L) {
     psyqo::Lua lua(L);
     if (!s_sceneManager || !lua.isString(1)) {
@@ -4967,54 +5033,30 @@ int LuaAPI::SkinnedAnim_GetBone(lua_State* L) {
     } else if (lua.isNumber(2)) {
         bi = static_cast<int>(lua.toNumber(2));
     }
-    // The same pose the renderer draws, frame lerp and crossfade included.
-    BakedBoneMatrix pose;
-    if (!go || !set.bindPositions || bi < 0 || bi >= set.boneCount ||
-        !SkinPose_ComputeBone(set, state, bi, &pose)) {
+
+    // Optional offset in the bone's frame, in world units, and rotation in the
+    // bone's frame, in Entity.SetRotation units. Read both before pushing
+    // anything: a pushed result would sit where an absent argument was.
+    psyqo::Vec3 offset;
+    offset.x.value = offset.y.value = offset.z.value = 0;
+    if (lua.isTable(3)) ReadVec3(lua, 3, offset.x, offset.y, offset.z);
+    bool turn = lua.isTable(4);
+    psyqo::Vec3 turnAngles;
+    if (turn) ReadVec3(lua, 4, turnAngles.x, turnAngles.y, turnAngles.z);
+
+    psyqo::Vec3 pos;
+    psyqo::Matrix33 rot;
+    if (!go || !SkinBoneWorld(set, state, *go, bi, offset, &pos, &rot)) {
         lua.push();
         return 1;
     }
-    int16_t m[12];
-    for (int k = 0; k < 9; k++) m[k] = pose.r[k];
-    for (int k = 0; k < 3; k++) m[9 + k] = pose.t[k];
-    psyqo::Matrix33 boneRot;
-    for (int r = 0; r < 3; r++) {
-        boneRot.vs[r].x.value = m[r * 3];
-        boneRot.vs[r].y.value = m[r * 3 + 1];
-        boneRot.vs[r].z.value = m[r * 3 + 2];
+    if (turn) {
+        rot = psyqo::SoftMath::multiplyMatrix33(
+            RotationFromPiUnits(turnAngles.x, turnAngles.y, turnAngles.z), rot);
     }
-
-    // Object space: bone matrix applied to the joint's bind position.
-    const int16_t* bind = &set.bindPositions[bi * 3];
-    psyqo::Vec3 joint;
-    joint.x.value = bind[0];
-    joint.y.value = bind[1];
-    joint.z.value = bind[2];
-    psyqo::Vec3 local;
-    psyqo::SoftMath::matrixVecMul3(boneRot, joint, &local);
-    local.x.value += m[9];
-    local.y.value += m[10];
-    local.z.value += m[11];
-
-    psyqo::Vec3 world;
-    psyqo::SoftMath::matrixVecMul3(go->rotation, local, &world);
-    PushVec3(lua, world.x + go->position.x, world.y + go->position.y, world.z + go->position.z);
-
-    // R = objRot * boneRot, split as Ry * Rx * Rz to match Entity.SetRotation.
-    psyqo::Matrix33 rot = psyqo::SoftMath::multiplyMatrix33(boneRot, go->rotation);
-    int32_t r10 = rot.vs[1].x.value, r11 = rot.vs[1].y.value, r12 = rot.vs[1].z.value;
-    int32_t c = isqrt32(static_cast<uint32_t>(r10 * r10) + static_cast<uint32_t>(r11 * r11));
-    psyqo::Angle rx = psyqo::atan2(-r12, c);
-    psyqo::Angle ry, rz;
-    if (c > 16) {
-        ry = psyqo::atan2(rot.vs[0].z.value, rot.vs[2].z.value);
-        rz = psyqo::atan2(r10, r11);
-    } else {
-        // Pointing straight up or down: roll and yaw are one axis.
-        ry = psyqo::atan2(-rot.vs[2].x.value, rot.vs[0].x.value);
-        rz.value = 0;
-    }
-    PushVec3(lua, LuaUtility::ToFp12(rx), LuaUtility::ToFp12(ry), LuaUtility::ToFp12(rz));
+    PushVec3(lua, pos.x, pos.y, pos.z);
+    psyqo::Vec3 angles = RotationToPiUnits(rot);
+    PushVec3(lua, angles.x, angles.y, angles.z);
     return 2;
 }
 
