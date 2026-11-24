@@ -12,6 +12,7 @@
 #include "luadebug.hh"
 #include "loadingscreen.hh"
 #include "gtemath.hh"
+#include "interactmath.hh"
 #include "networkmanager.hh"
 #if defined(PSXSPLASH_PROFILER)
 #include "common/syscalls/syscalls.h"
@@ -1080,8 +1081,7 @@ void psxsplash::SceneManager::updateInteractionSystem() {
 
     // First pass: find which interactable is closest and in range (for prompt display)
     Interactable* inRange = nullptr;
-    psyqo::FixedPoint<12> closestDistSq;
-    closestDistSq.value = 0x7FFFFFFF;
+    uint64_t closestDistSq = ~(uint64_t)0;
 
     for (auto* interactable : m_interactables) {
         if (!interactable) continue;
@@ -1090,13 +1090,14 @@ void psxsplash::SceneManager::updateInteractionSystem() {
         auto* go = getGameObject(interactable->gameObjectIndex);
         if (!go || !go->isActive()) continue;
 
-        // Distance check
+        // Distance check, summed exactly from the raw values: fp12 squares of
+        // scene-sized distances round to zero term by term (interactmath.hh).
         psyqo::FixedPoint<12> dx = playerX - go->position.x;
         psyqo::FixedPoint<12> dy = playerY - go->position.y;
         psyqo::FixedPoint<12> dz = playerZ - go->position.z;
-        psyqo::FixedPoint<12> distSq = dx * dx + dy * dy + dz * dz;
+        uint64_t distSq = interactmath::distanceSquared(dx.value, dy.value, dz.value);
 
-        if (distSq > interactable->radiusSquared) continue;
+        if (!interactmath::inRange(distSq, interactable->radiusSquared.value)) continue;
 
         // Facing check, in the XZ plane. dx/dz point from the object to the
         // player, so the direction to the object is (-dx, -dz). The object is

@@ -811,6 +811,24 @@ private:
     // Interact.IsEnabled(entity) -> boolean
     static int Interact_IsEnabled(lua_State* L);
 
+    // Interact.SetRadius(entity, radius) - interaction radius in world units,
+    // the units of Entity.GetPosition. Applies from the next interaction check.
+    // Kept squared at 1/4096 of a square unit, so the reach can be a little
+    // longer than the radius, never shorter (interactmath.hh).
+    static int Interact_SetRadius(lua_State* L);
+
+    // Interact.GetRadius(entity) -> the reach the check uses, in world units
+    static int Interact_GetRadius(lua_State* L);
+
+    // Interact.SetFacingAngle(entity, angle) - how far either side of straight
+    // ahead the player may face and still interact, in the units of
+    // Entity.SetRotationY (1 = 180 degrees). Below 1 this turns the facing
+    // check on; 1 or more turns it off (any direction).
+    static int Interact_SetFacingAngle(lua_State* L);
+
+    // Interact.GetFacingAngle(entity) -> angle, 1 when facing is not checked
+    static int Interact_GetFacingAngle(lua_State* L);
+
     // ========================================================================
     // UI API - Canvas and element control
     // ========================================================================
