@@ -26,6 +26,7 @@
 #include <psyqo/fixed-point.hh>
 #include "gtemath.hh"
 #include "luautility.hh"
+#include "interactmath.hh"
 
 #include <psyqo/xprintf.h>
 
@@ -845,6 +846,18 @@ void LuaAPI::RegisterAll(psyqo::Lua& L, SceneManager* scene, CutscenePlayer* cut
 
     L.push(Interact_IsEnabled);
     L.setField(-2, "IsEnabled");
+
+    L.push(Interact_SetRadius);
+    L.setField(-2, "SetRadius");
+
+    L.push(Interact_GetRadius);
+    L.setField(-2, "GetRadius");
+
+    L.push(Interact_SetFacingAngle);
+    L.setField(-2, "SetFacingAngle");
+
+    L.push(Interact_GetFacingAngle);
+    L.setField(-2, "GetFacingAngle");
 
     L.setGlobal("Interact");
 
@@ -5125,6 +5138,67 @@ int LuaAPI::Interact_IsEnabled(lua_State* L) {
         }
     }
     lua.push(false);
+    return 1;
+}
+
+// The interactable behind an entity table, or nullptr.
+static psxsplash::Interactable* interactableArg(psyqo::Lua& lua, int idx, psxsplash::SceneManager* scene) {
+    if (!scene || !lua.isTable(idx)) return nullptr;
+    lua.getField(idx, "__cpp_ptr");
+    auto go = lua.toUserdata<psxsplash::GameObject>(-1);
+    lua.pop();
+    if (!go || !go->hasInteractable()) return nullptr;
+    return scene->getInteractable(go->interactableIndex);
+}
+
+int LuaAPI::Interact_SetRadius(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto* inter = interactableArg(lua, 1, s_sceneManager);
+    if (!inter || !(lua.isNumber(2) || IsFixedPointSafe(lua, 2))) return 0;
+    // Kept squared, floored (interactmath.hh).
+    inter->radiusSquared.value = interactmath::radiusSquaredFromRadius(readFP(lua, 2).value);
+    return 0;
+}
+
+int LuaAPI::Interact_GetRadius(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto* inter = interactableArg(lua, 1, s_sceneManager);
+    psyqo::FixedPoint<12> radius;
+    if (inter) radius.value = interactmath::radiusFromRadiusSquared(inter->radiusSquared.value);
+    lua.push(radius);
+    return 1;
+}
+
+int LuaAPI::Interact_SetFacingAngle(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto* inter = interactableArg(lua, 1, s_sceneManager);
+    if (!inter || !(lua.isNumber(2) || IsFixedPointSafe(lua, 2))) return 0;
+    int32_t angle = readFP(lua, 2).value;  // fp12, 4096 = 180 degrees
+    if (angle < 0) angle = 0;
+    if (angle >= 4096) {
+        inter->facingCosine = -4096;
+        inter->setRequireLineOfSight(false);
+        return 0;
+    }
+    psyqo::Angle a;
+    a.value = angle >> 2;
+    inter->facingCosine = static_cast<int16_t>(s_trig.cos(a).value);
+    inter->setRequireLineOfSight(true);
+    return 0;
+}
+
+int LuaAPI::Interact_GetFacingAngle(lua_State* L) {
+    psyqo::Lua lua(L);
+    auto* inter = interactableArg(lua, 1, s_sceneManager);
+    psyqo::FixedPoint<12> angle(4096, psyqo::FixedPoint<12>::RAW);  // 180 degrees: any direction
+    if (inter && inter->requireLineOfSight()) {
+        int32_t c = inter->facingCosine;
+        if (c > 4096) c = 4096;
+        if (c < -4096) c = -4096;
+        int32_t s = static_cast<int32_t>(interactmath::isqrt64(static_cast<uint64_t>(4096 * 4096 - c * c)));
+        angle = LuaUtility::ToFp12(psyqo::atan2(s, c));
+    }
+    lua.push(angle);
     return 1;
 }
 

@@ -46,6 +46,10 @@ struct Interactable {
         if (disabled) flags |= 0x08;
         else flags &= ~0x08;
     }
+    void setRequireLineOfSight(bool require) {
+        if (require) flags |= 0x04;
+        else flags &= ~0x04;
+    }
 
     // Check if ready to interact
     bool canInteract() const {
