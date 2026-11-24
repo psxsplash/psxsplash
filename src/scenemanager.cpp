@@ -517,7 +517,20 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
         bounds.max.y.value = tb->maxY;
         bounds.max.z.value = tb->maxZ;
 
-        m_collisionSystem.registerTriggerBox(bounds, tb->luaFileIndex);
+        // A box on an entity keeps its offset from where the entity stands
+        // now, and follows it from there (CollisionSystem::detectTriggers).
+        uint16_t follow = tb->followObject;
+        if (follow) {
+            const GameObject* go = getGameObject(follow - 1);
+            if (go) {
+                bounds.min -= go->position;
+                bounds.max -= go->position;
+            } else {
+                follow = 0;
+            }
+        }
+
+        m_collisionSystem.registerTriggerBox(bounds, tb->luaFileIndex, follow);
     }
 #endif
 

@@ -53,9 +53,9 @@ struct CollisionResult {
 };
 
 struct TriggerBoxData {
-    AABB bounds;
+    AABB bounds;  // world space, or relative to the followed object's position
     int16_t luaFileIndex;
-    uint16_t padding;
+    uint16_t followObject;  // GameObject index + 1, 0 = fixed in the world
 };
 
 struct TriggerPair {
@@ -108,7 +108,9 @@ public:
     void updateCollider(uint16_t gameObjectIndex, const psyqo::Vec3& position,
                         const psyqo::Matrix33& rotation);
 
-    void registerTriggerBox(const AABB& bounds, int16_t luaFileIndex);
+    // followObject: GameObject index + 1 the box moves with (bounds relative
+    // to its position), 0 for a box fixed in the world.
+    void registerTriggerBox(const AABB& bounds, int16_t luaFileIndex, uint16_t followObject = 0);
 
     int detectCollisions(const AABB& playerAABB, psyqo::Vec3& pushBack, class SceneManager& scene);
 
