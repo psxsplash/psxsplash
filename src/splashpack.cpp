@@ -18,6 +18,7 @@
 #include "memorycardmanager.hh"
 #include "backgroundmath.hh"
 #include "shadowmath.hh"
+#include "spawnpool.hh"
 #include "splashpackversion.hh"
 
 namespace psxsplash {
@@ -132,6 +133,9 @@ struct SPLASHPACKFileHeader {
     // --- v32 (appended; the header grows from 168 to 172) ---
     // Offset to the particle emitter table, or 0 if none.
     uint32_t particleTableOffset;
+    // --- v33 (appended; the header grows from 172 to 176) ---
+    // Offset to the spawn pool table (spawnpool.hh), or 0 if none.
+    uint32_t spawnPoolTableOffset;
 };
 static_assert(sizeof(SPLASHPACKFileHeader) == splashpackHeaderSize(kSplashpackNewestVersion),
               "SPLASHPACKFileHeader must be the newest version's header size");
@@ -809,6 +813,16 @@ void SplashPackLoader::LoadSplashpack(uint8_t *data, SplashpackSceneSetup &setup
 #else
         skipCompiledOut(table[0] | (table[1] << 8), "particle emitters", "particles");
 #endif
+    }
+
+    // Spawn pools (v33+). The word does not exist in older headers, which parse
+    // as having none. A bad table is a broken pack, not something to guess at.
+    if (header->version >= 33 && header->spawnPoolTableOffset != 0) {
+        psyqo::Kernel::assert((header->spawnPoolTableOffset & 3) == 0, "Spawn pool table is not 4-byte aligned");
+        const uint8_t* table = data + header->spawnPoolTableOffset;
+        const char* problem = spawnpool::validateTable(table, header->gameObjectCount);
+        psyqo::Kernel::assert(problem == nullptr, problem ? problem : "");
+        setup.spawnPoolTable = table;
     }
 
     // Streamed world geometry. This word was reserved and written as 0 since v21.

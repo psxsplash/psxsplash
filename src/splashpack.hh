@@ -234,6 +234,10 @@ struct SplashpackSceneSetup {
     // --- v32 ---
     // Particle emitter table (v32+, particlemath.hh), or nullptr.
     const uint8_t* particleTable = nullptr;
+
+    // --- v33 ---
+    // Spawn pool table (v33+, spawnpool.hh), validated, or nullptr.
+    const uint8_t* spawnPoolTable = nullptr;
 };
 
 class SplashPackLoader {

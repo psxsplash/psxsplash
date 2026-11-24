@@ -141,6 +141,23 @@ void psxsplash::SceneManager::InitializeScene(uint8_t* splashpackData, LoadingSc
     m_luaFiles = std::move(sceneSetup.luaFiles);
     m_gameObjects = std::move(sceneSetup.objects);
     m_objectNames = std::move(sceneSetup.objectNames);
+
+    // Spawn pools (v33+). Every copy in a pool starts despawned, whatever its
+    // exported active flag says, and this runs before any script event or
+    // the first frame, so nothing sees a copy that was never handed out.
+    // onCreate still fires for them like for every other object (see
+    // FireAllOnCreate below, which does not look at the active flag): a script
+    // can set up the state of its copy once at load, and Scene.Spawn then only
+    // fires onEnable.
+    m_spawnPools.load(splashpackData, sceneSetup.spawnPoolTable);
+    for (int p = 0; p < m_spawnPools.poolCount(); p++) {
+        for (uint32_t i = 0; i < m_spawnPools.capacity(p); i++) {
+            GameObject* copy = m_gameObjects[m_spawnPools.first(p) + i];
+            copy->setActive(false);
+            copy->setPendingEnable(false);
+            copy->setPendingDisable(false);
+        }
+    }
     m_bvh = sceneSetup.bvh;  // Copy BVH for frustum culling
     Renderer::GetInstance().ReserveVisibleTriangles(m_bvh.getTriangleRefCount());
     m_navRegions = sceneSetup.navRegions;          // Nav region system (v7+)
@@ -1181,6 +1198,15 @@ void psxsplash::SceneManager::setObjectActive(GameObject* go, bool active) {
     else {
         L.OnDisable(go);
     }
+}
+
+int psxsplash::SceneManager::objectIndexOf(const GameObject* go) const {
+    if (!go || m_gameObjects.empty()) return -1;
+    // The objects are one contiguous run of the pack, so the index is the
+    // pointer difference; the lookup then confirms it really is one of them.
+    const ptrdiff_t diff = go - m_gameObjects[0];
+    if (diff < 0 || size_t(diff) >= m_gameObjects.size() || m_gameObjects[size_t(diff)] != go) return -1;
+    return int(diff);
 }
 
 void psxsplash::SceneManager::processEnableDisableEvents() {

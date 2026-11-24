@@ -692,6 +692,21 @@ private:
     // Scene.GetIndex() -> number
     // Returns the index of the currently loaded scene.
     static int Scene_GetIndex(lua_State* L);
+
+    // Scene.Spawn(poolName, x, y, z [, rotationY]) -> object or nil
+    // Takes the lowest-indexed inactive copy of the spawn pool, moves it like
+    // Entity.SetPosition (and Entity.SetRotationY when given), and activates it
+    // like Entity.SetActive(obj, true). nil when every copy is active or there
+    // is no such pool.
+    static int Scene_Spawn(lua_State* L);
+
+    // Scene.Despawn(obj) -> boolean
+    // Entity.SetActive(obj, false) for a pool copy that is active: true. Any
+    // other argument: false, and nothing happens.
+    static int Scene_Despawn(lua_State* L);
+
+    // Scene.PoolCount(poolName) -> active, capacity (0, 0 for an unknown name)
+    static int Scene_PoolCount(lua_State* L);
     
     // ========================================================================
     // PERSIST API - Data that survives scene loads
